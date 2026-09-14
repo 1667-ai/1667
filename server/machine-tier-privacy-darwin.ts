@@ -27,10 +27,12 @@ export async function assertNoDarwinExtendedAllow(
   target: string,
   label: string
 ): Promise<void> {
-  if (process.platform !== "darwin" || process.versions.bun === undefined) {
+  if (process.platform !== "darwin") {
     return;
   }
-  const ffi = await loadBunFfi();
+  const ffi = process.versions.bun === undefined
+    ? (await import("./node-ffi.js")).loadNodeFfi()
+    : await loadBunFfi();
   const libc = openPosixLibc(ffi, {
     acl_get_fd_np: { args: ["i32", "i32"], returns: "ptr" },
     acl_get_entry: { args: ["ptr", "i32", "ptr"], returns: "i32" },

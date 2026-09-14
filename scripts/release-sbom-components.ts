@@ -70,7 +70,6 @@ const NPM_BUNDLED_PACKAGES = Object.freeze([
   ...PI_AI_BUNDLED_PACKAGE_NAMES,
   "@silvia-odwyer/photon-node",
   "detect-libc",
-  "fs-ext-extra-prebuilt",
   "msgpackr",
   "msgpackr-extract",
   "node-gyp-build-optional-packages",
@@ -113,7 +112,7 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
   })),
   Object.freeze({
     name: "koffi",
-    reason: "Source-only Node HTTP mode uses this FFI package on Linux. The "
+    reason: "Source-only Node platform adapters use this FFI package. The "
       + "compiled Bun executable uses Bun FFI and keeps Koffi external."
   }),
   ...[
@@ -134,7 +133,7 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
     "@koromix/koffi-win32-x64"
   ].map((name) => Object.freeze({
     name,
-    reason: "Optional native payload for source-only Node HTTP mode. The "
+    reason: "Optional native payload for source-only Node mode. The "
       + "compiled Bun executable uses Bun FFI and keeps Koffi external."
   })),
   ...[
@@ -149,12 +148,6 @@ export const RELEASE_SBOM_EXCLUDED_PACKAGES: readonly ExcludedReleasePackage[] =
     reason: "Optional native acceleration payload for msgpackr. Shipped code imports "
       + "pure JS msgpackr/unpack so standalone contains no native binary extension."
   })),
-  Object.freeze({
-    name: "nan",
-    reason: "C++ headers that node-gyp consumes while installing "
-      + "fs-ext-extra-prebuilt. Listing it would describe the build tree rather "
-      + "than the package, which is the failure this document exists to avoid."
-  }),
   Object.freeze({
     name: "typescript",
     reason: "TUI development dependency used to type-check the sources. The "

@@ -130,9 +130,9 @@ test("embedded Aside keeps a committed document when its version refresh fails",
   });
   expect(clearVersion).toEqual({
     kind: "v6",
-    revision: "00000000000000000002"
+    revision: "00000000000000000001"
   });
-  expect(storyLoads).toBe(3);
+  expect(storyLoads).toBe(2);
 });
 
 function terminalStream(events: readonly Record<string, unknown>[]): Response {

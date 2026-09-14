@@ -13,11 +13,15 @@ export interface FfiSymbols {
   [name: string]: { args: string[]; returns: string };
 }
 
-export interface BunFfi {
+/** Small FFI surface shared by Bun FFI and the Node Koffi adapter. */
+export interface NativeFfi {
   dlopen(path: string, symbols: FfiSymbols): FfiLibrary;
   ptr(buffer: Uint8Array): number;
   toArrayBuffer(pointer: number, byteOffset?: number, byteLength?: number): ArrayBuffer;
 }
+
+/** @deprecated Use NativeFfi for code that supports both runtimes. */
+export type BunFfi = NativeFfi;
 
 const ffiModuleName = "bun:ffi";
 

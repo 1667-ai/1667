@@ -113,6 +113,12 @@ export interface StreamCallbacks {
   onReasoning?: (delta: ReasoningDelta) => void;
   /** Same contract as `onStopped`, on the reasoning channel. */
   onReasoningStopped?: (text: string) => void;
+  /**
+   * Receives the refreshed story payload that follows a streamed mutation
+   * whose terminal result does not carry one. Return false when the caller
+   * could not adopt it; the facade then keeps its held version unchanged.
+   */
+  onPayload?: (payload: StoryPayload) => boolean | void;
 }
 
 /** Aside streams add a phase hint for the chat surface. Their signal stays
@@ -127,6 +133,8 @@ export interface AsideStreamCallbacks extends StreamCallbacks {
 export interface SummaryStreamCallbacks {
   /** Same shape as `onDelta`, on the reasoning channel. */
   onReasoning?: (delta: ReasoningDelta) => void;
+  /** See `StreamCallbacks.onPayload`. */
+  onPayload?: (payload: StoryPayload) => boolean | void;
 }
 
 /** The point `createSummaryTake` actually summarized, when it was earlier

@@ -1,6 +1,6 @@
 import {
   loadBunFfi,
-  type BunFfi
+  type NativeFfi
 } from "./bun-ffi.js";
 import { readdir } from "node:fs/promises";
 import path from "node:path";
@@ -64,11 +64,17 @@ interface ProtectedStateObject {
 }
 
 export function createBunWindowsPrivateStateRootAdapter(): WindowsPrivateStateRootAdapter {
+  return createWindowsPrivateStateRootAdapter(loadBunFfi);
+}
+
+export function createWindowsPrivateStateRootAdapter(
+  loadFfi: () => Promise<NativeFfi>
+): WindowsPrivateStateRootAdapter {
   return {
-    localAppDataDirectory: async () => await windowsLocalAppDataDirectory(),
+    localAppDataDirectory: async () => await windowsLocalAppDataDirectory(loadFfi),
     preparePrivateStateRoot: async (root, trustedBase) => {
       const plan = await prepareWindowsPrivateDirectoryPlan(root, trustedBase);
-      const ffi = await loadBunFfi();
+      const ffi = await loadFfi();
       const libraries = openWindowsLibraries(ffi);
       let sids: UserSids | undefined;
       try {
@@ -104,7 +110,7 @@ export function createBunWindowsPrivateStateRootAdapter(): WindowsPrivateStateRo
 }
 
 function createDirectory(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   directory: string
 ): void {
@@ -124,7 +130,7 @@ function createDirectory(
 }
 
 function protectDirectory(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   directory: string,
   sids: UserSids
@@ -150,7 +156,7 @@ function protectDirectory(
 }
 
 async function protectPrivateStateTree(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   directory: string,
   sids: UserSids
@@ -193,7 +199,7 @@ async function protectPrivateStateTree(
 }
 
 function protectFile(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   file: string,
   sids: UserSids
@@ -219,7 +225,7 @@ function protectFile(
 }
 
 function protectPrivateStateObject(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   target: string,
   sids: UserSids,
@@ -271,7 +277,7 @@ function protectPrivateStateObject(
 }
 
 function openOwnedObjectForRepair(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   target: string,
   sids: UserSids,
@@ -314,7 +320,7 @@ function openOwnedObjectForRepair(
 }
 
 function requireSingleFileLinkBeforeRepair(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   target: string
 ): void {
@@ -334,7 +340,7 @@ function requireSingleFileLinkBeforeRepair(
 }
 
 function takeObjectOwnership(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   target: string,
   sids: UserSids,
@@ -382,7 +388,7 @@ function takeObjectOwnership(
 }
 
 function requireOwnedObject(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   target: string,
   sids: UserSids,
@@ -407,7 +413,7 @@ function isAccessDenied(error: unknown): boolean {
 }
 
 function validateDirectory(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   directory: string,
   sids: UserSids
@@ -440,7 +446,7 @@ function validateDirectory(
 }
 
 function openOwnedObject(
-  ffi: BunFfi,
+  ffi: NativeFfi,
   libraries: WindowsLibraries,
   target: string,
   kind: WindowsPrivateObjectKind

@@ -5,6 +5,7 @@ import type { AppSource } from "./app.js";
 import { createStoryViewModel, rowIndexForNode } from "./model.js";
 import { openRetakeComposer, suspendRetakeComposer } from "./composer-ownership.js";
 import { clearPendingGenerationDraft, isTimeoutClassApiFailure, restorePendingGenerationDraft } from "./generation-action.js";
+import { ApiFailureError } from "./api-error.js";
 import { recordHumanWords } from "./config.js";
 import { humanWordsOf } from "./rail.js";
 import type { PendingGenerationDraft, PromptIntent, RetakePromptSession, RuntimeState, StreamView } from "./state.js";
@@ -261,6 +262,14 @@ async function runSelectionRewrite(
           });
           if (active.explicitStop) presentation.suspend();
           appendStreamReasoning(stream, tail, stream.reasoning?.tokenCount ?? 0);
+        },
+        onPayload: () => {
+          // The confirming payload arrives while the rewrite stream still
+          // projects over the old story range. Let the caller drain and retire
+          // that projection first, then load and adopt the payload explicitly.
+          // Returning false keeps the facade's held version unchanged until
+          // that visible adoption happens.
+          return false;
         }
       }
     );
@@ -439,28 +448,45 @@ async function settleStoppedRewrite(
   let committed: { payload: StoryPayload; nodeId: string } | null = null;
   if (streamedText.trim().length > 0) {
     const streamedDigest = rewriteStreamDigest(streamedText);
+    const commit = () => source.backendRecovery?.runRecoveryMutation(() =>
+      source.api.commitPartialRewrite(
+        task.storyId,
+        nodeId,
+        streamedDigest,
+        attemptId
+      )
+    ) ?? source.api.commitPartialRewrite(
+      task.storyId,
+      nodeId,
+      streamedDigest,
+      attemptId
+    );
     try {
       // Routed through the recovery feed when one is active — a worker
       // deadline publishes a recovery warning that would otherwise fence
       // this save, the same reason settleStoppedGeneration routes its
       // createNode this way.
-      committed = await (
-        source.backendRecovery?.runRecoveryMutation(() =>
-          source.api.commitPartialRewrite(
-            task.storyId,
-            nodeId,
-            streamedDigest,
-            attemptId
-          )
-        ) ?? source.api.commitPartialRewrite(
-          task.storyId,
-          nodeId,
-          streamedDigest,
-          attemptId
-        )
-      );
-    } catch {
-      committed = null;
+      committed = await commit();
+    } catch (error) {
+      if (error instanceof ApiFailureError && error.code === "revision_conflict") {
+        try {
+          // A concurrent edit can reject the stopped save with the held
+          // revision. Refresh and adopt it before one guarded retry so the
+          // worker sees the current version while local draft ownership stays
+          // with this action.
+          const current = await source.api.loadStory(task.storyId);
+          if (!task.storyCurrent()) return;
+          const visibleStream = state.stream === stream;
+          if (visibleStream) state.stream = null;
+          adoptSameStoryPayload(state, current, cache);
+          if (visibleStream && state.stream === null) state.stream = stream;
+          committed = await commit();
+        } catch {
+          committed = null;
+        }
+      } else {
+        committed = null;
+      }
     }
   }
   if (!task.storyCurrent()) return;

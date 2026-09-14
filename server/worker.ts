@@ -38,12 +38,7 @@ import {
   registerVaultKey,
   type VaultKeyRegistration
 } from "./vault-key-registry.js";
-
-interface WorkerRuntime {
-  postMessage(message: WorkerToMainMessage): void;
-  onmessage: ((event: MessageEvent<unknown>) => void) | null;
-  close(): void;
-}
+import { createWorkerRuntime } from "./worker-runtime.js";
 
 interface ActiveRequest {
   cancel(reason: WorkerCancelReason): void;
@@ -51,7 +46,7 @@ interface ActiveRequest {
   deltas: WorkerDeltaBatcher | null;
 }
 
-const runtime = globalThis as unknown as WorkerRuntime;
+const runtime = await createWorkerRuntime();
 const workerInstanceId = randomBytes(16).toString("hex");
 const operations = new WorkerOperationRegistry(workerInstanceId);
 let service: StoryService | null = null;

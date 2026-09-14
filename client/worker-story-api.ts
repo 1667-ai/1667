@@ -115,7 +115,12 @@ function materializeSaveSettingsCommand(
 
 export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): StoryApi {
   const versions = new Map<string, StoryAggregateVersion>();
+  // A catalog version is safe to refresh until this facade has opened the
+  // story. After that point, only a payload returned by the story operation
+  // may advance the held version.
+  const openedStories = new Set<string>();
   const rememberPayload = (payload: StoryPayload): StoryPayload => {
+    openedStories.add(payload.id);
     const candidate = payload.aggregateVersion;
     const held = versions.get(payload.id);
     if (candidate !== undefined
@@ -128,8 +133,13 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     for (const summary of summaries) {
       if (summary.aggregateVersion !== undefined) {
         const held = versions.get(summary.id);
-        if (held === undefined
-          || storyAggregateVersionIsAtLeast(summary.aggregateVersion, held)) {
+        // A catalog snapshot can lag or lead an opened story. A story that
+        // this facade has not opened can refresh its held catalog version;
+        // once opened, only a payload returned by that story operation may
+        // advance it.
+        if (!openedStories.has(summary.id)
+          && (held === undefined
+            || storyAggregateVersionIsAtLeast(summary.aggregateVersion, held))) {
           versions.set(summary.id, summary.aggregateVersion);
         }
       }
@@ -171,25 +181,17 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       payload = rememberPayload(await transport.call("loadStory", { id: storyId }));
     } catch {
       // The local verb is already committed. Keep its canonical session id,
-      // and force the next story mutation to refresh its version lazily.
-      versions.delete(storyId);
+      // and keep the window's held version until it adopts a payload.
     }
     return payload === undefined ? response : { ...response, payload };
   };
   const runProviderMutation = async <T>(
-    storyId: string,
+    _storyId: string,
     work: () => Promise<T>
   ): Promise<T> => {
-    try {
-      const result = await work();
-      if (result === null) versions.delete(storyId);
-      return result;
-    } catch (error) {
-      // A terminal provider failure can advance the receipt-only story
-      // revision without returning a payload that carries the new token.
-      versions.delete(storyId);
-      throw error;
-    }
+    // Keep the held version after a provider failure. The next mutation must
+    // detect a revision conflict instead of silently loading newer story state.
+    return work();
   };
   const dismissArchivedMutation = async (
     mutationId: string
@@ -269,7 +271,9 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
     )),
     autonameStory: async (id) => {
       return await runProviderMutation(id, async () => {
-        const current = rememberPayload(await transport.call("loadStory", { id }));
+        const held = versions.get(id);
+        const current = await transport.call("loadStory", { id });
+        if (held === undefined) rememberPayload(current);
         return rememberPayload(await transport.call(
           "autonameStory",
           { id, expectedTitle: current.title },
@@ -293,6 +297,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         await dismissArchivedMutation(originalProviderMutationId);
         if (status.deleted) {
           versions.delete(storyId);
+          openedStories.delete(storyId);
           return null;
         }
         return rememberPayload(await transport.call("loadStory", { id: storyId }));
@@ -312,6 +317,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await dismissArchivedMutation(originalProviderMutationId);
       if (payload === null) {
         versions.delete(storyId);
+        openedStories.delete(storyId);
         return null;
       }
       return rememberPayload(payload);
@@ -323,6 +329,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(id) }
       );
       versions.delete(id);
+      openedStories.delete(id);
       return result;
     },
     exportMarkdown: (id) => transport.call("exportMarkdown", { id }),
@@ -448,9 +455,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       )
     ),
     removeChapterBreak: async (storyId, breakId) => {
+      const expectedAggregateVersion = await expectedVersion(storyId);
       const preview = await transport.call(
         "previewChapterBreakRemoval",
-        { storyId, breakId }
+        { storyId, breakId },
+        { expectedAggregateVersion }
       );
       const result = await transport.call(
         "removeChapterBreak",
@@ -459,7 +468,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           breakId,
           removedFingerprint: preview.removedFingerprint
         },
-        { expectedAggregateVersion: preview.aggregateVersion }
+        { expectedAggregateVersion }
       );
       rememberPayload(result.payload);
       return result;
@@ -542,14 +551,12 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           // askAside returns a document view rather than a StoryPayload, so
           // load the new aggregate version before the next mutation. The
           // terminal result is already committed. A transient refresh failure
-          // must not hide it and invite a duplicate question; forget the
-          // stale token so the next mutation loads it lazily.
+          // must not hide it and invite a duplicate question; keep the
+          // held token until the window adopts a refreshed payload.
           let payload: StoryPayload | undefined;
           try {
             payload = rememberPayload(await transport.call("loadStory", { id: storyId }));
-          } catch {
-            versions.delete(storyId);
-          }
+          } catch { /* The committed result remains visible without a payload. */ }
           if (payload !== undefined) return { ...normalized, payload };
           return normalized;
         }
@@ -588,9 +595,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         let payload: StoryPayload | undefined;
         try {
           payload = rememberPayload(await transport.call("loadStory", { id: asideRequest.storyId }));
-        } catch {
-          versions.delete(asideRequest.storyId);
-        }
+        } catch { /* The committed result remains visible without a payload. */ }
         return payload === undefined ? session : { ...session, payload };
       });
     },
@@ -677,9 +682,7 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         let payload: StoryPayload | undefined;
         try {
           payload = rememberPayload(await transport.call("loadStory", { id: mutation.storyId }));
-        } catch {
-          versions.delete(mutation.storyId);
-        }
+        } catch { /* The committed result remains visible without a payload. */ }
         return payload === undefined ? session : { ...session, payload };
       }
     ),
@@ -854,7 +857,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           // resolves an id, recorded before the loadStory refresh that could
           // itself reject and hide that the take already landed.
           onCommitted?.(result);
-          rememberPayload(await transport.call("loadStory", { id: storyId }));
+          const payload = await transport.call("loadStory", { id: storyId });
+          if (callbacks.onPayload !== undefined
+            && callbacks.onPayload(payload) !== false) {
+            rememberPayload(payload);
+          }
         }
         return result;
       });
@@ -885,7 +892,11 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           }
         );
         if (result !== null) {
-          rememberPayload(await transport.call("loadStory", { id: storyId }));
+          const payload = await transport.call("loadStory", { id: storyId });
+          if (callbacks.onPayload !== undefined
+            && callbacks.onPayload(payload) !== false) {
+            rememberPayload(payload);
+          }
         }
         return result;
       });

@@ -62,7 +62,7 @@ export async function createWorkerHost(
     };
   }
   const dataLock = options.worker === undefined
-    ? new RuntimeDataDirectoryLock(resolveDataDirectory(options.dataDir))
+    ? new RuntimeDataDirectoryLock(resolveDataDirectory(options.dataDir), options.projectOwner)
     : null;
   if (dataLock !== null) {
     try {

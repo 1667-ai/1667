@@ -6,8 +6,16 @@ import { ServiceError } from "./errors.js";
  * offers to break the lock.
  */
 export function lockedDataDirectoryError(
-  holder: { readonly pid: number } | null
+  holder: { readonly pid: number; readonly owner?: "desktop" } | null
 ): ServiceError {
+  if (holder?.owner === "desktop") {
+    return new ServiceError(
+      409,
+      `This 1667 project is already open by the 1667 desktop app (process ${holder.pid}). `
+        + "Close the project in the desktop app and retry, or open a different "
+        + "project with 1667 --data <project-root>."
+    );
+  }
   const held = holder === null
     ? "another 1667 process"
     : `1667 process ${holder.pid}`;
