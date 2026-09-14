@@ -9,7 +9,7 @@ import {
   type FactConsistencyFinding,
   type FactConsistencyPartSelection,
   type FactConsistencyScope
-} from "./fact-consistency-types.js";
+} from "./fact-consistency-contract.js";
 import {
   isChapterSummary,
   pathTo,
@@ -177,7 +177,7 @@ export function parseFactConsistencyFindings(
   if (partText.length > MAX_FACT_CONSISTENCY_PART_CHARS) {
     throw new Error("Fact consistency part text exceeds its size limit");
   }
-  if (Buffer.byteLength(raw, "utf8") > MAX_FACT_CONSISTENCY_RUN_BYTES) {
+  if (new TextEncoder().encode(raw).byteLength > MAX_FACT_CONSISTENCY_RUN_BYTES) {
     return { findings: [], droppedFindings: 0, malformed: true, complete: false };
   }
   const expectedMarker = marker ?? null;
@@ -226,7 +226,7 @@ export function parseFactConsistencyFindings(
       return;
     }
     const finding = { fact_id: fact.factId, quote, statement };
-    const bytes = Buffer.byteLength(JSON.stringify(finding), "utf8")
+    const bytes = new TextEncoder().encode(JSON.stringify(finding)).byteLength
       + (findings.length === 0 ? 0 : 1);
     if (findingBytes + bytes > maxBytes) {
       droppedFindings += 1;

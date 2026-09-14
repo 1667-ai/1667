@@ -1,1 +1,1 @@
-export { createDurableMutationId as createMutationId } from "../../shared/durable-mutation-id.js";
+export * from "../../host/worker-mutation-id.js";

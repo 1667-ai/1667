@@ -75,3 +75,45 @@ export function assertAsideDocument(document: AsideDocument): void {
     assertAsideAnswer(note.answer);
   }
 }
+
+/** Empty document. */
+export function emptyAsideDocument(): AsideDocument {
+  return { schemaVersion: ASIDE_DOCUMENT_SCHEMA_VERSION, notes: [] };
+}
+
+/** Append one pair and return a new document. Does not mutate the input. */
+export function appendSideNote(
+  document: AsideDocument | null,
+  question: string,
+  answer: string
+): AsideDocument {
+  assertAsideQuestion(question);
+  assertAsideAnswer(answer);
+  const notes = document?.notes ?? [];
+  if (notes.length >= MAX_SIDE_NOTES) {
+    throw new AsideDocumentError(
+      `Aside document already holds ${MAX_SIDE_NOTES} Side Notes; clear it before adding more`
+    );
+  }
+  const next: AsideDocument = {
+    schemaVersion: ASIDE_DOCUMENT_SCHEMA_VERSION,
+    notes: [...notes, { question, answer }]
+  };
+  const bytes = new TextEncoder().encode(serializeAsideDocument(next)).byteLength;
+  if (bytes > MAX_ASIDE_DOCUMENT_BYTES) {
+    throw new AsideDocumentError(
+      `Aside document would exceed its ${MAX_ASIDE_DOCUMENT_BYTES}-byte size limit`
+    );
+  }
+  return next;
+}
+
+/** Canonical JSON for content addressing. Key order is fixed. */
+export function serializeAsideDocument(document: AsideDocument): string {
+  assertAsideDocument(document);
+  const notes = document.notes.map((note) => ({
+    question: note.question,
+    answer: note.answer
+  }));
+  return JSON.stringify({ schemaVersion: ASIDE_DOCUMENT_SCHEMA_VERSION, notes });
+}

@@ -1,20 +1,14 @@
 import {
-  readProfileTransferFile
-} from "../../server/profile-transfer-decoder.js";
-import {
-  exportGenerationProfile
-} from "../../server/import-profile-export.js";
-import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import { fidelityReport } from "../../shared/fidelity.js";
+  exportProfile,
+  importProfile
+} from "../../host/launcher-profile.js";
+import type { SettingsMutationResult } from "../../shared/settings-v2-types.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
-import type { SettingsDocumentV2, SettingsMutationResult } from "../../shared/settings-v2-types.js";
-import { applyProfileTransfer } from "./profile-transfer-apply.js";
-import { writeExportFile } from "./export-file.js";
+import { fidelityReport } from "../../shared/fidelity.js";
 import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
 import { openProjectBackend } from "./vault-project-backend.js";
 import { settingsActivationFailureText } from "./settings-overlay-model.js";
 import type { StoryApi } from "./api.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
 
 export interface ProfileCommandBackend {
   readonly api: Pick<StoryApi, "getSettings" | "saveSettings">;
@@ -82,48 +76,39 @@ export async function runProfileCommand(
   let failed = false;
   try {
     if (command.action === "export") {
-      const view = await backend.api.getSettings();
-      if (!view.editable) throw new Error("Generation Profiles require settings format 2");
-      const profileId = selectProfileId(view.document, command.profile);
-      const archive = exportGenerationProfile(view.document as never, profileId);
-      const file = await writeExportFile({
+      const result = await exportProfile({
+        api: backend.api,
         directory: project.root,
-        title: view.document.profiles[profileId]!.name,
-        extension: archive.extension,
-        content: archive.text,
+        profile: command.profile,
         force: command.force
       });
-      output.write(`${plain(file)}\n`);
-      writeFidelityReport(errorOutput, file, archive.fidelity);
-      return;
-    }
-    for (const file of command.files) {
-      try {
-        const candidate = await readProfileTransferFile(file);
-        const view = await backend.api.getSettings();
-        if (!view.editable) throw new Error("Generation Profiles require settings format 2");
-        const sourceProfileId = selectProfileId(view.document, command.profile);
-        const fitted = applyProfileTransfer(view.document as never, sourceProfileId, candidate);
-        if ("error" in fitted) throw new Error(fitted.error);
-        const result = await backend.api.saveSettings({
-          transportOperationId: crypto.randomUUID(),
-          mutationId: createDurableMutationId(),
-          expectedStateGeneration: view.stateGeneration,
-          document: fitted.document as never
-        });
-        const importedName = fitted.document.profiles[fitted.profileId]!.name;
-        const activation = profileImportActivation(result);
-        if (activation.kind === "failed") {
+      output.write(`${plain(result.file)}\n`);
+      writeFidelityReport(errorOutput, result.file, result.fidelity);
+    } else {
+      for (const file of command.files) {
+        try {
+          const result = await importProfile({
+            api: backend.api,
+            file,
+            profile: command.profile
+          });
+          const activation = profileImportActivation(result.mutation);
+          if (activation.kind === "failed") {
+            failed = true;
+            errorOutput.write(`${plain(file)}: ${activation.message}\n`);
+            writeFidelityReport(errorOutput, file, result.fidelity);
+            continue;
+          }
+          output.write(
+            `${plain(file)}: imported "${plain(result.name)}" as ${result.profileId}`
+              + ` (${result.importedCount} of ${result.candidateCount} parameters)`
+              + `${activation.kind === "pending" ? " · activation pending" : ""}\n`
+          );
+          writeFidelityReport(errorOutput, file, result.fidelity);
+        } catch (error) {
           failed = true;
-          errorOutput.write(`${plain(file)}: ${activation.message}\n`);
-          writeFidelityReport(errorOutput, file, fitted.fidelity);
-          continue;
+          errorOutput.write(`${plain(file)}: ${plain(error instanceof Error ? error.message : String(error))}\n`);
         }
-        output.write(`${plain(file)}: imported "${plain(importedName)}" as ${fitted.profileId} (${fitted.importedCount} of ${fitted.candidateCount} parameters)${activation.kind === "pending" ? " · activation pending" : ""}\n`);
-        writeFidelityReport(errorOutput, file, fitted.fidelity);
-      } catch (error) {
-        failed = true;
-        errorOutput.write(`${plain(file)}: ${plain(error instanceof Error ? error.message : String(error))}\n`);
       }
     }
   } finally {
@@ -153,12 +138,4 @@ function profileImportActivation(
   return outcome === null && result.pendingSettingsRevision !== null
     ? { kind: "pending" }
     : { kind: "active" };
-}
-
-function selectProfileId(document: { readonly routing: { readonly default: string; readonly prose?: string }; readonly profiles: Readonly<Record<string, { readonly name: string }>> }, selector: string | null): string {
-  if (selector === null) return selectSettingsRoute(document as never, "prose").profileId;
-  if (Object.hasOwn(document.profiles, selector)) return selector;
-  const matches = Object.entries(document.profiles).filter(([, profile]) => profile.name === selector);
-  if (matches.length === 1) return matches[0]![0];
-  throw new Error(`unknown Generation Profile: ${selector}`);
 }

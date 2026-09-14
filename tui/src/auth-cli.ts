@@ -2,27 +2,22 @@ import type {
   AuthEvent,
   AuthInteraction,
   AuthPrompt,
-  Credential,
-  CredentialStore,
-  MutableModels
+  MutableModels,
+  CredentialStore
 } from "@earendil-works/pi-ai";
-import { registerBunOAuthFlows } from "@earendil-works/pi-ai/bun-oauth";
 import {
-  createSubscriptionCredentialStore,
-  SubscriptionCredentialInvalidError
-} from "../../server/subscription-credential-store.js";
-import { createSubscriptionModels } from "../../server/subscription-models.js";
-import {
-  resolveMachineTierRoot,
-  resolveMachineTierRootPath
-} from "../../server/machine-tier.js";
-import { isUsableOAuthCredential } from "../../server/subscription-runtime.js";
+  createProductionAuthDependencies,
+  loginSubscription,
+  logoutSubscription,
+  readSubscriptionStatus,
+  type SubscriptionProvider
+} from "../../host/launcher-auth.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { promptVaultPassword } from "./project-prompt.js";
 
-/** Providers exposed by the subscription sign-in commands. */
-export type SubscriptionProvider = "chatgpt" | "claude";
+export type { SubscriptionProvider } from "../../host/launcher-auth.js";
 
+/** Providers exposed by the subscription sign-in commands. */
 interface ProviderDefinition {
   readonly name: string;
   readonly piId: string;
@@ -150,15 +145,7 @@ export async function runAuthCommand(
 async function createProductionAuthCliDependencies(
   action: ParsedAuthCommand["action"]
 ): Promise<AuthCliDependencies> {
-  const secretsDir = action === "status"
-    ? await resolveMachineTierRootPath()
-    : await resolveMachineTierRoot();
-  registerBunOAuthFlows();
-  const credentials = createSubscriptionCredentialStore(secretsDir);
-  return {
-    credentials,
-    models: createSubscriptionModels(credentials)
-  };
+  return await createProductionAuthDependencies(action);
 }
 
 async function runAuthLogin(
@@ -192,20 +179,17 @@ async function runAuthLogin(
 
   const interaction = options.interaction
     ?? createTerminalAuthInteraction(streams.input, streams.output);
-  try {
-    await dependencies.models.login(definition.piId, "oauth", interaction);
-  } catch (error) {
-    if (error instanceof AuthPromptCancelledError) {
-      streams.output.write(
-        "Sign-in cancelled. Existing local credential was not changed.\n"
-      );
-      return;
-    }
-    // Provider errors can contain access or refresh tokens. Keep this message
-    // fixed even when a provider returns a detailed error.
-    throw new Error(
-      `Could not sign in to ${definition.name}. Try again or use an API key connection.`
+  const result = await loginSubscription({
+    provider,
+    dependencies,
+    confirm: async () => true,
+    interaction
+  });
+  if (result.kind === "cancelled") {
+    streams.output.write(
+      "Sign-in cancelled. Existing local credential was not changed.\n"
     );
+    return;
   }
   streams.output.write(`${definition.name} sign-in complete.\n`);
 }
@@ -215,26 +199,9 @@ async function runAuthStatus(
   output: AuthCliOutput,
   now: () => number
 ): Promise<void> {
-  for (const provider of subscriptionProviders()) {
-    const definition = PROVIDERS[provider];
-    let credential: Credential | undefined;
-    try {
-      // Deliberately read the store, rather than Models.getAuth/checkAuth:
-      // status must not refresh or make a provider request.
-      credential = await dependencies.credentials.read(definition.piId);
-    } catch (error) {
-      if (error instanceof SubscriptionCredentialInvalidError) {
-        credential = undefined;
-      } else {
-        throw new Error(`Could not read ${definition.name} sign-in status.`);
-      }
-    }
-    const status = !isUsableOAuthCredential(credential)
-      ? "signed out"
-      : credential.expires <= now()
-        ? "signed in (refreshes on next use)"
-        : "signed in";
-    output.write(`${definition.name}: ${status}\n`);
+  const statuses = await readSubscriptionStatus(dependencies, now);
+  for (const status of statuses) {
+    output.write(`${status.label}: ${status.status}\n`);
   }
 }
 
@@ -244,11 +211,7 @@ async function runAuthLogout(
   output: AuthCliOutput
 ): Promise<void> {
   const definition = PROVIDERS[provider];
-  try {
-    await dependencies.models.logout(definition.piId);
-  } catch {
-    throw new Error(`Could not sign out of ${definition.name}.`);
-  }
+  await logoutSubscription(provider, dependencies);
   output.write(
     `${definition.name} credential removed from this machine. `
       + "Remote token revocation is not promised.\n"

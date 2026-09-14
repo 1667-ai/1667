@@ -20,15 +20,9 @@ import type { ObjectHash, StoredFactV1, StoredFactV13, StoredFactStateV1 } from 
 import { unicodeScalarLength } from "../shared/unicode.js";
 import { normalizeFactName } from "../shared/fact-name.js";
 import { exactStringPattern } from "./story-wire-patterns.js";
-
+import { StoryFormatError } from "../shared/story-format-errors.js";
+export { StoryFormatError } from "../shared/story-format-errors.js";
 export const HASH_PATTERN = exactStringPattern("[a-f0-9]{64}");
-
-export class StoryFormatError extends Error {
-  constructor(message: string, options?: ErrorOptions) {
-    super(message, options);
-    this.name = "StoryFormatError";
-  }
-}
 
 export function requireHash(value: unknown, label: string): ObjectHash {
   if (typeof value !== "string" || !HASH_PATTERN.test(value)) throw new StoryFormatError(`Invalid ${label}`);

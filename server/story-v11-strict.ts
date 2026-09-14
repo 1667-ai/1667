@@ -28,7 +28,8 @@ const REF = closedShape(
 );
 const ANCHOR = closedShape(["partId", "takeId"]);
 /** Maximum refs in either persisted session bucket. */
-export const MAX_SESSION_REFS_PER_BUCKET = 10_000;
+import { MAX_SESSION_REFS_PER_BUCKET } from "../shared/aside-session-index.js";
+export { MAX_SESSION_REFS_PER_BUCKET } from "../shared/aside-session-index.js";
 const MAX_SESSION_TURNS = 100;
 
 /** Validate the V11 content payload while leaving the V9 payload unchanged. */
