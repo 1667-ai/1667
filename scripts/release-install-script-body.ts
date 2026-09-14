@@ -55,6 +55,14 @@ export function shellInstallerBody(input: {
 # Generated release asset. Do not edit. Attest before you trust a local copy.
 set -eu
 
+# Keep standard error usable for tools that require an open descriptor. A caller
+# can close standard error to suppress progress, but that must not abort install.
+if (exec 3>&2); then
+  exec 3>&-
+else
+  exec 2>/dev/null
+fi
+
 PRODUCT_VERSION='${input.version}'
 INSTALL_CHANNEL='${input.channel}'
 GITHUB_REPOSITORY='${input.repository}'

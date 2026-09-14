@@ -13,6 +13,12 @@ read_when:
 | Term | Meaning |
 | --- | --- |
 | TUI | The terminal user interface |
+| desktop app | The graphical 1667 application for macOS, Windows, and Linux |
+| Shell | The Electron main process, preload script, and Renderer |
+| Renderer | The interface that shows project content and accepts writer input |
+| Client | The shared `StoryApi` interface and its transport adapters |
+| Host | The component that owns a project lock, mutation outbox, and Worker |
+| Worker | The thread that runs the backend service for one project |
 | backend | The service that stores stories and sends provider requests |
 | character card | A V1 or V2 character card file that another tool wrote |
 | project | A project root and its `.1667/` directory |

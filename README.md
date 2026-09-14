@@ -14,7 +14,9 @@
 alternative takes, and select the story line that you want to read. Connect a
 model when you want generated prose, or write every take yourself.
 
-This repository contains the terminal user interface (TUI) and the backend.
+This repository contains the terminal user interface (TUI), the desktop app,
+and their shared backend. The desktop app is in beta. See the
+[desktop instructions](docs/desktop-renderer.md).
 
 [![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-4.gif)](https://1667.ai)
 

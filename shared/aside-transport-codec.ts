@@ -8,7 +8,7 @@ import {
   type StoryPayload
 } from "./types.js";
 import { AsideDocumentError } from "./aside-core.js";
-import { assertAsideAnchor, type AsideAnchor } from "./aside-session.js";
+import { assertAsideAnchor, type AsideAnchor } from "./aside-anchor.js";
 import { hasUnpairedSurrogate, unicodeScalarLength } from "./unicode.js";
 import type {
   AsideAskInput,

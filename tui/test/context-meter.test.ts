@@ -1291,29 +1291,51 @@ describe("honest next-request context meter", () => {
   });
 
   // The build tag is the only part of this row that moves with the product
-  // version, and the row must still measure exactly its terminal width. Derive
-  // the gap so a version of any length keeps the assertion meaningful.
-  function composeStatusWithBuildTag(width: number): string {
-    const left = " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm"
-      + " · part 12/13 · take 3/5 · 307 words";
-    const right = `qwen3-32b · ${AI_1667_VERSION_TAG}`;
+  // version, and the row must still measure exactly its terminal width. Keep
+  // the expected widths derived from the current tag so a longer release tag
+  // cannot make this render assertion fail before it reaches the renderer.
+  const composeStatusLeft = " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm"
+    + " · part 12/13 · take 3/5 · 307 words";
+  const composeStatusModel = "qwen3-32b";
+
+  function composeStatus(width: number, right: string): string {
     // The row keeps one empty cell at the right edge, and the caller compares
     // the trimmed line, so the visible text is one column short of the width.
-    const gap = width - 1 - visibleWidth(left) - visibleWidth(right);
+    const gap = width - 1 - visibleWidth(composeStatusLeft) - visibleWidth(right);
     if (gap < 1) throw new Error("compose status row does not fit its build tag");
-    return `${left}${" ".repeat(gap)}${right}`;
+    return `${composeStatusLeft}${" ".repeat(gap)}${right}`;
   }
+
+  function composeStatusWithBuildTag(width: number): string {
+    return composeStatus(width, `${composeStatusModel} · ${AI_1667_VERSION_TAG}`);
+  }
+
+  const composeStatusWithBuildTagWidth = visibleWidth(composeStatusLeft)
+    + visibleWidth(`${composeStatusModel} · ${AI_1667_VERSION_TAG}`)
+    + 2;
 
   test("fullscreen compose preserves complete location and request status before optional words", () => {
     const state = initialState(demoAppSource(), true);
     state.mode = "COMPOSE";
     state.composer.fullscreen = true;
-    const expected = new Map([
+    const expected = new Map<number, string>([
       [80, " COMPOSE · fullscreen   the la… · ⚑ canon-storm · ¶ 12/13 · 3/5 next ~884/32.8k"],
       [100, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5        qwen3-32b"],
       [110, " COMPOSE · fullscreen   the lantern keeper · ⚑ canon-storm · part 12/13 · take 3/5 · 307 words      qwen3-32b"],
-      [120, composeStatusWithBuildTag(120)]
+      // The build tag is optional. Keep the complete model and location at
+      // 120 columns, and show the tag when its derived minimum fits there.
+      [120, composeStatusWithBuildTagWidth <= 120
+        ? composeStatusWithBuildTag(120)
+        : composeStatus(120, composeStatusModel)]
     ]);
+    // A longer prerelease tag yields at 120, then returns at its first exact
+    // fitting width. A shorter stable tag is already covered at 120 above.
+    if (composeStatusWithBuildTagWidth > 120) {
+      expected.set(
+        composeStatusWithBuildTagWidth,
+        composeStatusWithBuildTag(composeStatusWithBuildTagWidth)
+      );
+    }
 
     for (const [width, text] of expected) {
       const status = plainLine(renderStoryScreen(state, { width, height: 24 }).lines.at(-1)!);
@@ -1321,8 +1343,8 @@ describe("honest next-request context meter", () => {
       expect(status.trimEnd()).toBe(text);
       expect(/(?:part |take |¶ )?\d+\/…/.test(status)).toBeFalse();
       // The build tag takes slack and never a cell of the story's own
-      // identity: only the widest frame here has room left for it.
-      expect(status.includes(AI_1667_VERSION_TAG)).toBe(width === 120);
+      // identity: it returns at the first width with room for it.
+      expect(status.includes(AI_1667_VERSION_TAG)).toBe(width >= composeStatusWithBuildTagWidth);
     }
   });
 

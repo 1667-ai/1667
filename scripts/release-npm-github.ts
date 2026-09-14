@@ -30,6 +30,11 @@ import {
   expectedInstallerNames,
   isPrereleaseVersion
 } from "./release-publication-assets.js";
+import {
+  allDesktopAssetNames,
+  verifyDesktopAssetsInReleaseDirectory,
+  verifyDesktopReleaseAssetDirectory
+} from "./release-desktop-assets.js";
 
 const REPOSITORY = /^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/u;
 const COMMIT = /^[0-9a-f]{40}$/u;
@@ -39,6 +44,8 @@ export interface GitHubReleaseOptions {
   readonly version: string;
   readonly sourceCommit: string;
   readonly assetsDirectory: string;
+  /** Optional desktop staging directory, outside npm preflight and SBOMs. */
+  readonly desktopAssetsDirectory?: string;
   readonly notesFile: string;
   readonly environment: GitHubReleaseEnvironment;
   readonly ghExecutable?: string;
@@ -126,13 +133,21 @@ async function preparedReleaseState(context: ReleaseContext): Promise<ReleaseSta
   const state = await releaseState(context);
   if (state === null) throw new Error("Prepared GitHub release does not exist");
   requireReleaseContents(state, context);
-  await verifyDownloadedRelease(gh, tag, repository, assets, environment);
+  await verifyDownloadedRelease(
+    gh,
+    tag,
+    repository,
+    assets,
+    environment,
+    context.includeDesktopAssets
+  );
   await verifyTag();
   return state;
 }
 
 interface ReleaseContext {
   readonly assets: readonly string[];
+  readonly includeDesktopAssets: boolean;
   readonly environment: GitHubReleaseEnvironment;
   readonly gh: string;
   readonly notes: string;
@@ -165,10 +180,19 @@ function releaseContext(
     options.ghExecutable
       ?? requiredValue(options.environment.RELEASE_GH_PATH, "RELEASE_GH_PATH")
   );
+  const includeDesktopAssets = options.desktopAssetsDirectory !== undefined;
+  if (options.desktopAssetsDirectory !== undefined) {
+    verifyDesktopReleaseAssetDirectory(
+      options.desktopAssetsDirectory,
+      options.version,
+      repository
+    );
+  }
   const assets = verifyNpmReleaseAssetDirectory(
     options.assetsDirectory,
     options.version,
-    repository
+    repository,
+    { includeDesktopAssets }
   );
   const notes = boundedFile(options.notesFile, "GitHub release notes", MAX_NOTES_BYTES);
   const notesBody = readFileSync(notes, "utf8");
@@ -182,6 +206,7 @@ function releaseContext(
   });
   return Object.freeze({
     assets,
+    includeDesktopAssets,
     environment: options.environment,
     gh,
     notes,
@@ -197,7 +222,8 @@ function releaseContext(
 export function verifyNpmReleaseAssetDirectory(
   directory: string,
   version: string,
-  repository: string
+  repository: string,
+  options: { readonly includeDesktopAssets?: boolean } = {}
 ): readonly string[] {
   if (!isSemVer(version)) throw new Error("GitHub release version is not SemVer");
   if (!REPOSITORY.test(repository)) {
@@ -209,13 +235,20 @@ export function verifyNpmReleaseAssetDirectory(
     throw new Error("GitHub release assets must be regular files");
   }
   const names = entries.map((entry) => entry.name).sort();
-  const expected = [...expectedGitHubReleaseAssetNames(version)];
+  const includeDesktopAssets = options.includeDesktopAssets === true;
+  const expected = [
+    ...expectedGitHubReleaseAssetNames(version),
+    ...(includeDesktopAssets ? allDesktopAssetNames(version) : [])
+  ].sort();
   if (names.length !== expected.length
     || names.some((name, index) => name !== expected[index])) {
     throw new Error("GitHub release contains an unexpected asset set");
   }
   if (isPrereleaseVersion(version) && names.includes("install-stable.sh")) {
     throw new Error("Prerelease GitHub release must not contain install-stable.sh");
+  }
+  if (includeDesktopAssets) {
+    verifyDesktopAssetsInReleaseDirectory(root, version, repository);
   }
   // Keep the explicit installer helper exercised for callers and tests.
   for (const installer of expectedInstallerNames(version)) {
@@ -229,7 +262,10 @@ export function verifyNpmReleaseAssetDirectory(
       throw new Error(`GitHub release is missing native archive ${archive}`);
     }
   }
-  const assetDigests = directoryAssetDigests(root);
+  const desktopNames = includeDesktopAssets
+    ? new Set(allDesktopAssetNames(version))
+    : new Set<string>();
+  const assetDigests = directoryAssetDigests(root).filter((asset) => !desktopNames.has(asset.name));
   const digestByName = new Map(assetDigests.map((entry) => [entry.name, entry.sha256]));
   // Bind each installer to digests of the exact native .tar.gz assets only.
   const archiveDigests: Record<string, string> = {};
@@ -269,7 +305,8 @@ async function verifyDownloadedRelease(
   tag: string,
   repository: string,
   expectedAssets: readonly string[],
-  environment: GitHubReleaseEnvironment
+  environment: GitHubReleaseEnvironment,
+  includeDesktopAssets: boolean
 ): Promise<void> {
   const scratch = await mkdtemp(path.join(realpathSync(tmpdir()), "1667-npm-release-"));
   try {
@@ -281,7 +318,8 @@ async function verifyDownloadedRelease(
     const downloaded = verifyNpmReleaseAssetDirectory(
       scratch,
       path.basename(tag).replace(/^v/, ""),
-      repository
+      repository,
+      { includeDesktopAssets }
     );
     if (downloaded.length !== expectedAssets.length) {
       throw new Error("Downloaded GitHub release has the wrong asset count");
@@ -427,11 +465,12 @@ if (isMainModule()) {
         );
       }
       verifyNpmReleaseAssetDirectory(directory, version, repository);
-    } else if (process.argv.length === 7 && command === "publish") {
+    } else if (command === "publish" && (process.argv.length === 7 || process.argv.length === 8)) {
       const version = process.argv[3];
       const sourceCommit = process.argv[4];
       const releaseAssets = process.argv[5];
-      const releaseNotes = process.argv[6];
+      const desktopAssets = process.argv.length === 8 ? process.argv[6] : undefined;
+      const releaseNotes = process.argv[process.argv.length - 1];
       if (version === undefined
         || sourceCommit === undefined || releaseAssets === undefined
         || releaseNotes === undefined) {
@@ -441,6 +480,7 @@ if (isMainModule()) {
         version,
         sourceCommit,
         assetsDirectory: releaseAssets,
+        ...(desktopAssets === undefined ? {} : { desktopAssetsDirectory: desktopAssets }),
         notesFile: releaseNotes,
         environment: process.env
       };
@@ -449,7 +489,7 @@ if (isMainModule()) {
       throw new Error(
         "usage: release-npm-github.ts verify-assets <version> <repository> <assets>"
         + " | release-npm-github.ts publish"
-        + " <version> <source-commit> <assets> <notes>"
+        + " <version> <source-commit> <assets> [<desktop-assets>] <notes>"
       );
     }
   } catch (error) {

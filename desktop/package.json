@@ -1,0 +1,39 @@
+{
+  "name": "@1667-ai/desktop",
+  "version": "0.11.0-beta.1",
+  "private": true,
+  "description": "1667 desktop application",
+  "desktopName": "ai.1667.desktop",
+  "license": "Apache-2.0",
+  "type": "module",
+  "main": "app/main.cjs",
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "build:app": "tsx scripts/build-app.ts",
+    "build:runtime": "tsx scripts/build-runtime.ts",
+    "test:native": "tsx scripts/test-native.ts",
+    "package:target": "tsx scripts/package-target.ts",
+    "package:release": "tsx scripts/package-release.ts",
+    "test:electron": "tsx scripts/test-electron.ts",
+    "test:e2e": "tsx scripts/test-e2e.ts",
+    "test:package": "tsx scripts/test-package.ts",
+    "test:release": "node --import tsx --test ../test/release-desktop-assets.test.ts"
+  },
+  "dependencies": {
+    "@earendil-works/pi-ai": "0.84.2",
+    "@silvia-odwyer/photon-node": "0.3.4",
+    "electron-updater": "6.8.9",
+    "koffi": "3.1.2",
+    "msgpackr": "2.0.5",
+    "tiktoken": "1.0.22"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "electron": "44.3.0",
+    "electron-builder": "26.15.3",
+    "esbuild": "0.28.2",
+    "playwright": "1.63.0",
+    "tsx": "^4.19.0",
+    "typescript": "^5.8.0"
+  }
+}

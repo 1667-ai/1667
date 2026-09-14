@@ -13,6 +13,7 @@ import {
   type ReleaseEvidenceRequest
 } from "../scripts/release-evidence.js";
 import { createReleaseIdentitySet } from "../scripts/release-identity.js";
+import { testNodeExecutable } from "./test-node-executable.js";
 
 const execFileAsync = promisify(execFile);
 const REPOSITORY_ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
@@ -218,7 +219,7 @@ test("evidence refuses a tag that moves during package fact collection", async (
   const marker = path.join(wrapperRoot, "moved");
   const wrapper = path.join(wrapperRoot, "git");
   await writeFile(wrapper, [
-    `#!${process.execPath}`,
+    `#!${testNodeExecutable()}`,
     'const { existsSync, writeFileSync } = require("node:fs");',
     'const { spawnSync } = require("node:child_process");',
     `const git = ${JSON.stringify(realGit)};`,

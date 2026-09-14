@@ -33,13 +33,15 @@ test("the npm workflow authorizes one dispatcher before the publication stages",
   assert.match(authorize, /test "\$permission" = admin/u);
   assert.deepEqual([...WORKFLOW.matchAll(/^  ([a-z][a-z-]*):$/gmu)].map((match) => {
     return match[1];
-  }).filter((name) => ["build", "launcher", "preflight", "publish"].includes(name!)), [
+  }).filter((name) => ["build", "desktop", "launcher", "preflight", "publish"].includes(name!)), [
     "build",
+    "desktop",
     "launcher",
     "preflight",
     "publish"
   ]);
   assert.match(job("build"), /^    needs: authorize$/mu);
+  assert.match(job("desktop"), /^    needs: authorize$/mu);
   assert.match(job("publish"), /^    needs: preflight$/mu);
   assert.match(job("publish"), /^    environment: publish$/mu);
   assert.match(job("publish"), /^    timeout-minutes: 180$/mu);
@@ -80,6 +82,41 @@ test("the npm release dispatch binds to the tag commit", () => {
       /\+refs\/heads\/\$DEFAULT_BRANCH:refs\/remotes\/origin\/\$DEFAULT_BRANCH/u
     );
   }
+});
+
+test("the desktop matrix is separate from the CLI package trust chain", () => {
+  const desktop = job("desktop");
+  assert.match(desktop, /^    needs: authorize$/mu);
+  assert.match(
+    desktop,
+    /^        target: \[darwin-arm64, darwin-x64, linux-arm64, linux-x64, windows-x64\]$/mu
+  );
+  assert.match(desktop, /npm ci --no-audit --no-fund/u);
+  assert.match(desktop, /bun install --frozen-lockfile/u);
+  assert.match(desktop, /npm run build:app(?! --if-present)/u);
+  assert.match(desktop, /npm run test:electron/u);
+  assert.match(desktop, /npm run test:e2e/u);
+  assert.match(desktop, /xvfb-run/u);
+  assert.match(desktop, /DESKTOP_VERSION: \$\{\{ inputs\.version \}\}/u);
+  assert.match(desktop, /npm run package:target -- "\$TARGET"/u);
+  assert.match(desktop, /scripts\/release-desktop-assets\.ts verify/u);
+  assert.doesNotMatch(desktop, /actions\/attest-build-provenance@/u);
+  assert.doesNotMatch(desktop, /^      id-token: write$/mu);
+  assert.doesNotMatch(desktop, /^      attestations: write$/mu);
+  assert.match(desktop, /release-desktop-assets\.ts verify-target/u);
+  assert.match(job("launcher"), /release-desktop-assets\.ts merge/u);
+  assert.match(desktop, /name: desktop-\$\{\{ matrix\.target \}\}/u);
+  assert.match(job("launcher"), /needs: \[build, desktop\]/u);
+  assert.match(job("launcher"), /pattern: desktop-\*/u);
+  assert.match(job("launcher"), /name: desktop-release-assets/u);
+  assert.match(job("publish"), /name: desktop-release-assets/u);
+  assert.match(job("publish"), /scripts\/release-desktop-assets\.ts verify/u);
+  assert.match(job("publish"), /cp dist\/desktop\/\* dist\/github-release\/assets\//u);
+  assert.match(
+    job("publish"),
+    /dist\/github-release\/assets dist\/desktop[\s\\]*dist\/github-release\/release-notes\.md/u
+  );
+  assert.doesNotMatch(job("preflight"), /dist\/desktop/u);
 });
 
 test("OIDC jobs install no dependency lifecycle scripts", () => {
@@ -156,13 +193,13 @@ test("every retained release input is attested and verified before use", () => {
 });
 
 test("pack and publish jobs pin tools and publication has no npm token", () => {
-  for (const name of ["launcher", "publish"] as const) {
+  for (const name of ["desktop", "launcher", "publish"] as const) {
     const body = job(name);
     assert.match(body, /npm install --global "npm@\$NPM_VERSION" --ignore-scripts/u);
     assert.match(body, /test "\$\(node --version\)" = "v\$NODE_VERSION"/u);
     assert.match(body, /test "\$\(npm --version\)" = "\$NPM_VERSION"/u);
   }
-  for (const name of ["build", "launcher", "preflight", "publish"] as const) {
+  for (const name of ["build", "desktop", "launcher", "preflight", "publish"] as const) {
     assert.match(job(name), /package-manager-cache: false/u);
     assert.doesNotMatch(job(name), /^\s+cache:/mu);
   }
@@ -333,7 +370,7 @@ test("publication replays protected state before npm and completion writes", () 
 });
 
 function job(
-  name: "authorize" | "build" | "launcher" | "preflight" | "publish"
+  name: "authorize" | "build" | "desktop" | "launcher" | "preflight" | "publish"
 ): string {
   const start = WORKFLOW.indexOf(`  ${name}:\n`);
   assert.notEqual(start, -1);

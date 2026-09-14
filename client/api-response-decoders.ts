@@ -31,9 +31,9 @@ import {
 import {
   COUNTED_TOKENIZE_SOURCE_VALUES,
   TOKEN_COUNT_FALLBACK_VALUES,
-  TOKENIZE_SOURCE_CONTRACTS,
-  type PromptTokenCount
-} from "../shared/tokenize-source.js";
+  TOKENIZE_SOURCE_CONTRACTS
+} from "../shared/tokenize-source-contract.js";
+import type { PromptTokenCount } from "../shared/tokenize-source.js";
 import {
   decodeSettingsViewResponse as decodeSettingsViewEnvelope
 } from "../shared/settings-response-decoder.js";
