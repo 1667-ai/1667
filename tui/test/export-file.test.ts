@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
   lstat,
+  mkdir,
   mkdtemp,
   readFile,
   readdir,
@@ -251,6 +252,37 @@ describe("export command", () => {
         expect(await readFile(file, "utf8")).toContain("# A Door");
       }
       expect(errors.text()).toBe("");
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  }, WORKER_EXPORT_TIMEOUT_MS);
+
+  test("reports completed bulk exports when a later export fails", async () => {
+    const root = await temporaryDirectory();
+    await initializeProject(root);
+    const seeded = await createWorkerStoryApi({ dataDir: path.join(root, ".1667") });
+    try {
+      for (const story of await seeded.api.listStories()) {
+        await seeded.api.deleteStory(story.id);
+      }
+      await seeded.api.createStory("Second Failure");
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      await seeded.api.createStory("First Success");
+    } finally {
+      await seeded.dispose();
+    }
+
+    await mkdir(path.join(root, "Second Failure.md"));
+    const output = collector();
+    const errors = collector();
+    try {
+      const message = await failure(() => runStoryExport(
+        ["--all", "--force", "--data", root], output.stream, errors.stream
+      ));
+      const first = path.join(root, "First Success.md");
+      expect(output.text()).toBe(`${first}\n`);
+      expect(await readFile(first, "utf8")).toContain("# First Success");
+      expect(message).not.toBe("the call resolved instead of failing");
     } finally {
       await rm(root, { recursive: true, force: true });
     }

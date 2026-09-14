@@ -108,6 +108,8 @@ contract.
 | Path | Contents |
 | --- | --- |
 | `tui/` | Terminal client, Bun workspace, and standalone build scripts |
+| `client/` | Shared client interfaces, response decoders, and transport adapters |
+| `host/` | Embedded worker ownership and shared launcher operations |
 | `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
 | `shared/` | Types and policies shared by the TUI and backend |
 | `schema/` | Generated JSON Schema files |

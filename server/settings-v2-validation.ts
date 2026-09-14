@@ -1,59 +1,31 @@
 import {
   FEATURE_SUPPORT_V2_VALUES,
-  SETTINGS_PRESET_V2_VALUES,
-  SETTINGS_PROTOCOL_V2_VALUES,
-  TEXT_PROMPT_FORMAT_V2_VALUES,
-  type CredentialReferenceV2,
   type GenerationProfileV2,
   type ModelCapabilitiesV2,
   type ModelConnectionV2,
   type ModelDefinitionV2,
-  type ModelScalarMetadataV2,
-  type SettingsDocumentV2,
-  type SettingsPresetV2,
-  type SettingsProtocolV2,
-  isSubscriptionProtocolV2,
-  isSubscriptionPresetV2,
-  subscriptionPresetForProtocolV2
+  type SettingsDocumentV2
 } from "../shared/settings-v2-types.js";
-import { boundedArray, closedRecord, closedShape, literal } from "./story-wire-validation.js";
+import { closedRecord, closedShape, literal } from "./story-wire-validation.js";
 import { parseProfiles } from "./settings-v2-profile-validation.js";
+import { parseConnections, parseMetadata } from "../shared/settings-v2-connection-validation.js";
+export { parseConnections, parseMetadata } from "../shared/settings-v2-connection-validation.js";
 import { settingsMap } from "./settings-v2-validation-record.js";
 import { oneOf } from "./settings-v2-validation-values.js";
 import {
   MAX_SETTINGS_AUTHOR_BRIEF_SCALARS,
   MAX_SETTINGS_CREDENTIAL_NAMES,
-  MAX_SETTINGS_HEADERS,
   MAX_SETTINGS_NAME_SCALARS,
   MAX_SETTINGS_REMOTE_ID_SCALARS,
-  MAX_SETTINGS_TIMEOUT_MS,
   MAX_SETTINGS_TOKEN_COUNT,
   SettingsFormatError,
-  classifyHttpHost,
-  normalizeSettingsBaseUrl,
   requireBoundedSettingsString,
-  requireCredentialName,
-  requireHeaderName,
   requirePositiveSettingsInteger,
-  requireSecretId,
   requireSettingsId
 } from "./settings-v2-scalars.js";
 
 const DOCUMENT = closedShape(["schemaVersion", "connections", "models", "profiles", "routing", "writing"]);
-const CONNECTION = closedShape(
-  ["name", "preset", "protocol", "baseUrl", "auth", "headers", "timeouts"],
-  ["allowInsecureHttp", "textPromptFormat", "splitThinkTags"]
-);
-const TIMEOUTS = closedShape(["responseHeaderMs", "firstTokenMs", "idleMs", "totalMs"]);
-const AUTH_NONE = closedShape(["type"]);
-const AUTH_BEARER = closedShape(["type", "env"]);
-const AUTH_HEADER = closedShape(["type", "name", "env"]);
-const AUTH_BEARER_STORED = closedShape(["type", "secretId"]);
-const AUTH_HEADER_STORED = closedShape(["type", "name", "secretId"]);
-const HEADER = closedShape(["name", "value"]);
-const HEADER_VALUE = closedShape(["type", "env"]);
 const MODEL = closedShape(["connectionId", "remoteId", "name", "discovered", "overrides", "capabilities"]);
-const METADATA = closedShape([], ["contextWindow", "maxOutputTokens"]);
 const CAPABILITIES = closedShape(
   ["temperature", "assistantPrefill", "reasoningEffort", "promptCaching"],
   ["reasoningContent"]
@@ -104,285 +76,6 @@ export function validateSettingsDocumentV2(
 /** Exported for reuse by server/settings-v3-validation.ts: connections,
  *  profiles, routing, and scalar metadata are identical between schema 2 and
  *  schema 3, so only the model/capabilities parser differs between them. */
-export function parseConnections(
-  value: unknown,
-  credentialNames: Set<string>,
-  caseInsensitive: boolean
-): Record<string, ModelConnectionV2> {
-  const record = settingsMap(value, "settings document.connections");
-  const result: Record<string, ModelConnectionV2> = {};
-  for (const [id, raw] of Object.entries(record)) {
-    requireSettingsId(id, "connection ID");
-    const connection = closedRecord(raw, `connection ${id}`, CONNECTION);
-    const preset = oneOf(connection.preset, SETTINGS_PRESET_V2_VALUES, `connection ${id}.preset`);
-    const protocol = oneOf(connection.protocol, SETTINGS_PROTOCOL_V2_VALUES, `connection ${id}.protocol`);
-    const textPromptFormat = connection.textPromptFormat === undefined
-      ? undefined
-      : oneOf(
-          connection.textPromptFormat,
-          TEXT_PROMPT_FORMAT_V2_VALUES,
-          `connection ${id}.textPromptFormat`
-        );
-    const auth = parseAuth(connection.auth, `connection ${id}.auth`, credentialNames, caseInsensitive);
-    const headers = parseHeaders(connection.headers, `connection ${id}.headers`, credentialNames, caseInsensitive);
-    if (
-      (auth.type === "header-env" || auth.type === "header-stored")
-      && headers.some((header) => header.name.toLowerCase() === auth.name.toLowerCase())
-    ) {
-      throw new SettingsFormatError(
-        `connection ${id}.headers collides with authentication header ${auth.name}`
-      );
-    }
-    const timeouts = parseTimeouts(connection.timeouts, `connection ${id}.timeouts`);
-    const splitThinkTags = connection.splitThinkTags === undefined
-      ? undefined
-      : literal(connection.splitThinkTags, true, `connection ${id}.splitThinkTags`);
-    const allowInsecureHttp = connection.allowInsecureHttp === undefined
-      ? undefined
-      : literal(connection.allowInsecureHttp, true, `connection ${id}.allowInsecureHttp`);
-    if (
-      isSubscriptionPresetV2(preset)
-      && (!isSubscriptionProtocolV2(protocol)
-        || subscriptionPresetForProtocolV2(protocol) !== preset)
-    ) {
-      throw new SettingsFormatError(
-        `connection ${id} subscription preset requires its matching subscription protocol`
-      );
-    }
-    const baseUrl = protocol === "dry-run"
-      ? parseDryRunConnection(id, preset, connection.baseUrl, auth, headers, allowInsecureHttp)
-      : isSubscriptionProtocolV2(protocol)
-        ? parseSubscriptionConnection(
-            id,
-            preset,
-            protocol,
-            connection.baseUrl,
-            auth,
-            headers,
-            allowInsecureHttp,
-            textPromptFormat,
-            splitThinkTags
-          )
-        : parseNetworkConnection(id, preset, protocol, connection.baseUrl, auth, headers, allowInsecureHttp);
-    if (protocol !== "text-completions" && textPromptFormat !== undefined) {
-      throw new SettingsFormatError(
-        `connection ${id}.textPromptFormat requires text-completions`
-      );
-    }
-    // A chat route already carries reasoning in its own field, so the split
-    // would be a second, worse source for the same thing.
-    if (protocol !== "text-completions" && splitThinkTags !== undefined) {
-      throw new SettingsFormatError(
-        `connection ${id}.splitThinkTags requires text-completions`
-      );
-    }
-    if (textPromptFormat === "server-template" && preset !== "llama-cpp") {
-      throw new SettingsFormatError(
-        `connection ${id} server-template prompt format requires llama-cpp`
-      );
-    }
-    result[id] = {
-      name: requireBoundedSettingsString(connection.name, `connection ${id}.name`, MAX_SETTINGS_NAME_SCALARS, 1),
-      preset,
-      protocol,
-      baseUrl,
-      auth,
-      headers,
-      timeouts,
-      ...(textPromptFormat === undefined ? {} : { textPromptFormat }),
-      ...(allowInsecureHttp === true ? { allowInsecureHttp: true as const } : {}),
-      ...(splitThinkTags === true ? { splitThinkTags: true as const } : {})
-    };
-  }
-  return result;
-}
-
-function parseDryRunConnection(
-  id: string,
-  preset: SettingsPresetV2,
-  baseUrl: unknown,
-  auth: CredentialReferenceV2,
-  headers: readonly unknown[],
-  allowInsecureHttp: true | undefined
-): null {
-  if (preset !== "dry-run" || baseUrl !== null || auth.type !== "none" || headers.length !== 0) {
-    throw new SettingsFormatError(
-      `connection ${id} dry-run protocol requires dry-run preset, null URL, no authentication, and no headers`
-    );
-  }
-  if (allowInsecureHttp !== undefined) {
-    throw new SettingsFormatError(`connection ${id}.allowInsecureHttp is invalid for dry-run`);
-  }
-  return null;
-}
-
-function parseNetworkConnection(
-  id: string,
-  preset: SettingsPresetV2,
-  protocol: Exclude<SettingsProtocolV2, "dry-run">,
-  rawUrl: unknown,
-  auth: CredentialReferenceV2,
-  headers: readonly unknown[],
-  allowInsecureHttp: true | undefined
-): string {
-  if (preset === "dry-run") throw new SettingsFormatError(`connection ${id} dry-run preset requires dry-run protocol`);
-  if (preset === "anthropic" && protocol !== "anthropic-messages") {
-    throw new SettingsFormatError(`connection ${id} anthropic preset requires anthropic-messages`);
-  }
-  if (
-    preset !== "anthropic"
-    && preset !== "custom"
-    && protocol !== "openai-chat-completions"
-    && !(
-      protocol === "text-completions"
-      && (preset === "openai" || preset === "llama-cpp" || preset === "koboldcpp")
-    )
-  ) {
-    throw new SettingsFormatError(
-      `connection ${id} preset does not support ${protocol}`
-    );
-  }
-  const baseUrl = normalizeSettingsBaseUrl(rawUrl, `connection ${id}.baseUrl`);
-  const parsed = new URL(baseUrl);
-  if (parsed.protocol === "https:") {
-    if (allowInsecureHttp !== undefined) {
-      throw new SettingsFormatError(`connection ${id}.allowInsecureHttp is only valid for LAN HTTP`);
-    }
-    return baseUrl;
-  }
-  if (auth.type !== "none" || headers.length !== 0) {
-    throw new SettingsFormatError(`connection ${id} plain HTTP cannot carry authentication or secret headers`);
-  }
-  const hostClass = classifyHttpHost(baseUrl);
-  // Loopback needs no opt-in where the account-ownership proof exists, and
-  // carries one where it does not. Both are valid documents.
-  if (hostClass === "loopback") return baseUrl;
-  if (
-    (hostClass === "private-literal" || hostClass === "lan-hostname")
-    && allowInsecureHttp === true
-  ) return baseUrl;
-  throw new SettingsFormatError(
-    `connection ${id} plain HTTP requires loopback or allowInsecureHttp on a LAN host`
-  );
-}
-
-function parseSubscriptionConnection(
-  id: string,
-  preset: SettingsPresetV2,
-  protocol: Extract<SettingsProtocolV2, "openai-codex-responses" | "anthropic-subscription-messages">,
-  baseUrl: unknown,
-  auth: CredentialReferenceV2,
-  headers: readonly unknown[],
-  allowInsecureHttp: true | undefined,
-  textPromptFormat: unknown,
-  splitThinkTags: true | undefined
-): null {
-  const expectedPreset = subscriptionPresetForProtocolV2(protocol);
-  if (
-    preset !== expectedPreset
-    || baseUrl !== null
-    || auth.type !== "none"
-    || headers.length !== 0
-    || allowInsecureHttp !== undefined
-    || textPromptFormat !== undefined
-    || splitThinkTags !== undefined
-  ) {
-    throw new SettingsFormatError(
-      `connection ${id} subscription protocol requires the ${expectedPreset} preset, null URL, no authentication, no headers, and no HTTP or text options`
-    );
-  }
-  return null;
-}
-
-function parseAuth(
-  value: unknown,
-  label: string,
-  names: Set<string>,
-  caseInsensitive: boolean
-): CredentialReferenceV2 {
-  const candidate = value as Record<string, unknown> | null;
-  if (candidate?.type === "none") {
-    closedRecord(value, label, AUTH_NONE);
-    return { type: "none" };
-  }
-  if (candidate?.type === "bearer-env") {
-    const auth = closedRecord(value, label, AUTH_BEARER);
-    return { type: "bearer-env", env: credential(auth.env, `${label}.env`, names, caseInsensitive) };
-  }
-  if (candidate?.type === "header-env") {
-    const auth = closedRecord(value, label, AUTH_HEADER);
-    return {
-      type: "header-env",
-      name: requireHeaderName(auth.name, `${label}.name`),
-      env: credential(auth.env, `${label}.env`, names, caseInsensitive)
-    };
-  }
-  if (candidate?.type === "bearer-stored") {
-    const auth = closedRecord(value, label, AUTH_BEARER_STORED);
-    const secretId = requireSecretId(auth.secretId, `${label}.secretId`);
-    names.add(`stored:${secretId}`);
-    return {
-      type: "bearer-stored",
-      secretId
-    };
-  }
-  if (candidate?.type === "header-stored") {
-    const auth = closedRecord(value, label, AUTH_HEADER_STORED);
-    const secretId = requireSecretId(auth.secretId, `${label}.secretId`);
-    names.add(`stored:${secretId}`);
-    return {
-      type: "header-stored",
-      name: requireHeaderName(auth.name, `${label}.name`),
-      secretId
-    };
-  }
-  throw new SettingsFormatError(`${label}.type is invalid`);
-}
-
-function parseHeaders(
-  value: unknown,
-  label: string,
-  names: Set<string>,
-  caseInsensitive: boolean
-): ModelConnectionV2["headers"] {
-  const values = boundedArray(value, label, MAX_SETTINGS_HEADERS);
-  const seen = new Set<string>();
-  return values.map((raw, index) => {
-    const header = closedRecord(raw, `${label}[${index}]`, HEADER);
-    const name = requireHeaderName(header.name, `${label}[${index}].name`);
-    const compared = name.toLowerCase();
-    if (seen.has(compared)) throw new SettingsFormatError(`${label} repeats header ${name}`);
-    seen.add(compared);
-    const reference = closedRecord(header.value, `${label}[${index}].value`, HEADER_VALUE);
-    literal(reference.type, "env", `${label}[${index}].value.type`);
-    return {
-      name,
-      value: {
-        type: "env" as const,
-        env: credential(reference.env, `${label}[${index}].value.env`, names, caseInsensitive)
-      }
-    };
-  });
-}
-
-function parseTimeouts(value: unknown, label: string): ModelConnectionV2["timeouts"] {
-  const raw = closedRecord(value, label, TIMEOUTS);
-  const result = {
-    responseHeaderMs: requirePositiveSettingsInteger(
-      raw.responseHeaderMs,
-      `${label}.responseHeaderMs`,
-      MAX_SETTINGS_TIMEOUT_MS
-    ),
-    firstTokenMs: requirePositiveSettingsInteger(raw.firstTokenMs, `${label}.firstTokenMs`, MAX_SETTINGS_TIMEOUT_MS),
-    idleMs: requirePositiveSettingsInteger(raw.idleMs, `${label}.idleMs`, MAX_SETTINGS_TIMEOUT_MS),
-    totalMs: requirePositiveSettingsInteger(raw.totalMs, `${label}.totalMs`, MAX_SETTINGS_TIMEOUT_MS)
-  };
-  if (result.totalMs < Math.max(result.responseHeaderMs, result.firstTokenMs, result.idleMs)) {
-    throw new SettingsFormatError(`${label}.totalMs must not be shorter than an individual deadline`);
-  }
-  return result;
-}
-
 function parseModels(
   value: unknown,
   connections: Readonly<Record<string, ModelConnectionV2>>
@@ -406,26 +99,6 @@ function parseModels(
     };
   }
   return result;
-}
-
-export function parseMetadata(value: unknown, label: string): ModelScalarMetadataV2 {
-  const metadata = closedRecord(value, label, METADATA);
-  return {
-    ...(metadata.contextWindow === undefined ? {} : {
-      contextWindow: requirePositiveSettingsInteger(
-        metadata.contextWindow,
-        `${label}.contextWindow`,
-        MAX_SETTINGS_TOKEN_COUNT
-      )
-    }),
-    ...(metadata.maxOutputTokens === undefined ? {} : {
-      maxOutputTokens: requirePositiveSettingsInteger(
-        metadata.maxOutputTokens,
-        `${label}.maxOutputTokens`,
-        MAX_SETTINGS_TOKEN_COUNT
-      )
-    })
-  };
 }
 
 function parseCapabilities(value: unknown, label: string): ModelCapabilitiesV2 {
@@ -462,17 +135,6 @@ export function parseRouting(
 }
 
 export { settingsMap } from "./settings-v2-validation-record.js";
-
-function credential(
-  value: unknown,
-  label: string,
-  names: Set<string>,
-  caseInsensitive: boolean
-): string {
-  const name = requireCredentialName(value, label, caseInsensitive);
-  names.add(caseInsensitive ? name.toUpperCase() : name);
-  return name;
-}
 
 function routeReference(
   value: unknown,

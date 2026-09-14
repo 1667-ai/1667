@@ -1,3 +1,9 @@
+import {
+  emptyAsideDocument, appendSideNote, serializeAsideDocument
+} from "./aside-core.js";
+export {
+  emptyAsideDocument, appendSideNote, serializeAsideDocument
+} from "./aside-core.js";
 import { createHash } from "node:crypto";
 import {
   ASIDE_DOCUMENT_SCHEMA_VERSION,
@@ -39,10 +45,6 @@ const PAIR_JSON_FRAMING_BYTES = Buffer.byteLength(
  */
 const MAX_JSON_STRING_BYTES_PER_SCALAR = 6;
 
-/** Empty document. */
-export function emptyAsideDocument(): AsideDocument {
-  return { schemaVersion: ASIDE_DOCUMENT_SCHEMA_VERSION, notes: [] };
-}
 
 /**
  * Worst-case UTF-8 size reserved for one new Side Note pair before provider
@@ -76,43 +78,6 @@ export function canAdmitAsidePair(
   const nextBytes = currentDocumentUtf8Bytes + worstCasePairUtf8Bytes(question);
   if (nextBytes > MAX_ASIDE_DOCUMENT_BYTES) return { ok: false, reason: "size" };
   return { ok: true };
-}
-
-/** Append one pair and return a new document. Does not mutate the input. */
-export function appendSideNote(
-  document: AsideDocument | null,
-  question: string,
-  answer: string
-): AsideDocument {
-  assertAsideQuestion(question);
-  assertAsideAnswer(answer);
-  const notes = document?.notes ?? [];
-  if (notes.length >= MAX_SIDE_NOTES) {
-    throw new AsideDocumentError(
-      `Aside document already holds ${MAX_SIDE_NOTES} Side Notes; clear it before adding more`
-    );
-  }
-  const next: AsideDocument = {
-    schemaVersion: ASIDE_DOCUMENT_SCHEMA_VERSION,
-    notes: [...notes, { question, answer }]
-  };
-  const bytes = Buffer.byteLength(serializeAsideDocument(next), "utf8");
-  if (bytes > MAX_ASIDE_DOCUMENT_BYTES) {
-    throw new AsideDocumentError(
-      `Aside document would exceed its ${MAX_ASIDE_DOCUMENT_BYTES}-byte size limit`
-    );
-  }
-  return next;
-}
-
-/** Canonical JSON for content addressing. Key order is fixed. */
-export function serializeAsideDocument(document: AsideDocument): string {
-  assertAsideDocument(document);
-  const notes = document.notes.map((note) => ({
-    question: note.question,
-    answer: note.answer
-  }));
-  return JSON.stringify({ schemaVersion: ASIDE_DOCUMENT_SCHEMA_VERSION, notes });
 }
 
 export function parseAsideDocument(raw: string, expectedHash?: string): AsideDocument {

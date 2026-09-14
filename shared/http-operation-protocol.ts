@@ -3,7 +3,7 @@ import type { FailureEnvelope } from "./failure-envelope.js";
 import type { HttpRecoveryWarning } from "./http-protocol.js";
 import type { StoryAggregateVersion } from "./story-aggregate-version.js";
 import type { WorkerMethod } from "./worker-protocol.js";
-import { FACT_CONSISTENCY_OPERATION_DEADLINE_MS } from "./fact-consistency-types.js";
+import { FACT_CONSISTENCY_OPERATION_DEADLINE_MS } from "./fact-consistency-contract.js";
 
 export const HTTP_OPERATION_SESSION_HEADER = "x-1667-operation-session";
 export const HTTP_OPERATION_TICKET_HEADER = "x-1667-operation-ticket";

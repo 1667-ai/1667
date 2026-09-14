@@ -1,0 +1,1507 @@
+import { httpCapabilityScopeForApiPath } from "../shared/http-capability-scope.js";
+import { parseCanonicalLoopbackOrigin } from "../shared/http-loopback-origin.js";
+import type { HttpFetch } from "./direct-loopback-http.js";
+import type { ReasoningDelta } from "./reasoning.js";
+import {
+  readSseEvents,
+  readSseText,
+  SseIdleTimeoutError,
+  withSseIdleTimeout
+} from "./sse-stream-reader.js";
+import {
+  decodeChapterBreakCreatedResponse,
+  decodeChapterBreakRemovalPreview,
+  decodeChapterBreakRemovedResponse,
+  decodeContinueStoryResponse,
+  decodeDeleteStoryResponse,
+  decodeSearchResponse,
+  decodeStoryCatalogPageResponse,
+  decodeUnknownOutcomeStatusResponse,
+  decodeSettingsMutationResult,
+  decodeSettingsViewResponse,
+  decodeCommitPartialRewriteResponse,
+  decodeStoryResponse,
+  decodeSummaryTakeResponse,
+  decodeTokenProbabilitiesResponse,
+  decodeReasoningResponse,
+} from "./api-response-decoders.js";
+import {
+  decodeGenerationRecordSummariesResponse,
+  decodeGenerationRecordResponse,
+} from "./generation-record-response-decoders.js";
+import type {
+  SamplingBiasResolutionResult
+} from "../shared/sampling-capabilities.js";
+import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
+import type { RemovedChapterBreak } from "./api-response-decoders.js";
+import { storyFieldApi } from "./api-story-fields.js";
+import type { LorebookImport } from "../shared/lorebook-entry.js";
+import type { CardImportPlan } from "../shared/card-import.js";
+import type { FactBudgetDrop } from "../shared/fact-budget.js";
+import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
+import type { GenerationRecordSummary, ResolvedGenerationRecord } from "../shared/generation-record.js";
+import type { ReasoningRecord } from "../shared/reasoning.js";
+import type {
+  FactConsistencyInput,
+  FactConsistencyCheckInput,
+  FactConsistencyPlan,
+  FactConsistencyCheckResult
+} from "./fact-consistency-api.js";
+import {
+  decodeFactConsistencyPlanResponse,
+  decodeFactConsistencyCheckResponse,
+  decodeFactConsistencyRunResponse
+} from "./fact-consistency-api.js";
+
+import type {
+  TagStatus,
+  TagRequest,
+  CreateFactsRequest,
+  CreateNodeRequest,
+  DeleteNodeRequest,
+  FactPatch,
+  FactStateInput,
+  FactStatePatch,
+  GenerationSettings,
+  ModelServerCheckResult,
+  PasteStoryLineRequest,
+  PruneUnusedTakesRequest,
+  ReorderFactRequest,
+  RewriteRequest,
+  StoryNode,
+  StoryMarkdownExport,
+  StoryPayload,
+  StorySummary,
+  SwitchRequest,
+  TakeFromCutRequest
+} from "../shared/types.js";
+import type {
+  DiscardPendingSettingsCommand,
+  ModelDiscoveryResultV2,
+  SaveSettingsCommand,
+  SettingsMutationResult,
+  SettingsView
+} from "../shared/settings-v2-types.js";
+import type { ProviderProbeTarget } from "../shared/provider-probe-route-v1.js";
+import type { ChatMessage } from "../shared/prompt-plan.js";
+import type { PromptTokenCount } from "../shared/tokenize-source.js";
+import {
+  HTTP_FIDELITY_HEADER,
+  HTTP_API_PROTOCOL_VERSION,
+  HTTP_CLIENT_PROTOCOL_HEADER,
+  HTTP_SERVER_INSTANCE_HEADER,
+  type HttpApiMetadata
+} from "../shared/http-protocol.js";
+import {
+  HttpOperationClient,
+  HttpOperationError,
+  type HttpListenerBinding,
+  type HttpOperationRunOptions
+} from "../shared/http-operation-client.js";
+import type {
+  HttpListenerAuthority
+} from "../shared/http-listener-authority.js";
+import {
+  HTTP_OPERATION_LIFETIME_MS
+} from "../shared/http-operation-protocol.js";
+import { isWorkerMutationMethod } from "../shared/worker-protocol.js";
+import { resolveHttpApiRoute } from "../shared/http-operation-policy.js";
+import {
+  storyAggregateVersionIsAtLeast,
+  type StoryAggregateVersion
+} from "../shared/story-aggregate-version.js";
+import type { ProviderRecoveryContext } from "../shared/provider-recovery.js";
+import type { StoryCatalogPage } from "../shared/story-catalog.js";
+import type { SearchRequest, SearchResponse } from "../shared/story-search.js";
+import { createFailureEnvelope } from "../shared/failure-envelope.js";
+import type {
+  AsideAskRequest,
+  AsideAskResponse,
+  AsideRetakeRequest,
+  AsideLegacyReadResponse,
+  AsideReadRequest,
+  AsideReadResponse,
+  AsideSessionMutationResponse,
+  AsideSessionTargetRequest,
+  AsideTurnMutationRequest
+} from "../shared/aside-transport.js";
+import {
+  parseAsideAskResponse,
+  parseAsideLegacyReadResponse,
+  parseAsideReadResponse,
+  parseAsideResponse,
+  parseAsideSessionMutationResponse,
+  parseAsideSessionResponse
+} from "../shared/aside-transport-codec.js";
+import { HttpStoryVersions } from "./http-story-versions.js";
+import {
+  MemoryHttpMutationIntentStore,
+  type HttpAbsentMutation,
+  type HttpMutationIntentClaim,
+  type HttpMutationIntentStore
+} from "./http-mutation-intents.js";
+import {
+  ApiError,
+  ApiHttpError,
+  ApiRecoveryRequiredError,
+  apiHttpErrorFromPayload,
+  explicitMutationUnsentFromCause
+} from "./api-error.js";
+import { HttpApiConnection } from "./http-api-connection.js";
+import { importMethods } from "./api-import-methods.js";
+import { providerMethods } from "./api-provider-methods.js";
+import { imageMethods } from "./api-image-methods.js";
+import type {
+  DraftImageReference,
+  SourceImageMediaType,
+  StoryImageAttachment
+} from "../shared/image-attachment.js";
+import type {
+  AsideAskResult,
+  AsideStreamCallbacks,
+  ContinueTarget,
+  NarrowedSummaryPoint,
+  NovelAiStoryImportResult,
+  StoryApi,
+  StreamCallbacks,
+  SummaryStreamCallbacks
+} from "./api.js";
+import { textHash } from "./api.js";
+
+export interface HttpApiAccess {
+  readonly authority: HttpListenerAuthority;
+  readonly mutationIntents?: HttpMutationIntentStore;
+}
+
+const HTTP_REQUEST_TIMEOUT_MS = 15_000;
+export const HTTP_GENERATION_REQUEST_TIMEOUT_MS =
+  HTTP_OPERATION_LIFETIME_MS.generation;
+export const HTTP_FACT_CONSISTENCY_REQUEST_TIMEOUT_MS =
+  HTTP_OPERATION_LIFETIME_MS["fact-consistency"];
+export const HTTP_GENERATION_RECORD_READ_TIMEOUT_MS =
+  HTTP_OPERATION_LIFETIME_MS.transfer;
+
+export function createApi(
+  baseUrl: string,
+  onMetadata: ((metadata: HttpApiMetadata) => boolean | void) | undefined,
+  access: HttpApiAccess
+): StoryApi {
+  const root = parseCanonicalLoopbackOrigin(baseUrl).origin;
+  const mutationIntents = access.mutationIntents
+    ?? new MemoryHttpMutationIntentStore();
+  const url = (path: string) => `${root}${path}`;
+  const versions = new HttpStoryVersions();
+  const connection = new HttpApiConnection({
+    root,
+    authority: access.authority,
+    ...(onMetadata === undefined ? {} : { onMetadata })
+  });
+  const operations = new HttpOperationClient({
+    authority: access.authority,
+    onSession: (_scope, payload) =>
+      connection.publishRecoveryWarnings(payload.recoveryWarnings)
+  });
+  const runOperation = async <T>(
+    options: HttpOperationRunOptions<T>
+  ): Promise<T> => {
+    try {
+      return await operations.run(options);
+    } catch (error) {
+      if (error instanceof HttpOperationError) {
+        throw new ApiHttpError(error.failure, false);
+      }
+      throw error;
+    }
+  };
+  const compatible = async <T>(
+    work: (binding: HttpListenerBinding) => Promise<T>,
+    refresh = false,
+    signal?: AbortSignal,
+    mutation = false
+  ): Promise<T> =>
+    await connection.run(work, refresh, signal, mutation);
+  const request = async <T>(
+    method: string,
+    path: string,
+    decode: (payload: unknown) => T,
+    body?: unknown,
+    timeoutMs = HTTP_REQUEST_TIMEOUT_MS,
+    expectedAggregateVersion?: StoryAggregateVersion,
+    callerSignal?: AbortSignal,
+    mutationId?: string,
+    /** Overrides the default `application/octet-stream` a `Uint8Array` body
+     *  otherwise sends — a Draft Image upload needs its real media type so
+     *  the server's Content-Type check can tell PNG from JPEG from WebP.
+     *  Ignored for a string or absent body. */
+    binaryContentType?: string,
+    /** Optional query-bearing path sent on the wire. The operation reservation
+     * stays on `path`, because its canonical protocol path has no query. */
+    wirePath = path
+  ): Promise<T> => {
+    // A unary request retains the one backend-action owner until settlement,
+    // so plain requests get a hard timeout. Local/control input remains live;
+    // streaming calls keep their user-driven abort signal instead.
+    const deadlineSignal = AbortSignal.timeout(timeoutMs);
+    const signal = callerSignal === undefined
+      ? deadlineSignal
+      : AbortSignal.any([callerSignal, deadlineSignal]);
+    const mutation = isWorkerMutationMethod(
+      resolveHttpApiRoute(method, path).method
+    );
+    return await compatible(async (binding) => {
+      const entryRecoveryEpoch = connection.recoveryEpoch;
+      return await runOperation({
+        method,
+        path,
+        binding,
+        ...(mutationId === undefined ? {} : { mutationId }),
+        requestedLifetimeMs: timeoutMs,
+        ...(expectedAggregateVersion === undefined
+          ? {}
+          : { expectedAggregateVersion }),
+        callerSignal: signal,
+        beforeSend: () => {
+          if (mutation
+            && connection.recoveryEpoch !== entryRecoveryEpoch) {
+            throw new ApiRecoveryRequiredError();
+          }
+        },
+        execute: async (lease) => {
+          const response = await lease.fetch(url(wirePath), {
+            method,
+            headers: {
+              ...lease.headers,
+              ...(body === undefined
+                ? {}
+                : {
+                  "content-type": body instanceof Uint8Array
+                    ? binaryContentType ?? "application/octet-stream"
+                    : "application/json"
+                })
+            },
+            // A byte body is already bytes. JSON.stringify would send it as
+            // an index object, which the byte-reading route then reads as
+            // text. Send the Uint8Array itself: global fetch accepts it
+            // directly, and `createDirectLoopbackFetch` (--url mode) accepts
+            // only a string or a Uint8Array — never an ArrayBuffer.
+            body: body === undefined
+              ? undefined
+              : body instanceof Uint8Array
+                ? body.slice()
+                : JSON.stringify(body),
+            redirect: "error",
+            signal: lease.signal
+          });
+          const payload: unknown = await response.json().catch(() => null);
+          if (!response.ok) {
+            throw apiHttpErrorFromPayload(
+              payload,
+              `${method} ${path} failed (${response.status})`,
+              response.status
+            );
+          }
+          return decode(payload);
+        },
+        shouldRetry: (error) => !(error instanceof ApiError)
+      });
+    }, true, signal, mutation);
+  };
+  const loadVersionedStory = async (
+    storyId: string,
+    callerSignal?: AbortSignal
+  ): Promise<StoryPayload> =>
+    versions.rememberPayload(await request(
+      "GET",
+      `/api/stories/${storyId}`,
+      decodeStoryResponse,
+      undefined,
+      HTTP_REQUEST_TIMEOUT_MS,
+      undefined,
+      callerSignal
+    ));
+  const expectedVersion = async (
+    storyId: string,
+    callerSignal?: AbortSignal
+  ): Promise<StoryAggregateVersion> => await versions.expected(
+    storyId,
+    () => loadVersionedStory(storyId, callerSignal)
+  );
+  const refreshAsideMutation = async (
+    storyId: string,
+    response: AsideSessionMutationResponse
+  ): Promise<AsideSessionMutationResponse> => {
+    if (response.payload !== undefined) {
+      versions.rememberPayload(response.payload);
+      return response;
+    }
+    let payload: StoryPayload | undefined;
+    try {
+      payload = await loadVersionedStory(storyId);
+    } catch {
+      // The session mutation is already committed. Keep its canonical id and
+      // forget the stale story token so the next mutation refreshes lazily.
+      versions.forget(storyId);
+    }
+    return payload === undefined ? response : { ...response, payload };
+  };
+  const runProviderMutation = async <T>(
+    storyId: string,
+    work: () => Promise<T>
+  ): Promise<T> => {
+    try {
+      const result = await work();
+      if (result === null) versions.forget(storyId);
+      return result;
+    } catch (error) {
+      // A terminal provider failure can advance the receipt-only story
+      // revision without returning a payload that carries the new token.
+      versions.forget(storyId);
+      throw error;
+    }
+  };
+  const stream = async (
+    storyId: string,
+    path: string,
+    payload: unknown,
+    onDelta: (text: string) => void,
+    signal: AbortSignal,
+    callbacks: StreamCallbacks = {}
+  ) => {
+    if (signal.aborted) return null;
+    try {
+      return await runProviderMutation(storyId, async () => {
+        const expectedAggregateVersion = await expectedVersion(
+          storyId,
+          signal
+        );
+        return await compatible(
+          async (binding) => {
+            const entryRecoveryEpoch = connection.recoveryEpoch;
+            return await runOperation({
+              method: "POST",
+              path,
+              binding,
+              requestedLifetimeMs: HTTP_GENERATION_REQUEST_TIMEOUT_MS,
+              expectedAggregateVersion,
+              callerSignal: signal,
+              beforeSend: () => {
+                if (connection.recoveryEpoch !== entryRecoveryEpoch) {
+                  throw new ApiRecoveryRequiredError();
+                }
+              },
+              execute: async (lease) =>
+                await streamSse(
+                  lease.fetch,
+                  url(path),
+                  payload,
+                  onDelta,
+                  lease.signal,
+                  signal,
+                  lease.headers,
+                  callbacks
+                ),
+              shouldRetry: (error) => !(error instanceof ApiError
+                || error instanceof SseIdleTimeoutError)
+            });
+          },
+          true,
+          signal,
+          true
+        );
+      });
+    } catch (error) {
+      // A parsed SSE terminal or a failed operation-status settlement is
+      // canonical server evidence. It stays authoritative over a Stop that
+      // arrived from an earlier delta in the same read.
+      if (error instanceof ApiHttpError) throw error;
+      if (signal.aborted) return null;
+      throw error;
+    }
+  };
+  const mutateStoryPayload = async (
+    storyId: string,
+    method: string,
+    path: string,
+    body?: unknown,
+    timeoutMs = HTTP_REQUEST_TIMEOUT_MS,
+    callerSignal?: AbortSignal
+  ): Promise<StoryPayload> => versions.rememberPayload(await request(
+    method,
+    path,
+    decodeStoryResponse,
+    body,
+    timeoutMs,
+    await expectedVersion(storyId, callerSignal),
+    callerSignal
+  ));
+
+  const runAbsentImportMutation = async <T>(
+    workerMethod: HttpAbsentMutation,
+    intentKey: string,
+    path: string,
+    contentType: string,
+    body: string,
+    decode: (value: unknown) => T
+  ): Promise<T> => {
+    const intent = await mutationIntents.claim(workerMethod, intentKey);
+    try {
+      const payload = await compatible(
+        async (binding) => {
+          const signal = AbortSignal.timeout(
+            HTTP_OPERATION_LIFETIME_MS.transfer
+          );
+          const entryRecoveryEpoch = connection.recoveryEpoch;
+          return await runOperation({
+            method: "POST",
+            path,
+            binding,
+            mutationId: intent.mutationId,
+            requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
+            expectedAggregateVersion: { kind: "absent" },
+            callerSignal: signal,
+            beforeSend: () => {
+              if (connection.recoveryEpoch !== entryRecoveryEpoch) {
+                throw new ApiRecoveryRequiredError();
+              }
+            },
+            execute: async (lease) => {
+              const response = await lease.fetch(url(path), {
+                method: "POST",
+                headers: {
+                  ...lease.headers,
+                  "content-type": contentType
+                },
+                body,
+                redirect: "error",
+                signal: lease.signal
+              });
+              const payload: unknown = await response.json().catch(() => null);
+              if (!response.ok) {
+                throw apiHttpErrorFromPayload(
+                  payload,
+                  `Import failed (${response.status})`,
+                  response.status
+                );
+              }
+              return decode(payload);
+            },
+            shouldRetry: (error) => !(error instanceof ApiError)
+          });
+        },
+        true,
+        undefined,
+        true
+      );
+      await intent.complete();
+      return payload;
+    } catch (error) {
+      return await settleAbsentMutationFailure(intent, error);
+    }
+  };
+
+  return {
+    listStories: async () => {
+      for (let attempt = 0; attempt < 2; attempt += 1) {
+        const held = new Map<string, StorySummary>();
+        let scanId: string | null = null;
+        let cursor: string | null = null;
+        try {
+          do {
+            const page: StoryCatalogPage = await request(
+              "POST",
+              "/api/stories/catalog-page",
+              decodeStoryCatalogPageResponse,
+              { cursor, maxEntries: 64 }
+            );
+            if (scanId !== null && page.scanId !== scanId) {
+              throw new Error(
+                "The story catalog scan changed between pages."
+              );
+            }
+            scanId = page.scanId;
+            for (const summary of page.items) {
+              const current = held.get(summary.id);
+              if (current === undefined
+                || summaryIsNewer(summary, current)) {
+                held.set(summary.id, summary);
+              }
+            }
+            cursor = page.cursor;
+          } while (cursor !== null);
+        } catch (error) {
+          if (attempt === 0
+            && error instanceof ApiHttpError
+            && error.code === "catalog_cursor_expired") {
+            continue;
+          }
+          throw error;
+        }
+        return versions.rememberSummaries(
+          [...held.values()].sort((a, b) =>
+            b.updatedAt.localeCompare(a.updatedAt))
+        );
+      }
+      throw new Error("The story catalog retry was exhausted.");
+    },
+    searchStories: async (search, signal) => await request(
+      "POST",
+      "/api/stories/search",
+      decodeSearchResponse,
+      search,
+      HTTP_REQUEST_TIMEOUT_MS,
+      undefined,
+      signal
+    ),
+    createStory: async (title) => {
+      const normalizedTitle = title?.trim() || "Untitled";
+      const intent = await mutationIntents.claim(
+        "createStory",
+        normalizedTitle
+      );
+      try {
+        const payload = await request(
+          "POST",
+          "/api/stories",
+          decodeStoryResponse,
+          { title: normalizedTitle },
+          HTTP_REQUEST_TIMEOUT_MS,
+          { kind: "absent" },
+          undefined,
+          intent.mutationId
+        );
+        await intent.complete();
+        return versions.rememberPayload(payload);
+      } catch (error) {
+        return await settleAbsentMutationFailure(intent, error);
+      }
+    },
+    loadStory: loadVersionedStory,
+    ...storyFieldApi(mutateStoryPayload),
+    autonameStory: async (id) => {
+      return await runProviderMutation(id, async () => {
+        const current = await loadVersionedStory(id);
+        return await mutateStoryPayload(
+          id,
+          "POST",
+          `/api/stories/${id}/autoname`,
+          { expectedTitle: current.title },
+          HTTP_GENERATION_REQUEST_TIMEOUT_MS
+        );
+      });
+    },
+    acknowledgeUnknownOutcomes: async (
+      storyId,
+      originalProviderMutationId
+    ) => {
+      const status = await request(
+        "GET",
+        `/api/stories/${storyId}/unknown-outcomes/${originalProviderMutationId}`,
+        decodeUnknownOutcomeStatusResponse
+      );
+      if (status.state === "resolved") {
+        if (status.deleted) {
+          versions.forget(storyId);
+          return null;
+        }
+        return await loadVersionedStory(storyId);
+      }
+      versions.set(storyId, status.aggregateVersion);
+      const payload = await request(
+        "POST",
+        `/api/stories/${storyId}/unknown-outcomes/`
+          + `${originalProviderMutationId}/ack`,
+        (payload) => payload === null ? null : decodeStoryResponse(payload),
+        {},
+        HTTP_REQUEST_TIMEOUT_MS,
+        status.aggregateVersion
+      );
+      if (payload === null) versions.forget(storyId);
+      else versions.rememberPayload(payload);
+      return payload;
+    },
+    deleteStory: async (id) => {
+      const result = await request(
+        "DELETE",
+        `/api/stories/${id}`,
+        decodeDeleteStoryResponse,
+        undefined,
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(id)
+      );
+      versions.forget(id);
+      return result;
+    },
+    exportMarkdown: async (id) => compatible(
+      async (binding) => {
+        const path = `/api/stories/${id}/export`;
+        const signal = AbortSignal.timeout(
+          HTTP_OPERATION_LIFETIME_MS.transfer
+        );
+        return await runOperation({
+          method: "GET",
+          path,
+          binding,
+          requestedLifetimeMs: HTTP_OPERATION_LIFETIME_MS.transfer,
+          callerSignal: signal,
+          execute: async (lease) => {
+            const response = await lease.fetch(url(path), {
+              headers: lease.headers,
+              redirect: "error",
+              signal: lease.signal
+            });
+            const text = await response.text();
+            if (!response.ok) {
+              const payload = parseJson(text);
+              throw apiHttpErrorFromPayload(
+                payload,
+                `GET /api/stories/${id}/export failed (${response.status})`,
+                response.status
+              );
+            }
+            const fidelityHeader = response.headers.get(HTTP_FIDELITY_HEADER);
+            let fidelity: readonly string[] = [];
+            if (fidelityHeader !== null && fidelityHeader.length > 0) {
+              try {
+                const parsed: unknown = JSON.parse(decodeURIComponent(fidelityHeader));
+                if (!Array.isArray(parsed) || !parsed.every((item) => typeof item === "string")) {
+                  throw new Error("invalid fidelity report");
+                }
+                fidelity = parsed;
+              } catch {
+                throw new Error("The server returned an invalid Markdown export fidelity report.");
+              }
+            }
+            return { markdown: text, fidelity };
+          }
+        });
+      },
+      true
+    ),
+    getTokenProbabilities: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/token-probabilities`,
+      decodeTokenProbabilitiesResponse
+    ),
+    getGenerationRecords: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/generation-records`,
+      decodeGenerationRecordSummariesResponse,
+      undefined,
+      HTTP_GENERATION_RECORD_READ_TIMEOUT_MS
+    ),
+    getGenerationRecord: (storyId, nodeId, recordId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/generation-records/${recordId}`,
+      decodeGenerationRecordResponse,
+      undefined,
+      HTTP_GENERATION_RECORD_READ_TIMEOUT_MS
+    ),
+    getReasoning: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/reasoning`,
+      decodeReasoningResponse
+    ),
+    planFactConsistency: (input) => request(
+      "POST",
+      `/api/stories/${input.storyId}/fact-consistency/plan`,
+      decodeFactConsistencyPlanResponse,
+      { focusedPartId: input.focusedPartId, scope: input.scope }
+    ),
+    checkFactConsistency: async (input) => runProviderMutation(input.storyId, async () => {
+      const result = await request(
+        "POST",
+        `/api/stories/${input.storyId}/fact-consistency/check`,
+        decodeFactConsistencyCheckResponse,
+        {
+          focusedPartId: input.focusedPartId,
+          scope: input.scope,
+          planToken: input.planToken
+        },
+        HTTP_FACT_CONSISTENCY_REQUEST_TIMEOUT_MS,
+        await expectedVersion(input.storyId)
+      );
+      versions.rememberPayload(result.payload);
+      return result;
+    }),
+    getFactConsistencyRun: (storyId) => request(
+      "GET",
+      `/api/stories/${storyId}/fact-consistency`,
+      decodeFactConsistencyRunResponse,
+      undefined,
+      HTTP_GENERATION_REQUEST_TIMEOUT_MS
+    ),
+    getAside: (storyId) => request(
+      "GET",
+      `/api/stories/${storyId}/aside`,
+      decodeAsideLegacyReadResponse
+    ),
+    getAsideV2: async (asideRequest) => {
+      const path = `/api/stories/${asideRequest.storyId}/aside`;
+      const wirePath = asideReadWirePath(path, asideRequest.anchor);
+      return await request(
+        "GET",
+        path,
+        decodeAsideReadResponseOrNull,
+        undefined,
+        HTTP_REQUEST_TIMEOUT_MS,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        wirePath
+      );
+    },
+    askAside: async (storyId, question, onDelta, signal) => {
+      const done = await stream(
+        storyId,
+        `/api/stories/${storyId}/aside/ask`,
+        { question },
+        onDelta,
+        signal
+      );
+      if (done === null) return null;
+      if (done.aside === null) return null;
+      if (done.aside === undefined || typeof done.aside !== "object") {
+        throw new Error("The server did not return an Aside result.");
+      }
+      // The Aside terminal event carries the document view, not a StoryPayload
+      // and its aggregate version. Refresh the version before the next local
+      // mutation, or a clear/delete can use the pre-Aside revision. The Aside
+      // is already committed when this event arrives. A refresh failure must
+      // not hide that document and invite a duplicate question; forget the
+      // stale token so the next mutation loads it lazily.
+      const aside = done.aside as { notes: readonly { question: string; answer: string }[] };
+      let payload: StoryPayload | undefined;
+      try {
+        payload = await loadVersionedStory(storyId);
+      } catch {
+        versions.forget(storyId);
+      }
+      return payload === undefined ? aside : { ...aside, payload };
+    },
+    askAsideV2: async (asideRequest, onDelta, callbacks, signal) => {
+      const streamCallbacks = callbacks === undefined
+        ? undefined
+        : {
+            ...callbacks,
+            onReasoning: (delta: ReasoningDelta) => {
+              callbacks.onPhase?.("thinking");
+              callbacks.onReasoning?.(delta);
+            }
+          } satisfies StreamCallbacks;
+      const done = await stream(
+        asideRequest.storyId,
+        `/api/stories/${asideRequest.storyId}/aside/ask`,
+        {
+          question: asideRequest.question,
+          anchor: asideRequest.anchor,
+          ...(asideRequest.sessionId === undefined
+            ? {} : { sessionId: asideRequest.sessionId })
+        },
+        (text) => {
+          callbacks?.onPhase?.("writing");
+          onDelta(text);
+        },
+        signal,
+        streamCallbacks
+      );
+      if (done === null || done.aside === null) return null;
+      if (done.aside === undefined || typeof done.aside !== "object") {
+        throw new Error("The server did not return an Aside session result.");
+      }
+      const aside = decodeAsideAskResponse(done.aside);
+      if (aside.payload !== undefined) {
+        versions.rememberPayload(aside.payload);
+        return aside;
+      }
+      let payload: StoryPayload | undefined;
+      try {
+        payload = await loadVersionedStory(asideRequest.storyId);
+      } catch {
+        versions.forget(asideRequest.storyId);
+      }
+      return payload === undefined ? aside : { ...aside, payload };
+    },
+    deleteAsideTurn: async (mutation) => {
+      const path = `/api/stories/${mutation.storyId}/aside/session`;
+      const response = await request(
+        "POST",
+        path,
+        decodeAsideSessionMutationResponse,
+        {
+          operation: "delete-turn",
+          sessionId: mutation.sessionId,
+          turnIndex: mutation.turnIndex,
+          anchor: mutation.anchor
+        },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(mutation.storyId)
+      );
+      return await refreshAsideMutation(mutation.storyId, response);
+    },
+    resetAside: async (mutation) => {
+      const path = `/api/stories/${mutation.storyId}/aside/session`;
+      const response = await request(
+        "POST",
+        path,
+        decodeAsideSessionMutationResponse,
+        {
+          operation: "reset",
+          sessionId: mutation.sessionId,
+          turnIndex: mutation.turnIndex,
+          anchor: mutation.anchor
+        },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(mutation.storyId)
+      );
+      return await refreshAsideMutation(mutation.storyId, response);
+    },
+    clearAsideSession: async (mutation) => {
+      const path = `/api/stories/${mutation.storyId}/aside/session`;
+      const response = await request(
+        "POST",
+        path,
+        decodeAsideSessionMutationResponse,
+        {
+          operation: "clear",
+          sessionId: mutation.sessionId,
+          anchor: mutation.anchor
+        },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(mutation.storyId)
+      );
+      return await refreshAsideMutation(mutation.storyId, response);
+    },
+    retakeAside: async (mutation, onDelta, callbacks, signal) => {
+      const streamCallbacks = callbacks === undefined
+        ? undefined
+        : {
+            ...callbacks,
+            onReasoning: (delta: ReasoningDelta) => {
+              callbacks.onPhase?.("thinking");
+              callbacks.onReasoning?.(delta);
+            }
+          } satisfies StreamCallbacks;
+      const done = await stream(
+        mutation.storyId,
+        `/api/stories/${mutation.storyId}/aside/retake`,
+        {
+          sessionId: mutation.sessionId,
+          turnIndex: mutation.turnIndex,
+          anchor: mutation.anchor,
+          ...(mutation.question === undefined ? {} : { question: mutation.question })
+        },
+        (text) => {
+          callbacks?.onPhase?.("writing");
+          onDelta(text);
+        },
+        signal,
+        streamCallbacks
+      );
+      if (done === null || done.aside === null) return null;
+      if (done.aside === undefined || typeof done.aside !== "object") {
+        throw new Error("The server did not return an Aside session result.");
+      }
+      const aside = decodeAsideAskResponse(done.aside);
+      if (aside.payload !== undefined) {
+        versions.rememberPayload(aside.payload);
+        return aside;
+      }
+      let payload: StoryPayload | undefined;
+      try {
+        payload = await loadVersionedStory(mutation.storyId);
+      } catch {
+        versions.forget(mutation.storyId);
+      }
+      return payload === undefined ? aside : { ...aside, payload };
+    },
+    clearAside: (storyId) => mutateStoryPayload(
+      storyId,
+      "DELETE",
+      `/api/stories/${storyId}/aside`
+    ),
+    switchLine: (storyId, nodeId, options = {}) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/switch`,
+      { nodeId, ...options } satisfies SwitchRequest
+    ),
+    // createNode only: version preflight is adapter-owned and runs before any
+    // node mutation is reserved or sent. Failures here are definitely unsent
+    // (Placement may already hold a singular guard). Other mutations keep the
+    // shared mutateStoryPayload path unchanged.
+    createNode: async (storyId, body) => {
+      let expectedAggregateVersion: StoryAggregateVersion;
+      try {
+        expectedAggregateVersion = await expectedVersion(storyId);
+      } catch (error) {
+        throw explicitMutationUnsentFromCause(
+          error,
+          "createNode was not sent",
+          "createNode was not sent; story version preflight failed."
+        );
+      }
+      return versions.rememberPayload(await request(
+        "POST",
+        `/api/stories/${storyId}/nodes`,
+        decodeStoryResponse,
+        body,
+        HTTP_REQUEST_TIMEOUT_MS,
+        expectedAggregateVersion
+      ));
+    },
+    editNode: async (storyId, node, patch) => mutateStoryPayload(
+      storyId,
+      "PATCH",
+      `/api/stories/${storyId}/nodes/${node.id}`,
+      {
+        ...patch,
+        expectedTextHash: await textHash(node.text)
+      }
+    ),
+    deleteNode: (storyId, nodeId, expectedSubtreeCount) =>
+      mutateStoryPayload(
+        storyId,
+        "DELETE",
+        `/api/stories/${storyId}/nodes/${nodeId}`,
+        { expectedSubtreeCount } satisfies DeleteNodeRequest
+      ),
+    pruneUnusedTakes: (storyId, body) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/prune-unused-takes`,
+        body
+      ),
+    takeFromCut: (storyId, nodeId, body) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/nodes/${nodeId}/take-from-cut`,
+        body
+      ),
+    pasteStoryLine: (storyId, targetParentId, body) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/nodes/${targetParentId}/paste-line`,
+        body
+      ),
+    putBookmark: (storyId, nodeId, name, status) =>
+      mutateStoryPayload(
+        storyId,
+        "PUT",
+        `/api/stories/${storyId}/tags/${nodeId}`,
+        { name, status } satisfies TagRequest
+      ),
+    deleteBookmark: (storyId, nodeId) => mutateStoryPayload(
+      storyId,
+      "DELETE",
+      `/api/stories/${storyId}/tags/${nodeId}`
+    ),
+    createFact: (storyId, body) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts`,
+      body
+    ),
+    patchFact: (storyId, factId, body) => mutateStoryPayload(
+      storyId,
+      "PATCH",
+      `/api/stories/${storyId}/facts/${factId}`,
+      body
+    ),
+    deleteFact: (storyId, factId) => mutateStoryPayload(
+      storyId,
+      "DELETE",
+      `/api/stories/${storyId}/facts/${factId}`
+    ),
+    createFactState: (storyId, factId, body) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/states`,
+      body
+    ),
+    patchFactState: (storyId, factId, stateId, body) => mutateStoryPayload(
+      storyId,
+      "PATCH",
+      `/api/stories/${storyId}/facts/${factId}/states/${stateId}`,
+      body
+    ),
+    deleteFactState: (storyId, factId, stateId) => mutateStoryPayload(
+      storyId,
+      "DELETE",
+      `/api/stories/${storyId}/facts/${factId}/states/${stateId}`
+    ),
+    reorderFact: (storyId, factId, toIndex) => mutateStoryPayload(
+      storyId,
+      "POST",
+      `/api/stories/${storyId}/facts/${factId}/reorder`,
+      { toIndex } satisfies ReorderFactRequest
+    ),
+    createChapterBreak: async (storyId, parentPartId, title = "") => {
+      const result = await request(
+        "POST",
+        `/api/stories/${storyId}/chapter-breaks`,
+        decodeChapterBreakCreatedResponse,
+        { parentPartId, title },
+        HTTP_REQUEST_TIMEOUT_MS,
+        await expectedVersion(storyId)
+      );
+      versions.rememberPayload(result.payload);
+      return result;
+    },
+    renameChapterBreak: (storyId, breakId, title) =>
+      mutateStoryPayload(
+        storyId,
+        "PATCH",
+        breakId === null
+          ? `/api/stories/${storyId}/chapter-breaks`
+          : `/api/stories/${storyId}/chapter-breaks/${breakId}`,
+        { title }
+      ),
+    removeChapterBreak: async (storyId, breakId) => {
+      const preview = await request(
+        "GET",
+        `/api/stories/${storyId}/chapter-breaks/${breakId}/preview`,
+        decodeChapterBreakRemovalPreview
+      );
+      const result = await request(
+        "DELETE",
+        breakId === null
+          ? `/api/stories/${storyId}/chapter-breaks`
+          : `/api/stories/${storyId}/chapter-breaks/${breakId}`,
+        decodeChapterBreakRemovedResponse,
+        { removedFingerprint: preview.removedFingerprint },
+        HTTP_REQUEST_TIMEOUT_MS,
+        preview.aggregateVersion
+      );
+      versions.rememberPayload(result.payload);
+      return result;
+    },
+    restoreChapterBreak: (storyId, breakId, removed) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/chapter-breaks/${breakId}/restore`,
+        removed
+      ),
+    summarizeChapter: (storyId, breakId, signal) =>
+      runProviderMutation(storyId, () => mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/chapter-breaks/${breakId}/summarize`,
+        {},
+        HTTP_GENERATION_REQUEST_TIMEOUT_MS,
+        signal
+      )),
+    editChapterSummary: async (storyId, summaryId, text, expected) =>
+      mutateStoryPayload(
+        storyId,
+        "PATCH",
+        `/api/stories/${storyId}/nodes/${summaryId}`,
+        {
+          text,
+          expectedTextHash: await textHash(expected)
+        }
+      ),
+    getSettings: () => request(
+      "GET",
+      "/api/settings",
+      (value) => decodeSettingsViewResponse(value, {
+        environmentCaseInsensitive: process.platform === "win32"
+      })
+    ),
+    saveSettings: (command) => request(
+      "PUT",
+      "/api/settings",
+      decodeSettingsMutationResult,
+      command,
+      HTTP_REQUEST_TIMEOUT_MS,
+      undefined,
+      undefined,
+      command.mutationId
+    ),
+    discardPendingSettings: (command) =>
+      request(
+        "DELETE",
+        "/api/settings/pending",
+        decodeSettingsMutationResult,
+        command,
+        HTTP_REQUEST_TIMEOUT_MS,
+        undefined,
+        undefined,
+        command.mutationId
+      ),
+    ...providerMethods({ request }),
+    ...importMethods({ runAbsentImportMutation, request, versions, expectedVersion }),
+    ...imageMethods({ request }),
+    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks, images) => {
+      const done = await stream(
+        storyId,
+        `/api/stories/${storyId}/continue`,
+        {
+          instruction,
+          genId,
+          ...target,
+          // Absent rather than empty when there are no images, so a text-only
+          // request body stays exactly what it was before image input existed.
+          ...(images === undefined || images.length === 0 ? {} : { images })
+        },
+        onDelta,
+        signal,
+        callbacks
+      );
+      if (done === null) return null;
+      const result = decodeContinueStoryResponse(done);
+      versions.rememberPayload(result.payload);
+      return result;
+    },
+    rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, callbacks) => {
+      const done = await stream(
+        storyId,
+        `/api/stories/${storyId}/nodes/${nodeId}/rewrite`,
+        body,
+        onDelta,
+        signal,
+        callbacks
+      );
+      if (done === null) return null;
+      if (typeof done.nodeId !== "string") throw new Error("The server did not return the rewritten take.");
+      // The take is durable this instant — tell the caller before the
+      // confirming reload below, which can itself reject and otherwise
+      // swallow the fact that the take already landed.
+      onCommitted?.(done.nodeId);
+      await loadVersionedStory(storyId);
+      return done.nodeId;
+    },
+    commitPartialRewrite: async (storyId, nodeId, streamedDigest, attemptId) => {
+      const intent = await mutationIntents.claim(
+        "commitPartialRewrite",
+        JSON.stringify({ storyId, nodeId, streamedDigest, attemptId })
+      );
+      try {
+        const committed = await request(
+          "POST",
+          `/api/stories/${storyId}/nodes/${nodeId}/rewrite-partial`,
+          decodeCommitPartialRewriteResponse,
+          { streamedDigest, attemptId },
+          HTTP_REQUEST_TIMEOUT_MS,
+          await expectedVersion(storyId),
+          undefined,
+          intent.mutationId
+        );
+        await intent.complete();
+        if (committed === null) return null;
+        versions.rememberPayload(committed.payload);
+        return committed;
+      } catch (error) {
+        return await settlePartialRewriteFailure(intent, error);
+      }
+    },
+    createSummaryTake: async (storyId, body, onDelta, signal, callbacks) => {
+      const done = await stream(
+        storyId,
+        `/api/stories/${storyId}/summary-take`,
+        body,
+        onDelta,
+        signal,
+        callbacks
+      );
+      if (done === null) return null;
+      const result = decodeSummaryTakeResponse(done);
+      await loadVersionedStory(storyId);
+      return result;
+    }
+  };
+}
+
+/** The callers read `.facts` straight off this, so a bad shape fails here at
+ * the boundary rather than at a `.filter` deep inside a panel. */
+
+async function settleAbsentMutationFailure(
+  intent: HttpMutationIntentClaim,
+  error: unknown
+): Promise<never> {
+  try {
+    if (intent.reused
+      && (error instanceof ApiRecoveryRequiredError
+        || (error instanceof ApiHttpError && !error.requestSent))) {
+      await intent.retain();
+    } else if (error instanceof ApiError) {
+      await intent.complete();
+    } else {
+      await intent.retain();
+    }
+  } catch (settlementError) {
+    throw new AggregateError(
+      [error, settlementError],
+      "HTTP mutation failure and intent settlement both failed",
+      { cause: error }
+    );
+  }
+  throw error;
+}
+
+async function settlePartialRewriteFailure(
+  intent: HttpMutationIntentClaim,
+  error: unknown
+): Promise<never> {
+  try {
+    if (isRetryablePartialSettlementFailure(error)) await intent.retain();
+    else await intent.complete();
+  } catch (settlementError) {
+    throw new AggregateError(
+      [error, settlementError],
+      "Partial-rewrite settlement failure and intent settlement both failed",
+      { cause: error }
+    );
+  }
+  throw error;
+}
+
+function isRetryablePartialSettlementFailure(error: unknown): boolean {
+  if (error instanceof ApiRecoveryRequiredError) return true;
+  if (error instanceof ApiHttpError) {
+    // A terminal operation failure reaches us with requestSent=false because
+    // the operation client owns the failed response. Its 4xx status still
+    // proves this exact mutation reached a terminal domain outcome.
+    return error.status >= 500;
+  }
+  // Transport and local durability failures have no terminal server outcome.
+  // Keep the stable settlement identity so the next exact request can replay it.
+  return !(error instanceof ApiError);
+}
+
+function summaryIsNewer(
+  candidate: StorySummary,
+  current: StorySummary
+): boolean {
+  const candidateVersion = candidate.aggregateVersion;
+  const currentVersion = current.aggregateVersion;
+  if (candidateVersion?.kind === "v6"
+    && currentVersion?.kind === "v6") {
+    return candidateVersion.revision > currentVersion.revision;
+  }
+  return candidateVersion?.kind === "v6"
+    && currentVersion?.kind !== "v6";
+}
+
+function parseJson(value: string): unknown {
+  try { return JSON.parse(value); } catch { return null; }
+}
+
+function asideReadWirePath(
+  path: string,
+  anchor: AsideReadRequest["anchor"]
+): string {
+  if (anchor === undefined) return path;
+  const query = new URLSearchParams();
+  if (anchor === null) {
+    query.set("unanchored", "true");
+  } else {
+    query.set("partId", anchor.partId);
+    query.set("takeId", anchor.takeId);
+  }
+  return `${path}?${query.toString()}`;
+}
+
+function decodeAsideSessionResponse(value: unknown): AsideAskResponse {
+  try {
+    return parseAsideSessionResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside session.");
+  }
+}
+
+function decodeAsideLegacyReadResponse(value: unknown): AsideLegacyReadResponse {
+  try {
+    return parseAsideLegacyReadResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside document.");
+  }
+}
+
+function decodeAsideReadResponse(value: unknown): AsideReadResponse {
+  try {
+    return parseAsideReadResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside v2 read.");
+  }
+}
+
+function decodeAsideReadResponseOrNull(value: unknown): AsideReadResponse | null {
+  const parsed = parseAsideResponse(value);
+  if ("notes" in parsed) {
+    // A v1 server has no anchored-session read. Let the surface fall back to
+    // its unchanged legacy path instead of changing how old notes render.
+    return null;
+  }
+  if ("sessions" in parsed) return parsed;
+  return {
+    schemaVersion: 2,
+    anchor: parsed.anchor,
+    sessions: [parsed],
+    anchors: parsed.anchor === null
+      ? [] : [{ ...parsed.anchor, sessionCount: 1 }],
+    unanchoredCount: parsed.anchor === null ? 1 : 0
+  };
+}
+
+function decodeAsideAskResponse(value: unknown): AsideAskResponse {
+  try {
+    return parseAsideAskResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside response.");
+  }
+}
+
+function decodeAsideSessionMutationResponse(value: unknown): AsideSessionMutationResponse {
+  try {
+    return parseAsideSessionMutationResponse(value);
+  } catch (error) {
+    throw new Error(error instanceof Error ? error.message : "The server returned an invalid Aside response.");
+  }
+}
+
+async function streamSse(
+  transport: HttpFetch,
+  endpoint: string,
+  payload: unknown,
+  onDelta: (text: string) => void,
+  signal: AbortSignal,
+  callerSignal: AbortSignal,
+  protocolHeaders: Readonly<Record<string, string>>,
+  callbacks: StreamCallbacks = {}
+): Promise<Record<string, unknown> | null> {
+  const { onStopped, onReasoning, onReasoningStopped } = callbacks;
+  let response: Response;
+  const streamAbort = new AbortController();
+  const transportSignal = AbortSignal.any([signal, streamAbort.signal]);
+  try {
+    response = await withSseIdleTimeout(transport(endpoint, {
+      method: "POST",
+      headers: { ...protocolHeaders, "content-type": "application/json" },
+      body: JSON.stringify(payload),
+      redirect: "error",
+      signal: transportSignal
+    }), {
+      onTimeout: (error) => streamAbort.abort(error)
+    });
+  } catch (error) {
+    if (callerSignal.aborted) return null;
+    if (signal.aborted) throw operationDeadlineError(signal.reason);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+  if (!response.ok || response.body === null) {
+    let errorPayload: unknown = null;
+    if (response.body !== null) {
+      try {
+        errorPayload = parseJson(await readSseText(response.body));
+      } catch (error) {
+        streamAbort.abort(error);
+        if (callerSignal.aborted) return null;
+        if (signal.aborted) throw operationDeadlineError(signal.reason);
+        throw error instanceof Error ? error : new Error(String(error));
+      }
+    }
+    throw apiHttpErrorFromPayload(
+      errorPayload,
+      `Request failed (${response.status})`,
+      response.status
+    );
+  }
+  let completed: Record<string, unknown> | null = null;
+  let terminalEvidence: "done" | "error" | null = null;
+  let stoppedTail = "";
+  let stoppedDelivered = false;
+  const deliverStopped = () => {
+    if (stoppedDelivered || stoppedTail.length === 0) return;
+    stoppedDelivered = true;
+    onStopped?.(stoppedTail);
+  };
+  // Reasoning gets its own withheld-tail accumulator and its own delivery,
+  // so it can never be concatenated onto `stoppedTail` and read back as
+  // story prose.
+  let stoppedReasoningTail = "";
+  let stoppedReasoningDelivered = false;
+  const deliverReasoningStopped = () => {
+    if (stoppedReasoningDelivered || stoppedReasoningTail.length === 0) return;
+    stoppedReasoningDelivered = true;
+    onReasoningStopped?.(stoppedReasoningTail);
+  };
+  try {
+    await readSseEvents(response.body, (data) => {
+      const event = JSON.parse(data) as {
+        type: string;
+        text?: string;
+        tokenCount?: unknown;
+        message?: string;
+        code?: unknown;
+        status?: unknown;
+        diagnosticRef?: unknown;
+      };
+      if (event.type === "delta" && typeof event.text === "string") {
+        if (callerSignal.aborted) stoppedTail += event.text;
+        else onDelta(event.text);
+      }
+      if (
+        event.type === "reasoning"
+        && typeof event.text === "string"
+        && typeof event.tokenCount === "number"
+      ) {
+        if (callerSignal.aborted) stoppedReasoningTail += event.text;
+        else onReasoning?.({ text: event.text, tokenCount: event.tokenCount });
+      }
+      if (event.type === "error") {
+        terminalEvidence = "error";
+        throw apiHttpErrorFromPayload(
+          event,
+          "Generation failed.",
+          event.status
+        );
+      }
+      if (event.type === "done") {
+        terminalEvidence = "done";
+        completed = event as Record<string, unknown>;
+      }
+      return completed === null;
+    });
+  } catch (error) {
+    streamAbort.abort(error);
+    if (terminalEvidence === "error") throw error;
+    if (callerSignal.aborted) {
+      deliverStopped();
+      deliverReasoningStopped();
+      return null;
+    }
+    if (signal.aborted) throw operationDeadlineError(signal.reason);
+    throw error instanceof Error ? error : new Error(String(error));
+  }
+  if (completed === null && callerSignal.aborted) {
+    deliverStopped();
+    deliverReasoningStopped();
+    return null;
+  }
+  if (completed === null && signal.aborted) throw operationDeadlineError(signal.reason);
+  if (completed === null) {
+    throw new Error("The stream ended before the part was saved.");
+  }
+  return completed;
+}
+
+function operationDeadlineError(reason: unknown): ApiHttpError {
+  // The lease aborts with a typed TimeoutError only when its own deadline
+  // fires (shared/http-operation-lease.ts). Every other abort reaching this
+  // path — a shutdown, an unexpected transport teardown — keeps the same
+  // public shape without the clean-timeout stamp.
+  const cleanLeaseDeadline = reason instanceof DOMException
+    && reason.name === "TimeoutError";
+  return new ApiHttpError(createFailureEnvelope({
+    code: "operation_expired",
+    message:
+      "Generation exceeded its operation deadline. Reload the story before retrying.",
+    status: 408,
+    ...(cleanLeaseDeadline ? { timeout: "operation-lease" } : {})
+  }));
+}

@@ -1,6 +1,5 @@
-import path from "node:path";
+import { importStoryFile } from "../../host/launcher-import.js";
 import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
-import { readImportBytes } from "../../server/import-file.js";
 import { terminalLineText as plain } from "../../shared/terminal-text.js";
 import { openProjectBackend } from "./vault-project-backend.js";
 import { fidelityReport } from "../../shared/fidelity.js";
@@ -34,12 +33,8 @@ export function parseImportCommand(argv: readonly string[]): ImportCommand {
       files.push(argument);
     }
   }
-  if (global && data !== null) {
-    throw new Error("--global and --data select different projects");
-  }
-  if (files.length === 0) {
-    throw new Error("import requires at least one file argument");
-  }
+  if (global && data !== null) throw new Error("--global and --data select different projects");
+  if (files.length === 0) throw new Error("import requires at least one file argument");
   for (const file of files) {
     if (file.toLowerCase().endsWith(".lorebook")) {
       throw new Error("1667 import creates stories, not Lorebooks (.lorebook); use 1667 import-lorebook");
@@ -47,7 +42,6 @@ export function parseImportCommand(argv: readonly string[]): ImportCommand {
   }
   return { files, data, global, passphraseFile };
 }
-
 
 export async function runStoryImport(
   argv: readonly string[],
@@ -61,49 +55,13 @@ export async function runStoryImport(
   try {
     for (const file of command.files) {
       try {
-        const content = await readImportFile(file);
-        const lowerFile = file.toLowerCase();
-        const isStory = lowerFile.endsWith(".story");
-        const isScenario = lowerFile.endsWith(".scenario");
-        const isMarkdown = !isStory && !isScenario && (lowerFile.endsWith(".md")
-          || (!lowerFile.endsWith(".jsonl") && content.trimStart().startsWith("#")));
-
-        let title: string;
-        let partsCount: number;
-        let factsCount: number | null = null;
-        let id: string;
-
-        if (isStory) {
-          const { payload, fidelity } = await backend.api.importNovelAI(content);
-          title = payload.title;
-          partsCount = payload.nodes.length;
-          factsCount = payload.facts.length;
-          id = payload.id;
-          errorOutput.write(`${plain(file)}: ${fidelityReport(fidelity)}\n`);
-        } else if (isScenario) {
-          const { payload, fidelity } = await backend.api.importScenario(content);
-          title = payload.title;
-          partsCount = payload.nodes.length;
-          factsCount = payload.facts.length;
-          id = payload.id;
-          errorOutput.write(`${plain(file)}: ${fidelityReport(fidelity)}\n`);
-        } else if (isMarkdown) {
-          const defaultTitle = path.basename(file, path.extname(file));
-          const payload = await backend.api.importMarkdown(content, defaultTitle);
-          title = payload.title;
-          partsCount = payload.nodes.length;
-          id = payload.id;
-        } else {
-          const { payload, fidelity } = await backend.api.importSillyTavern(content);
-          title = payload.title;
-          partsCount = payload.nodes.length;
-          id = payload.id;
-          errorOutput.write(`${plain(file)}: ${fidelityReport(fidelity)}\n`);
+        const result = await importStoryFile(backend.api, file);
+        if (result.fidelity !== null) {
+          errorOutput.write(`${plain(file)}: ${fidelityReport(result.fidelity)}\n`);
         }
-
         output.write(
-          `${plain(file)}: imported "${plain(title)}" (${partsCount} parts`
-            + `${factsCount === null ? "" : `, ${factsCount} facts`}) as ${id}\n`
+          `${plain(file)}: imported "${plain(result.title)}" (${result.partsCount} parts`
+            + `${result.factsCount === null ? "" : `, ${result.factsCount} facts`}) as ${result.id}\n`
         );
       } catch (error) {
         failed = true;
@@ -114,8 +72,4 @@ export async function runStoryImport(
     await backend.dispose();
   }
   if (failed) process.exitCode = 1;
-}
-
-async function readImportFile(file: string): Promise<string> {
-  return new TextDecoder("utf-8").decode(await readImportBytes(file));
 }

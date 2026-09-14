@@ -44,15 +44,17 @@ import {
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
-import { adoptDataDirectory } from "../../server/project-adoption.js";
 import {
   createProjectTier,
-  initializeProject,
-  PROJECT_DIRECTORY_NAME,
   resolveProject,
   type ProjectRequest,
   type ResolvedProject
 } from "../../server/project-discovery.js";
+import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
+import {
+  adoptProject,
+  initializeProject
+} from "../../host/launcher-project.js";
 import { requireExistingProject } from "./project-command.js";
 import {
   readProjectRunRecord
@@ -325,7 +327,7 @@ async function runProjectInit(argv: readonly string[]): Promise<void> {
     process.stdout.write(`1667 story project: ${project.directory}\n`);
     return;
   }
-  const adoption = await adoptDataDirectory({
+  const adoption = await adoptProject({
     source: from ?? resolvePlatformDataDirectory({ packaged: true }),
     projectRoot: process.cwd(),
     machineDir: await resolveMachineTierRoot()

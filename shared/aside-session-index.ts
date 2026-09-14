@@ -77,3 +77,6 @@ export function asidePresenceFromIndex(index: AsideSessionIndex): AsidePresenceS
     unanchoredCount: index.unanchored.length
   };
 }
+
+/** Maximum session references in either manifest bucket. */
+export const MAX_SESSION_REFS_PER_BUCKET = 10_000;

@@ -1,7 +1,7 @@
 import {
-  decryptVault,
-  encryptVault
-} from "../../server/vault-lifecycle.js";
+  decryptProjectVault,
+  encryptProjectVault
+} from "../../host/launcher-vault.js";
 import { inlineValue, resolveExistingProject, separatedValue } from "./project-command.js";
 import { readVaultPassphrase } from "./vault-passphrase.js";
 
@@ -37,9 +37,7 @@ export async function runVaultEncrypt(
 ): Promise<void> {
   const command = parseVaultCommand(argv);
   const project = await resolveExistingProject(command, "encrypt");
-  await encryptVault({
-    dataDirectory: project.directory,
-    password: async ({ resume }) => {
+  await encryptProjectVault(project.directory, async ({ resume }) => {
       if (!resume) {
         errorOutput.write(
           "Warning: a lost Vault Password cannot be recovered. Copies from before this run, "
@@ -51,19 +49,15 @@ export async function runVaultEncrypt(
         dataDirectory: project.directory,
         confirm: !resume
       });
-    }
   });
 }
 
 export async function runVaultDecrypt(argv: readonly string[]): Promise<void> {
   const command = parseVaultCommand(argv);
   const project = await resolveExistingProject(command, "decrypt");
-  await decryptVault({
-    dataDirectory: project.directory,
-    password: async () => await readVaultPassphrase({
+  await decryptProjectVault(project.directory, async () => await readVaultPassphrase({
       passphraseFile: command.passphraseFile,
       dataDirectory: project.directory,
       confirm: false
-    })
-  });
+    }));
 }
