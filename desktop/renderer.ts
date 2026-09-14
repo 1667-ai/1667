@@ -1632,7 +1632,7 @@ class RendererApp {
     const focusedClassName = focused instanceof HTMLButtonElement
       ? [...focused.classList].find((name) => name !== "button")
       : undefined;
-    const focusedValue = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement || focused instanceof HTMLSelectElement
+    const focusedValue = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement
       ? focused.value : undefined;
     const selectionStart = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement ? focused.selectionStart : null;
     const selectionEnd = focused instanceof HTMLInputElement || focused instanceof HTMLTextAreaElement ? focused.selectionEnd : null;
@@ -1658,8 +1658,7 @@ class RendererApp {
         .find((candidate) => candidate.dataset.preserve === focusedKey);
     if (replacement === undefined || replacement === null) return;
     const editable = replacement instanceof HTMLInputElement
-      || replacement instanceof HTMLTextAreaElement
-      || replacement instanceof HTMLSelectElement;
+      || replacement instanceof HTMLTextAreaElement;
     if (focusedValue !== undefined && editable) replacement.value = focusedValue;
     replacement.focus({ preventScroll: true });
     if ((replacement instanceof HTMLInputElement || replacement instanceof HTMLTextAreaElement)

@@ -130,6 +130,61 @@ test("Electron navigates Aside history buckets and anchors new sessions at the f
   }
 });
 
+test("Electron keeps Aside selectors after a rejected history read", { timeout: 120_000 }, async () => {
+  assert.ok(appPath, "AI_1667_DESKTOP_APP_PATH must point to the built Electron main entry.");
+  const directory = await mkdtemp(path.join(os.tmpdir(), "1667-desktop-aside-rejected-read-e2e-"));
+  const dataDir = path.join(directory, "project");
+  await mkdir(dataDir, { mode: 0o700 });
+  const app = await electron.launch({
+    args: [`--user-data-dir=${path.join(directory, "browser")}`, appPath],
+    env: {
+      ...process.env,
+      AI_1667_STATE: path.join(directory, "machine"),
+      AI_1667_DESKTOP_DATA_DIR: dataDir,
+      AI_1667_NO_UPDATE_CHECK: "1"
+    }
+  });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForSelector(".new-story-button", { timeout: 30_000 });
+    await createStory(page, "Aside rejected read");
+
+    const unanchoredQuestion = "Which promise is unanchored?";
+    await ask(page, unanchoredQuestion);
+    await waitForAsideQuestion(page, unanchoredQuestion);
+    await addPart(page, "The anchored passage.", 1);
+    const anchorPicker = page.locator(".aside-anchor-picker");
+    await anchorPicker.selectOption("current");
+    await waitForAsideBucket(page, "current");
+    const currentQuestion = "What belongs to the anchored passage?";
+    await ask(page, currentQuestion);
+    await waitForAsideQuestion(page, currentQuestion);
+    const sessionPicker = page.locator(".aside-session-picker");
+    const previousSession = await sessionPicker.inputValue();
+    assert.notEqual(previousSession, "", "the current Aside session must be selected before the rejected read");
+
+    await installRejectedAsideRead(page);
+    await page.evaluate(() => {
+      (window as Window & { __rejectNextAsideRead?: boolean }).__rejectNextAsideRead = true;
+    });
+    await anchorPicker.focus();
+    await anchorPicker.selectOption("unanchored");
+    await page.waitForFunction(
+      () => document.querySelector(".topbar-status")?.textContent === "Aside unavailable"
+        && (document.querySelector(".error-banner")?.textContent?.trim().length ?? 0) > 0,
+      undefined,
+      { timeout: 30_000 }
+    );
+    assert.equal(await anchorPicker.inputValue(), "current");
+    assert.equal(await sessionPicker.inputValue(), previousSession);
+    assert.equal(await page.locator(":focus").getAttribute("data-preserve"), "aside-anchor-picker");
+    await waitForAsideQuestion(page, currentQuestion);
+  } finally {
+    await closeDesktopApp(app);
+    await rm(directory, { recursive: true, force: true });
+  }
+});
+
 async function createStory(page: Page, title: string): Promise<void> {
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
@@ -192,5 +247,38 @@ async function installDelayedAsideRead(page: Page): Promise<void> {
       postMessage.call(this, message);
     };
     runtime.__delayedAsideReadInstalled = true;
+  });
+}
+
+async function installRejectedAsideRead(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const runtime = window as Window & {
+      __rejectNextAsideRead?: boolean;
+      __rejectedAsideReadInstalled?: boolean;
+    };
+    if (runtime.__rejectedAsideReadInstalled === true) return;
+    const postMessage = MessagePort.prototype.postMessage;
+    MessagePort.prototype.postMessage = function(message: unknown): void {
+      const request = message as {
+        readonly type?: unknown;
+        readonly method?: unknown;
+        readonly input?: unknown;
+      };
+      if (runtime.__rejectNextAsideRead === true
+        && request.type === "request"
+        && request.method === "getAside"
+        && request.input !== null
+        && typeof request.input === "object") {
+        runtime.__rejectNextAsideRead = false;
+        const input = request.input as Record<string, unknown>;
+        postMessage.call(this, {
+          ...request,
+          input: { ...input, storyId: "missing-aside-story-for-focus-proof" }
+        });
+        return;
+      }
+      postMessage.call(this, message);
+    };
+    runtime.__rejectedAsideReadInstalled = true;
   });
 }
