@@ -1,4 +1,4 @@
-import { errno as currentErrno } from "koffi";
+import { createRequire } from "node:module";
 import { getSystemErrorName } from "node:util";
 import { openPosixLibc } from "./bun-ffi.js";
 import { loadNodeFfi } from "./node-ffi.js";
@@ -173,6 +173,11 @@ function systemErrorName(value: number): string {
   } catch {
     return `ERRNO_${value}`;
   }
+}
+
+function currentErrno(): number {
+  const { errno } = createRequire(import.meta.url)("koffi") as typeof import("koffi");
+  return errno();
 }
 
 function isContentionCode(code: string): boolean {

@@ -1,9 +1,5 @@
-import {
-  address,
-  decode,
-  load,
-  type LibraryHandle
-} from "koffi";
+import { createRequire } from "node:module";
+import type { LibraryHandle } from "koffi";
 import type {
   FfiFunction,
   FfiLibrary,
@@ -13,9 +9,13 @@ import type {
 
 /** Create the small FFI surface used by the native platform adapters. */
 export function loadNodeFfi(): NativeFfi {
+  // Keep Koffi behind the Node-only call boundary. Bun embeds this module
+  // through the runtime-selected adapters, but its standalone worker has no
+  // Koffi package to resolve.
+  const koffi = createRequire(import.meta.url)("koffi") as typeof import("koffi");
   return {
     dlopen: (path, symbols) => openLibrary(path, symbols),
-    ptr: (buffer) => pointerValue(address(buffer)),
+    ptr: (buffer) => pointerValue(koffi.address(buffer)),
     toArrayBuffer: (pointer, byteOffset = 0, byteLength) => {
       if (byteLength === undefined) {
         throw new Error("Node FFI memory views require a byte length");
@@ -23,14 +23,20 @@ export function loadNodeFfi(): NativeFfi {
       // Electron forbids external ArrayBuffers. Decode native bytes into
       // owned memory, which also stays valid after the native call releases it.
       return Uint8Array.from(
-        decode(BigInt(pointer), byteOffset, "uint8_t", byteLength) as Uint8Array
+        koffi.decode(
+          BigInt(pointer),
+          byteOffset,
+          "uint8_t",
+          byteLength
+        ) as Uint8Array
       ).buffer;
     }
   };
 }
 
 function openLibrary(path: string, symbols: FfiSymbols): FfiLibrary {
-  const library = load(path);
+  const koffi = createRequire(import.meta.url)("koffi") as typeof import("koffi");
+  const library = koffi.load(path);
   try {
     const functions = Object.fromEntries(
       Object.entries(symbols).map(([name, declaration]) => [
