@@ -86,10 +86,16 @@ test("a Renderer port can reload while the shared Node Host keeps its worker and
     const secondApi = storyApiFromWorkerTransport(second.transport);
     const loadedAfterReload = await secondApi.loadStory(story.id);
     assert.equal(loadedAfterReload.id, story.id);
-    await waitForAsync(async () =>
-      (await new MutationOutbox(path.join(root, "data", "mutation-outbox")).list()).length
-        === 0
-    );
+    const outbox = new MutationOutbox(path.join(root, "data", "mutation-outbox"));
+    await waitForAsync(async () => {
+      try {
+        return (await outbox.list()).length === 0;
+      } catch (error) {
+        // The Host can remove an acknowledged intent after list() reads its name.
+        if (error instanceof Error && "code" in error && error.code === "ENOENT") return false;
+        throw error;
+      }
+    });
     const renamed = await secondApi.renameStory(story.id, "after reload");
     assert.equal(renamed.title, "after reload");
   } finally {
