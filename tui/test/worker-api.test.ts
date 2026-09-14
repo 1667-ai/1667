@@ -215,7 +215,8 @@ describe("embedded backend worker", () => {
         story.id,
         { nodeId: story.path.at(-1)!.id },
         (text) => summaryDeltas.push(text),
-        new AbortController().signal
+        new AbortController().signal,
+        { onPayload: (payload) => { story = payload; } }
       );
       expect(summaryId === null).toBeFalse();
       expect(summaryDeltas.length > 0).toBeTrue();
@@ -235,6 +236,7 @@ describe("embedded backend worker", () => {
       );
       expect(cancelled).toBe(null);
       expect(arrivedText.join("").length > 0).toBeTrue();
+      story = await api.loadStory(story.id);
       story = await api.createNode(story.id, {
         parentId: story.path.at(-1)!.id,
         instruction: "This must be cancelled.",

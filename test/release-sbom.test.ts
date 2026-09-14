@@ -269,7 +269,6 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "@silvia-odwyer/photon-node",
     "bun",
     "detect-libc",
-    "fs-ext-extra-prebuilt",
     "msgpackr",
     "msgpackr-extract",
     "node-gyp-build-optional-packages",
@@ -314,9 +313,6 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     ["tiktoken", ["1.0.22", "MIT",
       "3cabf2d6b545d5189b7c5dc99570523f426b730daeab7c977607045ed293627d"
       + "d027f7014411c39eb2798c7932f8c10d67a0c83f0354196a64571fbb8e80a934"]],
-    ["fs-ext-extra-prebuilt", ["2.2.9", "MIT",
-      "34e2ff059d3f15dd0ca9bf0fb0680567d4d9a9b62ede54df7d2d2e70681d27cc"
-      + "6d124033f872e4bb526edf4121769be0ed7339905d4f7c9605ff06cee47af8d9"]],
     ["msgpackr", ["2.0.5", "MIT",
       "71e7f4e47fdd498a4ba6aa77b23feac99879be151809a96768b3bb8f5c8e9a9b"
       + "11d32fd7c0b56d2bbaf9827f94fc5ec24c47cca307068655102432dc2dfee370"]],
@@ -425,7 +421,6 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
     "typebox",
     "detect-libc",
     "tiktoken",
-    "fs-ext-extra-prebuilt",
     "msgpackr",
     "msgpackr-extract",
     "node-gyp-build-optional-packages",
@@ -439,7 +434,7 @@ test("a platform SBOM relates the product to the runtime and to what pulls each 
       `1667 must contain ${name}`
     );
   }
-  for (const name of ["tiktoken", "fs-ext-extra-prebuilt", "msgpackr", "@opentui/core"]) {
+  for (const name of ["tiktoken", "msgpackr", "@opentui/core"]) {
     assert.ok(relationshipExists(document, "1667", "DEPENDS_ON", name));
   }
   assert.ok(relationshipExists(document, "@earendil-works/pi-ai", "DEPENDS_ON", "typebox"));
@@ -523,7 +518,7 @@ test("the launcher SBOM is a different document, not a platform copy", () => {
   assert.deepEqual(packageNames(launcher), ["1667", ...[...PUBLISHED_PLATFORM_PACKAGES].sort()]);
   assert.equal(packageNamed(launcher, "1667").packageFileName, "bin/1667.js");
   assert.match(launcher.comment, /embeds no language runtime and bundles no third-party code/u);
-  for (const name of ["bun", "@opentui/core", "tiktoken", "fs-ext-extra-prebuilt"]) {
+  for (const name of ["bun", "@opentui/core", "tiktoken"]) {
     assert.equal(
       launcher.packages.some((entry) => entry.name === name),
       false,
@@ -696,7 +691,7 @@ test("the pinned runtime and TUI inventory stay bound to the repository's own in
   const lockfile = parseJsonRejectingDuplicateKeys(
     readFileSync(path.join(REPOSITORY_ROOT, "package-lock.json"), "utf8")
   ) as { packages: Record<string, { version: string; license: string; integrity: string }> };
-  for (const name of ["tiktoken", "fs-ext-extra-prebuilt", "msgpackr"]) {
+  for (const name of ["tiktoken", "msgpackr"]) {
     const component = components.find((entry) => entry.name === name);
     const locked = lockfile.packages[`node_modules/${name}`];
     assert.ok(component !== undefined && locked !== undefined);

@@ -1,11 +1,13 @@
 import { realpath } from "node:fs/promises";
-import { loadBunFfi } from "./bun-ffi.js";
+import { loadBunFfi, type NativeFfi } from "./bun-ffi.js";
 
 const CSIDL_LOCAL_APP_DATA = 0x001c;
 const SHGFP_TYPE_CURRENT = 0;
 
-export async function windowsLocalAppDataDirectory(): Promise<string> {
-  const ffi = await loadBunFfi();
+export async function windowsLocalAppDataDirectory(
+  loadFfi: () => Promise<NativeFfi> = loadBunFfi
+): Promise<string> {
+  const ffi = await loadFfi();
   const shell = ffi.dlopen("shell32.dll", {
     SHGetFolderPathW: {
       args: ["ptr", "i32", "ptr", "u32", "ptr"],

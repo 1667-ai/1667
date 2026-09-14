@@ -590,6 +590,25 @@ async function settleStoppedGeneration(
   const commitNode = (body: CreateNodeRequest) =>
     source.backendRecovery?.runRecoveryMutation(() => source.api.createNode(storyId, body))
       ?? source.api.createNode(storyId, body);
+  const commitNodeAfterReload = async (body: CreateNodeRequest): Promise<StoryPayload> => {
+    try {
+      return await commitNode(body);
+    } catch (error) {
+      if (!(error instanceof ApiFailureError)
+        || error.code !== "revision_conflict"
+        || !storyCurrent()) throw error;
+      const current = await source.api.loadStory(storyId);
+      if (!storyCurrent()) throw error;
+      // A Stop may leave the stream visible. Detach it for this adoption so
+      // the stale streamed projection is not applied on top of the refreshed
+      // payload, then restore it for the retry/failure guards below.
+      const visibleStream = state.stream === stream;
+      if (visibleStream) state.stream = null;
+      adoptSameStoryPayload(state, current, cache);
+      if (visibleStream && state.stream === null) state.stream = stream;
+      return await commitNode(body);
+    }
+  };
   try {
     let payload: StoryPayload;
     if (!substantive) {
@@ -600,7 +619,7 @@ async function settleStoppedGeneration(
       if (stream.append) {
         const expectedTextHash = stream.appendBaseHash;
         if (expectedTextHash === undefined) throw new Error("Stopped append lost its source hash");
-        payload = await commitNode({
+        payload = await commitNodeAfterReload({
           appendTo: stream.targetId,
           expectedTextHash,
           instruction: stream.instruction,
@@ -608,7 +627,7 @@ async function settleStoppedGeneration(
           genId
         });
       } else {
-        payload = await commitNode({
+        payload = await commitNodeAfterReload({
           parentId: stream.parentId,
           instruction: stream.instruction,
           text,

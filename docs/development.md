@@ -118,6 +118,25 @@ contract.
 | `docs/` | Release instructions and technical design notes |
 | `release/npm/` | Launcher source for the npm packages |
 
+## Embedded runtime
+
+The embedded backend supports Bun workers and Node.js worker threads.
+`host/worker-transport.ts` selects the worker adapter. Both adapters use the
+same worker protocol. Node.js uses Koffi for native file locks and platform
+privacy checks. The Bun executable keeps its Bun native interface.
+
+`host/desktop-port-bridge.ts` connects a browser MessagePort to an open
+project. MessagePort is a Technical Name. The host keeps the project lock and
+mutation outbox when a MessagePort closes. It cancels work from that port.
+Each browser window uses its own client and story version cache.
+The project run record identifies a desktop owner. If the TUI cannot acquire
+that project lock, its error tells you to close the project in the desktop app.
+
+A catalog response cannot update the held version of an open story. A failed
+generation also keeps that version. The next edit can report a revision
+conflict. The client must adopt a new story payload before it can edit the
+newer story state.
+
 ## Record the product demo
 
 `scripts/render-demo.sh` drives the real TUI through its demo fixture with VHS

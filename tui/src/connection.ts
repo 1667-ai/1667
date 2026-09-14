@@ -1,4 +1,4 @@
-import { ApiError, type StoryApi } from "./api.js";
+import { ApiError, ApiFailureError, type StoryApi } from "./api.js";
 
 export interface ConnectionState {
   down: boolean;
@@ -32,6 +32,9 @@ export interface ConnectionMonitor {
   state(): ConnectionState;
   retryNow(): Promise<boolean>;
   subscribe(listener: (state: ConnectionState) => void): () => void;
+  /** Notify the TUI when a mutation used a stale story revision. The worker
+   * facade deliberately keeps that revision until the TUI adopts a reload. */
+  subscribeRevisionConflicts?(listener: (storyId: string) => void): () => void;
   dispose(): void;
 }
 
@@ -43,6 +46,7 @@ export function createConnectionMonitor(raw: StoryApi): ConnectionMonitor {
   let successVersion = 0;
   let timer: ReturnType<typeof setTimeout> | null = null;
   const listeners = new Set<(state: ConnectionState) => void>();
+  const revisionConflictListeners = new Set<(storyId: string) => void>();
   const publish = (state: ConnectionState) => {
     current = state;
     for (const listener of listeners) listener({ ...current });
@@ -93,6 +97,15 @@ export function createConnectionMonitor(raw: StoryApi): ConnectionMonitor {
         } catch (error) {
           const last = args.at(-1);
           const aborted = last instanceof AbortSignal && last.aborted;
+          const first = args[0];
+          const storyId = typeof first === "string" ? first
+            : first !== null && typeof first === "object" && "storyId" in first
+              && typeof first.storyId === "string" ? first.storyId : null;
+          if (error instanceof ApiFailureError
+            && error.code === "revision_conflict"
+            && storyId !== null) {
+            for (const listener of revisionConflictListeners) listener(storyId);
+          }
           if (!aborted && !(error instanceof ApiError)
             && successVersion === startedAtSuccessVersion) failed(error);
           throw error;
@@ -105,6 +118,14 @@ export function createConnectionMonitor(raw: StoryApi): ConnectionMonitor {
     state: () => ({ ...current }),
     retryNow,
     subscribe(listener) { listeners.add(listener); return () => listeners.delete(listener); },
-    dispose() { if (timer !== null) clearTimeout(timer); listeners.clear(); }
+    subscribeRevisionConflicts(listener) {
+      revisionConflictListeners.add(listener);
+      return () => revisionConflictListeners.delete(listener);
+    },
+    dispose() {
+      if (timer !== null) clearTimeout(timer);
+      listeners.clear();
+      revisionConflictListeners.clear();
+    }
   };
 }

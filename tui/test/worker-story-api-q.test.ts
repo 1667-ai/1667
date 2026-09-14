@@ -50,7 +50,7 @@ test("catalog summaries cannot regress a newer held Q revision", async () => {
   expect(expectedVersion).toEqual(payload.aggregateVersion);
 });
 
-test("a provider failure invalidates the held Q revision", async () => {
+test("a provider failure keeps the held Q revision", async () => {
   const source = demoAppSource();
   let providerFailed = false;
   let storyLoads = 0;
@@ -99,10 +99,10 @@ test("a provider failure invalidates the held Q revision", async () => {
   expect(providerError instanceof WorkerApiError).toBeTrue();
   await api.renameStory("versioned-story", "Renamed");
 
-  expect(storyLoads).toBe(3);
+  expect(storyLoads).toBe(2);
   expect(renameVersion).toEqual({
     kind: "v6",
-    revision: "00000000000000000002"
+    revision: "00000000000000000001"
   });
 });
 
@@ -263,6 +263,7 @@ test("chapter removal sends the bounded preview fingerprint and exact version", 
         input,
         expectedAggregateVersion: options?.expectedAggregateVersion
       });
+      if (method === "loadStory") return payload;
       if (method === "previewChapterBreakRemoval") {
         return {
           removedFingerprint: "a".repeat(64),
@@ -278,7 +279,16 @@ test("chapter removal sends the bounded preview fingerprint and exact version", 
 
   expect(await api.removeChapterBreak("story", "break"))
     .toEqual({ payload, removed });
+  expect(calls[0]).toEqual({
+    method: "loadStory",
+    input: { id: "story" }
+  });
   expect(calls[1]).toEqual({
+    method: "previewChapterBreakRemoval",
+    input: { storyId: "story", breakId: "break" },
+    expectedAggregateVersion: version
+  });
+  expect(calls[2]).toEqual({
     method: "removeChapterBreak",
     input: {
       storyId: "story",

@@ -11,6 +11,8 @@ export interface WorkerHostOptions {
   /** Injectable durable store used by transport lifecycle tests. */
   outbox?: MutationOutbox;
   dataDir?: string;
+  /** Advisory name for the project lock owner. */
+  projectOwner?: "desktop";
   /** The machine tier, resolved before spawning a default worker. */
   machineDir?: string;
   /** Set by the lock owner when startup created the data directory. */

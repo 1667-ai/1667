@@ -1,13 +1,16 @@
 import { describe, expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { platformPerformanceBudget } from "../../test/performance-budget.js";
+import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
+import { createWorkerHost } from "../../host/worker-host.js";
 import { ActionRuntime } from "../src/action-runtime.js";
 import type { AppSource } from "../src/app.js";
 import { normalizeUserConfig } from "../src/config.js";
 import { DEMO_SETTINGS_VIEW } from "../src/demo.js";
 import { generate, requestGenerationStop } from "../src/generation-action.js";
+import { createConnectionMonitor } from "../src/connection.js";
 import { createWorkerStoryApi } from "../src/worker-api.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { initialState } from "../src/app.js";
@@ -96,6 +99,74 @@ describe("stop save through the real worker transport", () => {
     } finally {
       await backend.dispose();
       await rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  test("a Stop reloads a concurrent edit before saving its arrived text", async () => {
+    const root = await mkdtemp(path.join(tmpdir(), "1667-generation-stop-conflict-"));
+    const dataDir = path.join(root, "data");
+    const machineDir = path.join(root, "machine");
+    await mkdir(machineDir);
+    const host = await createWorkerHost({ dataDir, machineDir });
+    const raw = storyApiFromWorkerTransport(host.transport);
+    const writer = storyApiFromWorkerTransport(host.transport);
+    const connection = createConnectionMonitor(raw);
+    const api = connection.api;
+    let runtime: ActionRuntime | null = null;
+    try {
+      const created = await api.createStory("Stop after edit");
+      const seeded = await api.createNode(created.id, { parentId: null, text: "Root prose." });
+      await api.loadStory(seeded.id);
+      await writer.loadStory(seeded.id);
+      const arrived: string[] = [];
+      const realContinueStory = api.continueStory.bind(api);
+      api.continueStory = (storyId, instruction, genId, target, onDelta, signal, callbacks = {}, images) =>
+        realContinueStory(storyId, instruction, genId, target, (text) => {
+          arrived.push(text);
+          onDelta(text);
+        }, signal, {
+          ...callbacks,
+          onStopped: (text) => {
+            arrived.push(text);
+            callbacks.onStopped?.(text);
+          }
+        }, images);
+      const source: AppSource = {
+        payload: seeded,
+        api,
+        demo: false,
+        stories: [],
+        settingsView: DEMO_SETTINGS_VIEW,
+        settings: DEMO_SETTINGS_VIEW.effective,
+        storyFolder: "",
+        exportDirectory: process.cwd(),
+        connection,
+        config: normalizeUserConfig({ updates: { mode: "notify" } }),
+        readingPositions: {}
+      };
+      const state = initialState(source, false);
+      const cache = createWrapCache<ProseStyle>();
+      runtime = new ActionRuntime(state, () => undefined);
+      const running = runtime.run("generating prose", (task) =>
+        generate(state, source, cache, () => undefined, "Continue.", null, null, task));
+      const deadline = Date.now() + platformPerformanceBudget(5_000);
+      while (arrived.join("").trim().length === 0) {
+        if (Date.now() > deadline) throw new Error("the dry-run stream never delivered a word");
+        await new Promise((resolve) => setTimeout(resolve, 5));
+      }
+
+      await writer.renameStory(seeded.id, "Remote title");
+      requestGenerationStop(state, () => undefined);
+      await running;
+
+      expect(state.payload.title).toBe("Remote title");
+      expect(state.payload.path.at(-1)?.text).toBe(arrived.join("").trim());
+      expect(state.stream).toBe(null);
+    } finally {
+      runtime?.dispose();
+      connection.dispose();
+      await host.dispose();
+      await rm(root, { recursive: true, force: true });
     }
   });
 });

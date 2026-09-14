@@ -273,6 +273,16 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
     return reconnectIntent;
   };
 
+  // A stale revision is an online application failure. The worker facade
+  // keeps the held version after it, so the next edit would repeat the same
+  // conflict until the TUI adopts a fresh payload. Queue the existing fenced
+  // reconciliation runner; it waits for the action that saw the conflict to
+  // become idle before it reloads and preserves local drafts through adoption.
+  const unsubscribeRevisionConflicts = source.connection?.subscribeRevisionConflicts?.((storyId) => {
+    if (stopped || state.connection.down || storyId !== state.payload.id) return;
+    requestReconnectRefresh(true);
+  }) ?? null;
+
   const unsubscribeConnection = source.connection?.subscribe((connection) => {
     const cameBackUp = state.connection.down && !connection.down;
     connectionEpoch += 1;
@@ -335,6 +345,7 @@ export function startRecoveryOrchestration(options: RecoveryOrchestrationOptions
     if (stopped) return;
     stopped = true;
     unsubscribeConnection?.();
+    unsubscribeRevisionConflicts?.();
     unsubscribeRecovery?.();
     if (activeOrchestrations.get(state) === stop) activeOrchestrations.delete(state);
   }) as RecoveryOrchestration;

@@ -62,7 +62,15 @@ export async function startSummary(
         summary.text += delta;
         summary.presentation?.receive(delta);
         if (summary.presentation === undefined) context.repaint();
-      }, controller.signal);
+      }, controller.signal, {
+        onPayload: (payload) => {
+          // Adopt the confirming payload before the follow-up switch. The
+          // facade then advances its held version with visible state.
+          if (!task.storyCurrent()) return false;
+          adoptSameStoryPayload(state, payload, context.cache);
+          return true;
+        }
+      });
       if (controller.signal.aborted) {
         return await reloadAfterStop(state, source, task.storyId, task.storyCurrent, context.cache);
       }

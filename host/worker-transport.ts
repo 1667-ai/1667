@@ -59,6 +59,7 @@ import type { ReasoningDelta } from "../shared/reasoning-delta.js";
 import { prepareWorkerMutationIntent } from "./worker-mutation-publication.js";
 import type { WorkerHostOptions, WorkerRecoveryWarning } from "./worker-api-contract.js";
 import { embeddedWorkerHostCause } from "./worker-host-diagnostics.js";
+import { createNodeWorker } from "./node-worker.js";
 
 declare const __AI_1667_EMBEDDED_WORKER_SOURCE__: string | undefined;
 
@@ -185,6 +186,9 @@ export class WorkerTransport {
       onReasoning?: (delta: ReasoningDelta) => void;
       /** Same withholding as `onStopped`, on the reasoning channel. */
       onReasoningStopped?: (text: string) => void;
+      /** Called after this transport allocates the durable worker id and
+       * before it posts the request. Host ports use it for acceptance. */
+      onAccepted?: (id: WorkerOperationId) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     } = {}
@@ -221,6 +225,7 @@ export class WorkerTransport {
       onStopped?: (text: string) => void;
       onReasoning?: (delta: ReasoningDelta) => void;
       onReasoningStopped?: (text: string) => void;
+      onAccepted?: (id: WorkerOperationId) => void;
       signal?: AbortSignal;
       expectedAggregateVersion?: StoryAggregateVersion;
     }
@@ -372,6 +377,7 @@ export class WorkerTransport {
           throw restart;
         }
       });
+      options.onAccepted?.(registered.id);
       try {
         this.worker.postMessage({
           type: "request",
@@ -730,7 +736,19 @@ function defaultGenerationDeadline(method: WorkerMethod): number {
     : WORKER_STREAM_DEADLINE_MS;
 }
 
-function createDefaultWorker(): Worker {
+function createDefaultWorker(): WorkerLike {
+  if (isNodeWorkerRuntime()) {
+    // The desktop compiler emits ordinary JavaScript without the standalone
+    // build identity define. The module URL is the runtime truth for the
+    // worker entry and keeps a source tsx launch separate from packaged
+    // Electron JavaScript.
+    const source = import.meta.url.endsWith(".ts");
+    const workerPath = new URL(
+      source ? "../server/worker.ts" : "../server/worker.js",
+      import.meta.url
+    );
+    return createNodeWorker(workerPath, { source });
+  }
   if (typeof __AI_1667_EMBEDDED_WORKER_SOURCE__ === "string") {
     const workerBlob = new Blob(
       [__AI_1667_EMBEDDED_WORKER_SOURCE__],
@@ -744,6 +762,12 @@ function createDefaultWorker(): Worker {
     ? new URL("../server/worker.js", import.meta.url)
     : new URL("/$bunfs/root/server/worker.js", import.meta.url);
   return new Worker(workerPath, { type: "module" });
+}
+
+function isNodeWorkerRuntime(): boolean {
+  return typeof process !== "undefined"
+    && process.versions?.node !== undefined
+    && process.versions?.bun === undefined;
 }
 function isAborted(signal: AbortSignal | undefined): boolean { return signal?.aborted === true; }
 

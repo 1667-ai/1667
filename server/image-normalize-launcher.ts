@@ -471,6 +471,12 @@ function childSpawnCommand(
   const trailing = declaredMediaType === undefined
     ? [NORMALIZE_IMAGE_CHILD_FLAG]
     : [NORMALIZE_IMAGE_CHILD_FLAG, "--media-type", declaredMediaType];
+  if (isElectronRuntime()) {
+    return {
+      command: process.execPath,
+      args: [electronChildEntry(), ...trailing]
+    };
+  }
   const entry = process.argv[1];
   const sourceMode = entry?.endsWith(".ts") === true;
   if (!sourceMode) {
@@ -509,6 +515,7 @@ function childEnvironment(
     LANG: "C",
     LC_ALL: "C"
   };
+  if (isElectronRuntime()) environment.ELECTRON_RUN_AS_NODE = "1";
   if (options.debugStallMs !== undefined) {
     environment.AI_1667_IMAGE_NORMALIZE_TEST_STALL_MS = String(options.debugStallMs);
   }
@@ -516,4 +523,21 @@ function childEnvironment(
     environment.AI_1667_IMAGE_NORMALIZE_TEST_ALLOCATE_MB = String(options.debugAllocateMb);
   }
   return environment;
+}
+
+function isElectronRuntime(): boolean {
+  return typeof process.versions.electron === "string";
+}
+
+/**
+ * Electron closes stdin before the application entrypoint runs. Pass the
+ * compiled child entry explicitly so Electron runs that script in Node mode
+ * and preserves the launcher's stdin and IPC contract. A packager may provide
+ * an absolute entry when it places the compiled child outside this module's
+ * directory.
+ */
+function electronChildEntry(): string {
+  const configured = process.env.AI_1667_IMAGE_NORMALIZE_CHILD_ENTRY;
+  if (configured !== undefined && configured.length > 0) return configured;
+  return fileURLToPath(new URL("./image-normalize-child.js", import.meta.url));
 }

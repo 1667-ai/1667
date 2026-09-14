@@ -404,7 +404,9 @@ const MUTATIONS: MutationRegistry = {
         );
       } catch (error) {
         if (error instanceof ServiceError
-          && isPreparedDomainError(error.code)) {
+          && (isPreparedDomainError(error.code) || error.code === "revision_conflict")) {
+          // A held revision cannot become current by retrying the same request.
+          // Return it so the client can adopt a reload before a new settlement.
           throw error;
         }
         // A transient settlement failure has no terminal story result. Keep

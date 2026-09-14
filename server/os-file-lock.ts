@@ -9,9 +9,8 @@ interface LockImplementation {
   unlockFile(fd: number): Promise<void>;
 }
 
-/** Runtime adapter for a lifetime-bound OS advisory lock. Bun cannot load the
- * Node native addon used by the HTTP process, so it calls the same kernel
- * primitives through Bun FFI. */
+/** Runtime adapter for a lifetime-bound OS advisory lock. Node and Bun call
+ * the same kernel primitives through their runtime FFI. */
 export async function lockFile(
   fd: number,
   file: string,
@@ -19,6 +18,10 @@ export async function lockFile(
 ): Promise<OsFileLock> {
   if (process.versions.bun !== undefined && process.platform === "win32") {
     const implementation = await import("./os-file-lock-bun.js");
+    return await implementation.lockWindowsFile(file, mode);
+  }
+  if (process.versions.bun === undefined && process.platform === "win32") {
+    const implementation = await import("./os-file-lock-node.js");
     return await implementation.lockWindowsFile(file, mode);
   }
   const implementation: LockImplementation = process.versions.bun === undefined
