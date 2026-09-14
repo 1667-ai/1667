@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import { build } from "esbuild";
-import { _electron as electron, type Page } from "playwright";
+import { _electron as electron, type ElectronApplication, type Page } from "playwright";
 import { createWorkerHost } from "../../host/worker-host.js";
 import type { StoryApi } from "../../client/api.js";
 
@@ -96,12 +96,7 @@ test("two windows keep project ownership while the last Host owner releases its 
 
     await first.bringToFront();
     const thirdWindow = app.waitForEvent("window");
-    await app.evaluate(({ Menu }) => {
-      const file = Menu.getApplicationMenu()?.items.find((item) => item.label === "File");
-      const item = file?.submenu?.items.find((candidate) => candidate.label === "New Window");
-      if (item?.click === undefined) throw new Error("New Window menu item is missing");
-      item.click(item, null, null);
-    });
+    await openNewWindowFromPage(app, first);
     const third = await thirdWindow;
     await ready(third);
     const focusedProjectStory = await third.evaluate(
@@ -132,3 +127,38 @@ test("two windows keep project ownership while the last Host owner releases its 
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+async function openNewWindowFromPage(app: ElectronApplication, page: Page): Promise<void> {
+  const nativeWindow = await app.browserWindow(page);
+  try {
+    const preferredWindowId = await nativeWindow.evaluate((window) => window.id);
+    await app.evaluate(async ({ app, BrowserWindow, Menu }, targetWindowId) => {
+      const target = BrowserWindow.fromId(targetWindowId);
+      if (target === null) throw new Error(`Window ${targetWindowId} is unavailable`);
+      app.focus({ steal: true });
+      target.show();
+      target.focus();
+      target.moveTop();
+      const deadline = Date.now() + 15_000;
+      while (Date.now() < deadline) {
+        const focused = BrowserWindow.getFocusedWindow();
+        if (focused === null || focused.id === targetWindowId) break;
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        target.focus();
+      }
+      const focused = BrowserWindow.getFocusedWindow();
+      if (focused !== null && focused.id !== targetWindowId) {
+        throw new Error(`Window ${focused.id} kept focus instead of ${targetWindowId}`);
+      }
+      const file = Menu.getApplicationMenu()?.items.find((item) => item.label === "File");
+      const item = file?.submenu?.items.find((candidate) => candidate.label === "New Window");
+      if (item?.click === undefined) throw new Error("New Window menu item is missing");
+      // Invoke the menu in this main-process turn. openNewWindow captures the
+      // focused window before its first await, so a focusless display falls
+      // back to the first valid session without a stale-window race.
+      item.click(item, null, null);
+    }, preferredWindowId);
+  } finally {
+    await nativeWindow.dispose();
+  }
+}

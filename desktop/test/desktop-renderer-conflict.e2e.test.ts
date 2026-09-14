@@ -323,7 +323,7 @@ test("Electron retake creates a continuation sibling and keeps the original take
     await page.locator(".tab-inspect").click();
     await page.waitForSelector(".inspect-records", { timeout: 15_000 });
     await page.locator(".inspect-records").last().click();
-    await page.waitForSelector(".inspector-result pre", { timeout: 15_000 });
+    await page.locator(".inspector-result:not(.busy) pre").waitFor({ state: "visible", timeout: 15_000 });
     assert.match(await page.locator(".inspector-result pre").innerText(), /"kind": "continue"/u);
 
     await page.locator(".tab-write").click();

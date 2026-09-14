@@ -760,7 +760,9 @@ The native add-ons use their Node-API binaries. The build does not compile
 them again. `npm run test:native` checks these binaries and the WebAssembly
 modules under Electron before packaging.
 
-The CI job runs the backend tests under Electron. It also runs the Renderer
+The CI job runs the backend tests under Electron. Windows runs the named
+platform, Installer, and image tests that its native lane supports. Linux and
+macOS run the complete root backend suite. The CI job also runs the Renderer
 tests through the main process and Worker. `npm run test:package` builds an
 application directory and runs the client contract through that application.
 On macOS, this test also builds and checks the DMG, ZIP, and updater metadata.

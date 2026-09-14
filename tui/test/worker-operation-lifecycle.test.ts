@@ -230,15 +230,18 @@ async function withWorker(
     type: "module"
   });
   try {
+    const starting = nextMessageOfType(worker, "starting");
+    const ready = nextMessageOfType(worker, "ready");
+    await starting;
     worker.postMessage({
       type: "bootstrap",
       dataDir,
       machineDir,
       externalDataLock: true
     });
-    const ready = await nextMessageOfType(worker, "ready");
-    expect(isWorkerInstanceId(ready.workerInstanceId)).toBeTrue();
-    await run(worker, ready.workerInstanceId, dataDir, machineDir);
+    const readyMessage = await ready;
+    expect(isWorkerInstanceId(readyMessage.workerInstanceId)).toBeTrue();
+    await run(worker, readyMessage.workerInstanceId, dataDir, machineDir);
   } finally {
     await worker.terminate();
     await dataLock.release();

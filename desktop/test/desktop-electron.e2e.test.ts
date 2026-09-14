@@ -264,7 +264,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await part.fill("A draft held while the Host streams.");
     assert.equal(await page.locator(":focus").getAttribute("data-preserve"), await part.getAttribute("data-preserve"));
     await page.click(".stream-stop");
-    await page.waitForTimeout(300);
+    await page.locator(".stream-card").waitFor({ state: "detached", timeout: 30_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), "A draft held while the Host streams.");
 
     const composerMode = page.locator(".composer-mode");

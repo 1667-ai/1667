@@ -11,6 +11,13 @@ const DEFAULT_TESTS = readdirSync(path.join(REPOSITORY_ROOT, "test"))
   .filter((name) => name.endsWith(".test.ts"))
   .sort()
   .map((name) => path.join("test", name));
+const WINDOWS_TESTS = [
+  "test/windows-platform-contract.test.ts",
+  "test/windows-platform-acl-edge-cases.test.ts",
+  "test/release-install-script.test.ts",
+  "test/release-install-powershell.test.ts",
+  "test/image-normalize.test.ts"
+];
 
 /** Run backend integration tests under the Electron Node ABI. */
 export function runElectronTests(testFiles = process.argv.slice(2)): void {
@@ -19,7 +26,9 @@ export function runElectronTests(testFiles = process.argv.slice(2)): void {
   if (!isRegularFile(imageChild)) {
     throw new Error(`Electron image child entry is missing: ${imageChild}`);
   }
-  const selected = testFiles.length === 0 ? DEFAULT_TESTS : testFiles;
+  const selected = testFiles.length === 0
+    ? process.platform === "win32" ? WINDOWS_TESTS : DEFAULT_TESTS
+    : testFiles;
   const result = spawnSync(
     electron,
     ["--import", "tsx", "--import", "./test/setup.ts", "--test", ...selected],
