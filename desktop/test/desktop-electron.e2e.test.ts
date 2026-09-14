@@ -54,11 +54,25 @@ async function assertLongStatusLayout(app: ElectronApplication, page: Page, rest
     () => document.querySelector(".topbar-status")?.textContent?.includes("Save the active part first") === true,
     { timeout: 15_000 }
   );
-  const viewport = await page.evaluate(() => ({ width: window.innerWidth }));
-  const status = await page.locator(".topbar-status").boundingBox();
-  const actions = await page.locator(".topbar-actions").boundingBox();
-  assert.ok(status && status.x + status.width <= viewport.width + 1, "long status must stay in the viewport");
-  assert.ok(actions && actions.x + actions.width <= viewport.width + 1, "actions must stay in the viewport beside long status");
+  const geometry = await page.evaluate(() => {
+    const statusElement = document.querySelector<HTMLElement>(".topbar-status");
+    const actionsElement = document.querySelector<HTMLElement>(".topbar-actions");
+    if (statusElement === null || actionsElement === null) return null;
+    const status = statusElement.getBoundingClientRect();
+    const actions = actionsElement.getBoundingClientRect();
+    if (getComputedStyle(statusElement).visibility !== "visible"
+      || getComputedStyle(actionsElement).visibility !== "visible"
+      || status.width <= 0 || status.height <= 0
+      || actions.width <= 0 || actions.height <= 0) return null;
+    return {
+      viewportWidth: window.innerWidth,
+      status: { x: status.x, width: status.width },
+      actions: { x: actions.x, width: actions.width }
+    };
+  });
+  assert.ok(geometry !== null, "long status controls must remain mounted for geometry check");
+  assert.ok(geometry.status.x + geometry.status.width <= geometry.viewportWidth + 1, "long status must stay in the viewport");
+  assert.ok(geometry.actions.x + geometry.actions.width <= geometry.viewportWidth + 1, "actions must stay in the viewport beside long status");
   await page.locator(".part-save").last().click();
   await page.waitForFunction(() => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true, { timeout: 15_000 });
   await page.locator(".part-text").last().fill(restoreText);
