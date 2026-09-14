@@ -259,13 +259,29 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     );
 
     await page.fill(".composer-input", "let the dry-run lantern answer");
+    const originalPartKey = await part.getAttribute("data-preserve");
+    assert.ok(originalPartKey, "the saved part must have a stable draft key");
+    const originalPartId = originalPartKey.slice("part:".length);
+    const originalPart = page.locator(`textarea[data-preserve="${originalPartKey}"]`);
+    const originalPartCard = page.locator(`[data-preserve="part-card:${originalPartId}"]`);
     await page.click(".composer-submit");
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
-    await part.fill("A draft held while the Host streams.");
-    assert.equal(await page.locator(":focus").getAttribute("data-preserve"), await part.getAttribute("data-preserve"));
+    await page.waitForFunction(
+      () => (document.querySelector(".stream-text")?.textContent?.length ?? 0) > 8,
+      undefined,
+      { timeout: 30_000 }
+    );
+    await originalPart.fill("A draft held while the Host streams.");
+    assert.equal(await page.locator(":focus").getAttribute("data-preserve"), originalPartKey);
     await page.click(".stream-stop");
     await page.locator(".stream-card").waitFor({ state: "detached", timeout: 30_000 });
-    assert.equal(await page.locator(".part-text").last().inputValue(), "A draft held while the Host streams.");
+    assert.equal(await originalPart.inputValue(), "A draft held while the Host streams.");
+    await originalPartCard.locator(".part-switch").click();
+    await page.waitForFunction(
+      (expected) => document.querySelector(".manuscript-part.active")?.getAttribute("data-preserve") === expected,
+      `part-card:${originalPartId}`,
+      { timeout: 15_000 }
+    );
 
     const composerMode = page.locator(".composer-mode");
     await composerMode.selectOption("direct");
@@ -279,7 +295,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     );
     assert.equal(await page.locator(".stream-card").count(), 0);
 
-    await page.locator(".part-save").last().click();
+    await originalPartCard.locator(".part-save").click();
     await page.waitForFunction(
       () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
       { timeout: 15_000 }
