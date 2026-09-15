@@ -33,6 +33,7 @@ test("desktop updater uses real generic metadata, persistence, and busy guards",
     assert.equal(await store.read(), "stable");
     const stableUpdater = new LocalFeedUpdater(testApp(root, "0.11.0"), feedUrl);
     const stable = new ElectronUpdater(stableUpdater, {
+      platform: "linux",
       initialChannel: await store.read(),
       saveChannel: (channel) => store.write(channel)
     });
@@ -84,6 +85,7 @@ test("desktop updater uses real generic metadata, persistence, and busy guards",
     let installApproved = false;
     const guardedUpdater = new LocalFeedUpdater(testApp(root, "0.11.0"), feedUrl);
     const guarded = new ElectronUpdater(guardedUpdater, {
+      platform: "linux",
       beforeInstall: async () => installApproved,
       onInstallAborted: () => { installAborted = true; }
     });
@@ -110,6 +112,7 @@ test("desktop updater uses real generic metadata, persistence, and busy guards",
 
     const betaUpdater = new LocalFeedUpdater(testApp(root, "0.11.0-beta.1"), feedUrl);
     const beta = new ElectronUpdater(betaUpdater, {
+      platform: "linux",
       initialChannel: await store.read(),
       saveChannel: (channel) => store.write(channel)
     });
@@ -132,7 +135,7 @@ test("desktop updater uses real generic metadata, persistence, and busy guards",
     beta.dispose();
 
     const reloadedUpdater = new LocalFeedUpdater(testApp(root, "0.11.0-beta.1"), feedUrl);
-    const reloaded = new ElectronUpdater(reloadedUpdater, { initialChannel: await store.read() });
+    const reloaded = new ElectronUpdater(reloadedUpdater, { platform: "linux", initialChannel: await store.read() });
     assert.equal(reloaded.state.channel, "beta");
     assert.equal(reloadedUpdater.channel, "beta");
     reloaded.dispose();
@@ -176,6 +179,7 @@ test("desktop updater waits for delayed channel persistence before checking", as
   try {
     const updater = new LocalFeedUpdater(testApp(root, "0.11.0-beta.1"), feedUrl);
     const port = new ElectronUpdater(updater, {
+      platform: "linux",
       initialChannel: await store.read(),
       saveChannel: async (channel) => {
         markSaveStarted();
@@ -212,8 +216,70 @@ test("desktop updater waits for delayed channel persistence before checking", as
   }
 });
 
+test("desktop updater keeps Mac updates manual and opens the exact release tag", async () => {
+  const root = await mkdtemp(path.join(os.tmpdir(), "1667-desktop-updater-mac-"));
+  const requests: string[] = [];
+  const suffix = channelFileSuffix();
+  const latestFile = `/latest${suffix}.yml`;
+  const betaFile = `/beta${suffix}.yml`;
+  const server = createServer((request, response) => {
+    const resource = (request.url ?? "/").split("?", 1)[0] ?? "/";
+    requests.push(resource);
+    const body = resource === latestFile
+      ? "version: 0.12.0\n"
+      : resource === betaFile
+        ? "version: 0.12.0-beta.2\n"
+        : null;
+    response.writeHead(body === null ? 404 : 200, { "content-type": "text/yaml" });
+    response.end(body ?? "missing");
+  });
+  const portNumber = await listen(server);
+  const feedUrl = `http://127.0.0.1:${portNumber}/`;
+  let openedUrl: string | undefined;
+  try {
+    const updater = new LocalFeedUpdater(testApp(root, "0.11.0"), feedUrl);
+    const port = new ElectronUpdater(updater, {
+      platform: "darwin",
+      openExternal: async (url) => { openedUrl = url; }
+    });
+    updater.setFeedURL({ provider: "generic", url: feedUrl });
+
+    assert.equal(updater.autoDownload, false);
+    assert.equal(updater.autoInstallOnAppQuit, false);
+    const available = await port.check();
+    assert.equal(available.manual, true);
+    assert.equal(available.state, "available");
+    assert.equal(available.version, "0.12.0");
+    assert.deepEqual(requests, [latestFile]);
+    assert.equal(updater.downloadCalls, 0);
+
+    const channel = await port.setChannel("beta");
+    assert.equal(channel.manual, true);
+    assert.equal(channel.channel, "beta");
+    assert.equal(updater.autoDownload, false);
+    assert.equal(updater.autoInstallOnAppQuit, false);
+    const beta = await port.check();
+    assert.equal(beta.state, "available");
+    assert.equal(beta.version, "0.12.0-beta.2");
+    assert.deepEqual(requests, [latestFile, betaFile]);
+
+    const opened = await port.install();
+    assert.equal(opened.state, "available");
+    assert.equal(opened.version, "0.12.0-beta.2");
+    assert.equal(openedUrl, "https://github.com/1667-ai/1667/releases/tag/v0.12.0-beta.2");
+    assert.equal(updater.downloadCalls, 0);
+    assert.equal(updater.installCalls, 0);
+    assert.match(opened.message ?? "", /save your work, quit 1667, then replace the app manually/iu);
+    port.dispose();
+  } finally {
+    await closeServer(server);
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 class LocalFeedUpdater extends AppUpdater {
   public installCalls = 0;
+  public downloadCalls = 0;
 
   constructor(app: ReturnType<typeof testApp>, private readonly feedUrl: string) {
     super(null, app);
@@ -225,6 +291,7 @@ class LocalFeedUpdater extends AppUpdater {
   }
 
   protected override async doDownloadUpdate(_options: DownloadUpdateOptions): Promise<string[]> {
+    this.downloadCalls += 1;
     return [];
   }
 

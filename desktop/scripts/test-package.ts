@@ -6,6 +6,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { stageDesktopRelease, verifyDesktopTargetAssetDirectory } from "../../scripts/release-desktop-assets.js";
+import { assertAnonymousMacSignature } from "./package-target.js";
 
 const desktopRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const temporary = mkdtempSync(path.join(tmpdir(), "1667-desktop-package-"));
@@ -17,10 +18,7 @@ const args = [
 ];
 let executable: string;
 if (process.platform === "darwin") {
-  // CI checks unsigned DMG and ZIP output. Release packaging requires the
-  // Developer ID signature and notarization from electron-builder.yml.
-  args.push("--mac", "dmg", "zip", "--config.mac.identity=null", "--config.mac.forceCodeSigning=false",
-    "--config.mac.notarize=false");
+  args.push("--mac", "dmg", "zip");
   executable = path.join(output, process.arch === "arm64" ? "mac-arm64" : "mac",
     "1667.app", "Contents", "MacOS", "1667");
 } else if (process.platform === "win32") {
@@ -36,10 +34,10 @@ args.push(process.arch === "arm64" ? "--arm64" : "--x64");
 try {
   execFileSync(process.execPath, args, {
     cwd: desktopRoot,
-    stdio: "inherit",
-    env: { ...process.env, CSC_IDENTITY_AUTO_DISCOVERY: "false" }
+    stdio: "inherit"
   });
   if (process.platform === "darwin") {
+    assertAnonymousMacSignature(path.join(path.dirname(path.dirname(path.dirname(executable)))));
     const target = process.arch === "arm64" ? "darwin-arm64" : "darwin-x64";
     const { version } = JSON.parse(readFileSync(path.join(desktopRoot, "package.json"), "utf8")) as { version: string };
     const staged = path.join(temporary, "staged");

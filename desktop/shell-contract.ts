@@ -120,6 +120,7 @@ export interface DesktopWindowApi {
 
 export type DesktopUpdaterState = {
   readonly channel: "stable" | "beta";
+  readonly manual: boolean;
   readonly state:
     | "idle"
     | "checking"

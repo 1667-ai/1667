@@ -47,6 +47,7 @@ This document uses these Technical Names:
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
 | Release Archive | The target-specific native archive in an immutable GitHub release |
 | desktop asset | A desktop installer, archive, blockmap, or updater metadata file |
+| ad-hoc signature | A file integrity signature that contains no certificate identity |
 | updater metadata | The target-specific file that electron-updater reads |
 | POSIX ustar | The archive format that the release workflows use |
 | build identity | Version, source, time, protocol, and target data in a native executable |
@@ -766,8 +767,7 @@ macOS run the complete root backend suite. The CI job also runs the Renderer
 tests through the main process and Worker. `npm run test:package` builds an
 application directory and runs the client contract through that application.
 On macOS, this test also builds and checks the DMG, ZIP, and updater metadata.
-The macOS CI directory has no signature. The release package still requires
-the signature and notarization below.
+The macOS CI package uses the same signing configuration as the release.
 
 `scripts/release-desktop-assets.ts` gives each target unique asset names. It
 renames the updater metadata to `<channel>-<target>.yml`, where stable uses
@@ -780,10 +780,24 @@ outside npm preflight, SBOM generation, and the CLI artifact manifest. The
 publish job copies them into the GitHub release before it makes that release
 immutable.
 
-macOS release builds require a Developer ID certificate and Apple notarization
-credentials. The packaging step stops before Electron packaging when these
-credentials are absent. Windows builds can remain unsigned. Linux builds need
-no signing key.
+macOS release builds have no Developer ID signature or Apple notarization.
+The release does not use an Apple account or publish an Apple certificate
+identity. Do not select a certificate from the build machine. The package
+configuration disables certificate selection and notarization.
+The package uses an ad-hoc signature. The package test checks that signature.
+It also checks that the signature has no certificate authority or Apple Team ID.
+Windows builds can remain unsigned. Linux builds need no signing key.
+
+macOS can block the first start of a downloaded app. The user must permit that
+app in **System Settings > Privacy & Security**. See
+[Mac installation instructions](desktop-renderer.md#install-on-macos).
+
+The Mac app checks the same channel metadata as the other desktop targets.
+It opens the exact release page when the user selects **Download update**.
+The user must quit the app and replace it with the downloaded version.
+Squirrel.Mac requires an identity signature for automatic installation, so the
+Mac app does not download or install updates automatically. Windows and Linux
+keep their existing update process.
 
 To check an installed Linux update, supply two AppImages with different
 versions. Run this command from `desktop/` with a display or `xvfb-run`:

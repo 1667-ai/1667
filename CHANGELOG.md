@@ -5,12 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-## 0.11.0-beta.1 - 2026-09-14
+## 0.11.0-beta.1 - 2026-09-15
 
 - **1667 has a desktop app.** Open a project and use the writing tools,
   Facts, chapters, Aside, and Settings on macOS, Windows, or Linux.
 - **Desktop updates support stable and beta channels.** Select a channel in
-  the desktop app to check for its next update.
+  the desktop app to check for its next update. Mac updates use a download
+  link and manual installation.
+- **The Mac download has no Apple identity signature or notarization.**
+  macOS can require **Open Anyway** in **System Settings > Privacy & Security**
+  before the first start.
 - **The TUI keeps your draft after a revision conflict.** It loads the stored
   story before you retry the edit.
 
