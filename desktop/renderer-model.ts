@@ -28,7 +28,7 @@ import type {
 import type { SettingsEditorActions } from "./renderer-settings-controls.js";
 import type { SettingsEditorDraft } from "./renderer-settings-model.js";
 
-export type RendererTab = "write" | "facts" | "chapters" | "map" | "settings" | "inspect";
+export type RendererTab = "library" | "write" | "facts" | "chapters" | "map" | "settings" | "inspect";
 export type StreamMode = "continue" | "direct" | "retake" | "rewrite" | "summary";
 export const DESKTOP_THEMES = [
   "lantern",
@@ -53,12 +53,12 @@ const DESKTOP_THEME_STORAGE_KEY = "1667.desktop.theme";
 const DESKTOP_DIRECTIONS_STORAGE_KEY = "1667.desktop.show-directions";
 
 export function savedDesktopTheme(): DesktopTheme {
-  if (typeof localStorage === "undefined") return "parchment";
+  if (typeof localStorage === "undefined") return "graphite";
   try {
     const value = localStorage.getItem(DESKTOP_THEME_STORAGE_KEY);
-    return DESKTOP_THEMES.includes(value as DesktopTheme) ? value as DesktopTheme : "parchment";
+    return DESKTOP_THEMES.includes(value as DesktopTheme) ? value as DesktopTheme : "graphite";
   } catch {
-    return "parchment";
+    return "graphite";
   }
 }
 
@@ -201,6 +201,8 @@ export interface RendererState {
   readonly settingsEditor: RendererSettingsEditorState | null;
   readonly factConsistency: FactConsistencyRun | null;
   readonly factConsistencyBusy: boolean;
+  readonly factConsistencySeen: boolean;
+  readonly focusedPartId: string | null;
   readonly chapterUndo: { readonly breakId: string; readonly removed: RemovedChapterBreak } | null;
   readonly search: string;
   readonly searchHits: readonly SearchHit[];
@@ -229,7 +231,7 @@ export interface RendererState {
 export const INITIAL_STATE: RendererState = {
   stories: [],
   story: null,
-  tab: "write",
+  tab: "library",
   stream: null,
   stoppedGeneration: null,
   composerMode: "continue",
@@ -243,6 +245,8 @@ export const INITIAL_STATE: RendererState = {
   settingsEditor: null,
   factConsistency: null,
   factConsistencyBusy: false,
+  factConsistencySeen: false,
+  focusedPartId: null,
   chapterUndo: null,
   search: "",
   searchHits: [],
@@ -270,6 +274,8 @@ export const INITIAL_STATE: RendererState = {
 
 export interface RendererActions {
   readonly setTab: (tab: RendererTab) => void;
+  readonly focusPart: (id: string) => void;
+  readonly acknowledgeFactConsistencySeen: () => void;
   readonly setSearch: (value: string) => void;
   readonly openSearchHit: (hit: SearchHit) => void;
   readonly setComposerMode: (mode: Extract<StreamMode, "continue" | "direct">) => void;
@@ -378,6 +384,16 @@ export function visibleStories(state: RendererState): readonly StorySummary[] {
 
 export function activeLeaf(story: StoryPayload): StoryPathNode | null {
   return story.path.at(-1) ?? null;
+}
+
+/** The part the inspector (D-03) is contextual to. Defaults to the active
+ * leaf whenever the story loads, the path changes, or nothing was clicked
+ * yet, so the field only needs to hold the writer's explicit choice. */
+export function effectiveFocusedPartId(state: RendererState, story: StoryPayload): string | null {
+  if (state.focusedPartId !== null && story.path.some((node) => node.id === state.focusedPartId)) {
+    return state.focusedPartId;
+  }
+  return activeLeaf(story)?.id ?? null;
 }
 
 export function storyChapters(story: StoryPayload) {

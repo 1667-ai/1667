@@ -560,7 +560,7 @@ export async function runFactConsistency(ctx: RendererCommandContext, scope: Fac
     const result = await api.checkFactConsistency({ ...input, planToken: plan.planToken });
     if (!isCurrent()) return;
     await ctx.replaceStory(result.payload);
-    ctx.setState({ factConsistency: result.run, factConsistencyBusy: false, status: "Fact check complete" });
+    ctx.setState({ factConsistency: result.run, factConsistencyBusy: false, factConsistencySeen: false, status: "Fact check complete" });
   } catch (error) {
     if (!isCurrent()) return;
     ctx.setState({ factConsistencyBusy: false, status: "Fact check failed", error: error instanceof Error ? error.message : String(error) });

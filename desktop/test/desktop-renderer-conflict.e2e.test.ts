@@ -11,7 +11,7 @@ import { initializeProject } from "../../host/launcher-project.js";
 import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -33,6 +33,7 @@ test("Electron reloads the latest story while retaining a second window draft", 
     const draft = second.locator(".part-text").last();
     await draft.fill("Unsaved text from the second window.");
 
+    await goToLibrary(first);
     await first.locator(".rename-story").click();
     await first.waitForSelector(".modal-card", { timeout: 15_000 });
     await first.locator(".modal-input").fill("Renamed by the first window");
@@ -45,7 +46,7 @@ test("Electron reloads the latest story while retaining a second window draft", 
 
     await second.locator(".part-save").last().click();
     await second.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("retry the action") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("retry the action") === true,
       undefined,
       { timeout: 15_000 }
     );
@@ -54,7 +55,7 @@ test("Electron reloads the latest story while retaining a second window draft", 
 
     await second.locator(".part-save").last().click();
     await second.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );
@@ -101,7 +102,7 @@ test("Electron resets the settings editor when the project changes", { timeout: 
       await maxTokens.fill("654");
       await page.locator(".settings-save").click();
       await page.waitForFunction(
-        () => document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true,
+        () => document.querySelector(".toast")?.textContent?.includes("Settings saved") === true,
         undefined,
         { timeout: 15_000 }
       );
@@ -154,6 +155,7 @@ test("Electron retains stopped text when a concurrent rename advances the story"
     );
     await first.waitForTimeout(300);
 
+    await goToLibrary(second);
     await second.locator(".rename-story").click();
     await second.waitForSelector(".modal-card", { timeout: 15_000 });
     await second.locator(".modal-input").fill("Renamed during stopped generation");
@@ -170,11 +172,11 @@ test("Electron retains stopped text when a concurrent rename advances the story"
     const stoppedText = await first.locator(".stopped-generation-text").innerText();
     assert.ok(stoppedText.length > 8, "stopped text must remain visible after the conflict");
     assert.match(await first.locator(".error-banner").innerText(), /story changed/u);
-    assert.match(await first.locator(".topbar-status").innerText(), /retry interrupted text save/u);
+    assert.match(await first.locator(".toast").innerText(), /retry interrupted text save/u);
 
     await first.locator(".stopped-save").click();
     await first.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Interrupted text saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Interrupted text saved") === true,
       undefined,
       { timeout: 30_000 }
     );
@@ -364,7 +366,7 @@ test("Electron saves an edited take and edits its direction", { timeout: 120_000
     await original.locator(".part-text").fill(editedText);
     await original.locator(".part-save-take").click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved as take") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved as take") === true,
       undefined,
       { timeout: 30_000 }
     );
@@ -433,12 +435,13 @@ test("Electron drops drafts for a take removed by prune", { timeout: 120_000 }, 
     await firstDialog.waitFor({ state: "visible", timeout: 15_000 });
     await firstDialog.locator(".modal-submit").click();
     await first.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Pruned 1 unused take") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Pruned 1 unused take") === true,
       undefined,
       { timeout: 30_000 }
     );
     assert.equal((await first.locator(".story-save-state").innerText()).toLocaleLowerCase(), "saved");
 
+    await goToLibrary(first);
     await first.locator(".story-row").filter({ hasText: "Other story" }).click();
     await first.waitForFunction(
       () => document.querySelector(".story-title")?.textContent === "Other story",
@@ -475,10 +478,13 @@ async function openSecondWindow(app: ElectronApplication, first: Page): Promise<
   });
   const second = await opened;
   await second.waitForSelector(".story-title", { timeout: 30_000 });
+  await second.locator(".tab-write").click();
+  await second.waitForSelector(".composer-input", { timeout: 15_000 });
   return second;
 }
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.locator(".modal-input").fill(title);
@@ -487,6 +493,7 @@ async function createStory(page: Page, title: string): Promise<void> {
 }
 
 async function selectStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".story-row").filter({ hasText: title }).click();
   await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 30_000 });
 }

@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -46,6 +46,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await page.locator(".stream-stop").click();
     await page.waitForSelector(".stopped-generation", { timeout: 30_000 });
 
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.waitForSelector(".recent-project", { timeout: 15_000 });
@@ -56,19 +57,26 @@ test("Electron guards active generation, seal cancellation, and display choices"
       { timeout: 15_000 }
     );
     await page.getByRole("button", { name: "Back to story" }).click();
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".stopped-discard", { timeout: 15_000 });
     await page.locator(".stopped-discard").click();
     await page.waitForSelector(".stopped-generation", { state: "detached", timeout: 15_000 });
 
     await page.locator(".composer-submit").click();
     await page.waitForSelector(".stream-card", { timeout: 15_000 });
 
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Other story" }).click();
     await page.waitForTimeout(150);
     assert.equal(await page.locator(".story-title").innerText(), "Active generation");
     const cancel = page.locator(".modal-cancel");
     if (await cancel.count() > 0) await cancel.click();
-    await page.waitForFunction(() => document.querySelector(".stream-card") === null, undefined, { timeout: 30_000 });
     assert.equal(await page.locator(".story-title").innerText(), "Active generation");
+    // .stream-card only renders on the Write tab now; check it there, or a
+    // still-active background stream reads as already finished on Library.
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelector(".stream-card") === null, undefined, { timeout: 30_000 });
     assert.ok(await page.locator(".manuscript-part").count() > 0);
 
     await selectStory(page, "Other story");
@@ -79,6 +87,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await part.fill("Unsaved part text");
     await page.locator(".composer-input").fill("Unsaved composer direction");
 
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     assert.equal(await page.getByRole("button", { name: "Back to story" }).count(), 1);
@@ -88,14 +97,19 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await page.getByRole("button", { name: "Back to story" }).click();
     await page.waitForSelector(".story-title", { timeout: 15_000 });
     assert.equal(await page.locator(".story-title").innerText(), "Active generation");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved part text");
     assert.equal(await page.locator(".composer-input").inputValue(), "Unsaved composer direction");
 
+    await goToLibrary(page);
     await page.locator(".project-seal").click();
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
     await page.locator(".modal-cancel").click();
     await page.waitForSelector(".modal-card", { state: "detached", timeout: 15_000 });
     assert.equal(await page.locator(".launcher-page").count(), 0);
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved part text");
     assert.equal(await page.locator(".composer-input").inputValue(), "Unsaved composer direction");
 
@@ -103,7 +117,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     // before this test reloads to verify display choices.
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );
@@ -113,6 +127,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
     const settingsDraft = page.locator('[data-settings-field="profile.maxOutputTokens"]');
     await settingsDraft.fill("654");
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.waitForSelector(".recent-project", { timeout: 15_000 });
@@ -122,6 +137,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     assert.match(await discardDialog.innerText(), /settings/u);
     await discardDialog.locator(".modal-submit").click();
     await page.waitForSelector(".story-title", { timeout: 30_000 });
+    await page.locator(".tab-settings").click();
     await page.waitForSelector(".settings-editor", { timeout: 30_000 });
     await page.waitForFunction(
       () => (document.querySelector('[data-settings-field="profile.maxOutputTokens"]') as HTMLInputElement | null)?.value !== "654",
@@ -134,6 +150,8 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await directions.click();
     const directionsAfterChange = await directions.getAttribute("aria-pressed");
     await page.reload();
+    await page.waitForSelector(".new-story-button", { timeout: 30_000 });
+    await page.locator(".tab-settings").click();
     await page.waitForSelector(".theme-select", { timeout: 30_000 });
     assert.equal(await page.locator(".theme-select").inputValue(), "graphite");
     assert.equal(await page.locator("html").getAttribute("data-desktop-theme"), "graphite");
@@ -180,13 +198,13 @@ test("Electron keeps a stopped summary visible until the writer discards it", as
     assert.equal(await page.locator(".stopped-save").count(), 0);
     assert.equal(await page.locator(".stopped-discard").count(), 1);
     assert.match(await page.locator(".stopped-generation").innerText(), /not saved as story prose/u);
-    assert.match(await page.locator(".topbar-status").innerText(), /Stopped summary kept for review/u);
+    assert.match(await page.locator(".toast").innerText(), /Stopped summary kept for review/u);
     const stoppedText = await page.locator(".stopped-generation-text").innerText();
     assert.ok(stoppedText.length > 8, "stopped summary must remain visible");
 
     await page.locator(".stopped-discard").click();
     await page.waitForSelector(".stopped-generation", { state: "detached", timeout: 15_000 });
-    assert.match(await page.locator(".topbar-status").innerText(), /Interrupted summary discarded/u);
+    assert.match(await page.locator(".toast").innerText(), /Interrupted summary discarded/u);
     assert.equal(await page.locator(".manuscript-part").count(), 1);
   } finally {
     await closeDesktopApp(app);
@@ -230,6 +248,7 @@ test("Electron keeps a new direction typed during successful generation", { time
     await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".composer-input").inputValue(), "Write the next passage after this one.");
 
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.locator(".recent-project").first().click();
@@ -239,6 +258,7 @@ test("Electron keeps a new direction typed during successful generation", { time
     await discardDialog.locator(".modal-cancel").click();
     await page.waitForSelector(".modal-card", { state: "detached", timeout: 15_000 });
     await page.getByRole("button", { name: "Back to story" }).click();
+    await page.locator(".tab-write").click();
     await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".composer-input").inputValue(), "Write the next passage after this one.");
   } finally {
@@ -267,6 +287,7 @@ test("Electron keeps drafts and navigation while story creation completes", { ti
     await createStory(page, "Creation origin");
 
     await delayCreateStory(page, 1_500);
+    await goToLibrary(page);
     await page.locator(".new-story-button").click();
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     await page.locator(".modal-input").fill("Delayed created story");
@@ -276,6 +297,8 @@ test("Electron keeps drafts and navigation while story creation completes", { ti
       undefined,
       { timeout: 15_000 }
     );
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     await page.locator(".composer-input").fill("Draft while story creation is pending.");
     await page.waitForFunction(
       () => document.querySelector(".story-title")?.textContent === "Creation origin",
@@ -283,13 +306,21 @@ test("Electron keeps drafts and navigation while story creation completes", { ti
       { timeout: 15_000 }
     );
     await page.waitForFunction(
+      () => document.querySelector(".toast")?.textContent?.includes("Story created; current story kept") === true,
+      undefined,
+      { timeout: 30_000 }
+    );
+    assert.match(await page.locator(".toast").innerText(), /Story created; current story kept/u);
+    assert.equal(await page.locator(".composer-input").inputValue(), "Draft while story creation is pending.");
+    await goToLibrary(page);
+    await page.waitForFunction(
       () => [...document.querySelectorAll(".story-row")]
         .some((row) => row.textContent?.includes("Delayed created story") === true),
       undefined,
       { timeout: 30_000 }
     );
-    assert.equal(await page.locator(".composer-input").inputValue(), "Draft while story creation is pending.");
-    assert.match(await page.locator(".topbar-status").innerText(), /Story created; current story kept/u);
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
 
     await page.locator(".tab-settings").click();
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
@@ -303,6 +334,7 @@ test("Electron keeps drafts and navigation while story creation completes", { ti
     await selectStory(page, "Creation origin");
     await delayCreateStory(page, 1_500);
     await delayStoryLoad(page, 2_500);
+    await goToLibrary(page);
     await page.locator(".new-story-button").click();
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     await page.locator(".modal-input").fill("Delayed navigation story");
@@ -326,7 +358,7 @@ test("Electron keeps drafts and navigation while story creation completes", { ti
       { timeout: 30_000 }
     );
     assert.equal(await page.locator(".story-title").innerText(), "Creation destination");
-    assert.match(await page.locator(".topbar-status").innerText(), /Story loaded/u);
+    assert.match(await page.locator(".toast").innerText(), /Story loaded/u);
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });
@@ -369,7 +401,7 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
     );
     await page.locator(".part-text").last().fill(newer);
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 30_000 }
     );
@@ -380,6 +412,7 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
     await page.waitForSelector(".part-text", { timeout: 15_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), newer);
 
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.waitForSelector(".recent-project", { timeout: 15_000 });
@@ -389,6 +422,7 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
     assert.match(await discardDialog.innerText(), /part text/u);
     await discardDialog.locator(".modal-cancel").click();
     await page.getByRole("button", { name: "Back to story" }).click();
+    await page.locator(".tab-write").click();
     await page.waitForSelector(".part-text", { timeout: 15_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), newer);
   } finally {
@@ -432,6 +466,7 @@ test("Electron ignores a delayed part save after the writer changes stories", { 
       { timeout: 15_000 }
     );
 
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Other story" }).click();
     const discardDialog = page.locator('.modal-card[aria-label="Discard unsaved edits?"]');
     await discardDialog.waitFor({ state: "visible", timeout: 15_000 });
@@ -452,6 +487,7 @@ test("Electron ignores a delayed part save after the writer changes stories", { 
 });
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.locator(".modal-input").fill(title);
@@ -460,6 +496,7 @@ async function createStory(page: Page, title: string): Promise<void> {
 }
 
 async function selectStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".story-row").filter({ hasText: title }).click();
   await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 15_000 });
 }
@@ -542,6 +579,7 @@ test("Electron retains drafts after a refused project open and guards hidden par
     await app.evaluate(({ dialog }, selected) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] });
     }, plainDir);
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.getByRole("button", { name: "Open project folder" }).click();
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
@@ -549,6 +587,8 @@ test("Electron retains drafts after a refused project open and guards hidden par
     await page.waitForFunction(() => document.querySelector(".launcher-error")?.textContent?.includes("Choose Create project") === true,
       undefined, { timeout: 30_000 });
     await page.getByRole("button", { name: "Back to story" }).click();
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved second part.");
     assert.equal(await page.locator(".composer-input").inputValue(), "Keep my next direction.");
     await page.locator(".part-switch").first().click();
@@ -563,7 +603,7 @@ test("Electron retains drafts after a refused project open and guards hidden par
     await page.locator(".composer-input").fill("");
     await page.locator(".tab-settings").click();
     await page.locator(".tab-write").click();
-    assert.doesNotMatch(await page.locator(".topbar-status").innerText(), /unsaved edits/u);
+    assert.doesNotMatch(await page.locator(".toast").innerText(), /unsaved edits/u);
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });

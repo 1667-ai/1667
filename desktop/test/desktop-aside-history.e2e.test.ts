@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -68,9 +68,10 @@ test("Electron navigates Aside history buckets and anchors new sessions at the f
       undefined,
       { timeout: 15_000 }
     );
+    await goToLibrary(page);
     await page.locator(".refresh-button").click();
     await page.waitForFunction(
-      () => /^\d+ stor(?:y|ies)$/u.test(document.querySelector(".topbar-status")?.textContent?.trim() ?? ""),
+      () => /^\d+ stor(?:y|ies)$/u.test(document.querySelector(".toast")?.textContent?.trim() ?? ""),
       undefined,
       { timeout: 30_000 }
     );
@@ -112,6 +113,8 @@ test("Electron navigates Aside history buckets and anchors new sessions at the f
     await anchorPicker.selectOption("current");
     await waitForAsideQuestion(page, secondAnchoredQuestion);
     assert.equal(await page.locator(":focus").getAttribute("data-preserve"), "aside-anchor-picker");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".part-switch", { timeout: 15_000 });
     await page.locator(".part-switch").first().click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
@@ -170,7 +173,7 @@ test("Electron keeps Aside selectors after a rejected history read", { timeout: 
     await anchorPicker.focus();
     await anchorPicker.selectOption("unanchored");
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent === "Aside unavailable"
+      () => document.querySelector(".toast")?.textContent === "Aside unavailable"
         && (document.querySelector(".error-banner")?.textContent?.trim().length ?? 0) > 0,
       undefined,
       { timeout: 30_000 }
@@ -186,6 +189,7 @@ test("Electron keeps Aside selectors after a rejected history read", { timeout: 
 });
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.locator(".modal-input").fill(title);

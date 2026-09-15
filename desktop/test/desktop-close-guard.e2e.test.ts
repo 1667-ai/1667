@@ -30,6 +30,8 @@ test("Electron guards dirty close and reload with native Discard or Cancel", { t
     const page = await app.firstWindow();
     page.on("dialog", (dialog) => { void dialog.dismiss().catch(() => undefined); });
     await page.waitForSelector(".story-title", { timeout: 30_000 });
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
 
     const existingParts = await page.locator(".manuscript-part").count();
     await page.locator(".composer-input").fill("Saved base");
@@ -52,7 +54,7 @@ test("Electron guards dirty close and reload with native Discard or Cancel", { t
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved native close draft");
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );
@@ -64,7 +66,7 @@ test("Electron guards dirty close and reload with native Discard or Cancel", { t
     assert.equal(await page.locator(".part-text").last().inputValue(), "Quit retained native draft");
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );

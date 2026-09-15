@@ -28,6 +28,7 @@ import {
   type TextSelection
 } from "./renderer-model.js";
 import { renderApp } from "./renderer-view.js";
+import { createFeedbackClearHandler, updateFeedbackDom } from "./renderer-shell-view.js";
 import { RendererContextController, shouldAppendRendererContinuation } from "./renderer-context.js";
 import { createRendererApi, desktopShell, messageOf } from "./renderer-runtime.js";
 import type { DesktopShellRequest, DesktopShellResponse } from "./renderer-shell-contract.js";
@@ -110,6 +111,8 @@ class RendererApp {
 
   private readonly actions: RendererActions = {
     setTab: (tab) => this.setTab(tab),
+    focusPart: (id) => this.setState({ focusedPartId: id }),
+    acknowledgeFactConsistencySeen: () => this.setState({ factConsistencySeen: true }),
     setSearch: (value) => { this.setState({ search: value }); void this.searchStories(value); },
     openSearchHit: (hit) => { void this.openSearchHit(hit); },
     setComposerMode: (mode) => this.setState({ composerMode: mode }),
@@ -273,6 +276,9 @@ class RendererApp {
     if (desktopShell() === undefined) {
       this.setState({ project: { root: "", directory: "Demo", source: "explicit", exists: true, vault: "unsealed", open: true } });
     }
+    const clearFeedbackOnNextInput = createFeedbackClearHandler(() => this.state, (status, error) => this.clearStaleFeedback(status, error));
+    document.addEventListener("keydown", clearFeedbackOnNextInput, true);
+    document.addEventListener("click", clearFeedbackOnNextInput, true);
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && this.state.dialog !== null) {
         event.preventDefault();
@@ -290,11 +296,13 @@ class RendererApp {
         }
         return;
       }
-      if ((event.metaKey || event.ctrlKey) && /^[1-6]$/u.test(event.key)
-      ) {
+      if ((event.metaKey || event.ctrlKey) && /^[1-6]$/u.test(event.key)) {
         event.preventDefault();
-        const tabs: readonly RendererTab[] = ["write", "facts", "chapters", "map", "settings", "inspect"];
+        const tabs: readonly RendererTab[] = ["library", "write", "facts", "chapters", "map", "inspect"];
         this.setTab(tabs[Number(event.key) - 1]!);
+      } else if ((event.metaKey || event.ctrlKey) && event.key === ",") {
+        event.preventDefault();
+        this.setTab("settings");
       } else if (event.key === "?" && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) {
         void this.showHelp();
       }
@@ -531,7 +539,7 @@ class RendererApp {
   }
 
   private async selectStory(id: string): Promise<void> {
-    await this.loadStory(id);
+    if (await this.loadStory(id)) this.setState({ tab: "write" });
   }
 
   private async openSearchHit(hit: SearchHit): Promise<void> {
@@ -539,6 +547,7 @@ class RendererApp {
     if (hit.kind === "fact") {
       this.setTab("facts");
     } else {
+      this.setState({ tab: "write" });
       await this.switchNode(hit.targetId);
     }
   }
@@ -591,7 +600,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, focusedPartId: null, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -645,7 +654,7 @@ class RendererApp {
         && this.state.story?.id === story.id;
       await this.replaceStory(story);
       if (!isCurrentStory()) return;
-      this.setState({ aside: emptyAsideState() });
+      this.setState({ aside: emptyAsideState(), tab: "write", focusedPartId: null });
       await this.loadAside(story);
       if (!isCurrentStory()) return;
       await this.refresh();
@@ -1564,6 +1573,18 @@ class RendererApp {
     this.contextController.notify(this.state, this.api);
   }
 
+  /** Used only to clear a stale toast/error left over from before the
+   * writer's next click or keydown (D-38). A dedicated path, not the general
+   * `setState`, so it never skips the full re-render that every ordinary
+   * status/error update still relies on to resync derived DOM (a <select>
+   * a failed action leaves at a stale native value, for one). */
+  private clearStaleFeedback(previousStatus: string, previousError: string | null): void {
+    if (this.state.status !== previousStatus || this.state.error !== previousError) return;
+    this.state = { ...this.state, status: "", error: null };
+    updateFeedbackDom(renderRoot, this.state);
+    this.contextController.notify(this.state, this.api);
+  }
+
   private updateAsideStreamDom(aside: RendererState["aside"]): void {
     const sessions = renderRoot.querySelector<HTMLElement>(".aside-sessions");
     if (sessions === null) return;
@@ -1656,7 +1677,13 @@ class RendererApp {
       ? focusedContainer.querySelector<HTMLElement>(`.${focusedClassName}`)
       : [...renderRoot.querySelectorAll<HTMLElement>("[data-preserve]")]
         .find((candidate) => candidate.dataset.preserve === focusedKey);
-    if (replacement === undefined || replacement === null) return;
+    if (replacement === undefined || replacement === null) {
+      // The focused control's destination changed underneath it (for example,
+      // selecting a story switches Library away for Write). Land keyboard
+      // focus on the newly active destination instead of dropping it to body.
+      renderRoot.querySelector<HTMLElement>(".rail .active")?.focus({ preventScroll: true });
+      return;
+    }
     const editable = replacement instanceof HTMLInputElement
       || replacement instanceof HTMLTextAreaElement;
     if (focusedValue !== undefined && editable) replacement.value = focusedValue;

@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is a required dependency of the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type ElectronApplication, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -16,32 +16,14 @@ async function assertStoryLayout(app: ElectronApplication, page: Page, width: nu
   }, { width, height });
   await page.waitForTimeout(150);
   const viewport = await page.evaluate(() => ({ width: window.innerWidth, height: window.innerHeight, scrollWidth: document.documentElement.scrollWidth }));
-  const menu = await page.locator(".story-menu").boundingBox();
   const title = await page.locator(".story-title").boundingBox();
-  const status = await page.locator(".topbar-status").boundingBox();
-  const topbarActions = await page.locator(".topbar-actions").boundingBox();
-  assert.ok(menu, `story actions must render at ${width}x${height}`);
-  assert.ok(title && title.width > 260, `story title must retain readable width at ${width}x${height}`);
+  const titlebar = await page.locator(".titlebar").boundingBox();
+  const rail = await page.locator(".rail").boundingBox();
+  assert.ok(title && title.width > 60, `story title must retain readable width at ${width}x${height}`);
   assert.ok(viewport.scrollWidth <= viewport.width + 1, `story layout must not overflow at ${width}x${height}`);
-  assert.ok(menu!.x >= 0 && menu!.x + menu!.width <= viewport.width + 1, `story actions must stay in the viewport at ${width}x${height}`);
-  assert.ok(menu!.y >= 0 && menu!.y + menu!.height <= viewport.height + 1, `story actions must stay above the fold at ${width}x${height}`);
-  assert.ok(status && status.x >= 0 && status.x + status.width <= viewport.width + 1, `status must stay in the viewport at ${width}x${height}`);
-  if (width <= 1180) assert.ok(status && status.width >= 175, `status must retain readable width at ${width}x${height}`);
-  assert.ok(topbarActions && topbarActions.x >= 0 && topbarActions.x + topbarActions.width <= viewport.width + 1, `topbar actions must stay in the viewport at ${width}x${height}`);
-  assert.equal(await page.locator(".topbar-status").getAttribute("title"), await page.locator(".topbar-status").innerText());
-  const buttons = await page.locator(".story-menu .button").evaluateAll((elements) => elements.map((element) => {
-    const box = element.getBoundingClientRect();
-    return { left: box.left, right: box.right, top: box.top, bottom: box.bottom };
-  }));
-  assert.equal(buttons.length, 8);
-  for (const button of buttons) {
-    assert.ok(button.left >= 0 && button.right <= viewport.width + 1, `story action button must stay in the viewport at ${width}x${height}`);
-    assert.ok(button.top >= 0 && button.bottom <= viewport.height + 1, `story action button must stay visible at ${width}x${height}`);
-  }
-  const rail = await page.locator(".context-rail").boundingBox();
-  if (rail !== null && rail.y < menu!.y + menu!.height) {
-    assert.ok(menu!.x + menu!.width <= rail.x + 1, `story actions must stay left of the context rail at ${width}x${height}`);
-  }
+  assert.ok(titlebar && Math.round(titlebar.height) === 44, `titlebar must stay 44px tall at ${width}x${height}`);
+  assert.ok(rail && Math.round(rail.width) === 56, `rail must stay 56px wide at ${width}x${height}`);
+  assert.equal(await page.locator(".toast").getAttribute("title"), await page.locator(".toast").innerText());
 }
 
 async function assertLongStatusLayout(app: ElectronApplication, page: Page, restoreText: string): Promise<void> {
@@ -51,33 +33,16 @@ async function assertLongStatusLayout(app: ElectronApplication, page: Page, rest
   await page.fill(".composer-input", "status probe");
   await page.click(".composer-submit");
   await page.waitForFunction(
-    () => document.querySelector(".topbar-status")?.textContent?.includes("Save the active part first") === true,
+    () => document.querySelector(".toast")?.textContent?.includes("Save the active part first") === true,
     { timeout: 15_000 }
   );
-  const geometry = await page.evaluate(() => {
-    const statusElement = document.querySelector<HTMLElement>(".topbar-status");
-    const actionsElement = document.querySelector<HTMLElement>(".topbar-actions");
-    if (statusElement === null || actionsElement === null) return null;
-    const status = statusElement.getBoundingClientRect();
-    const actions = actionsElement.getBoundingClientRect();
-    if (getComputedStyle(statusElement).visibility !== "visible"
-      || getComputedStyle(actionsElement).visibility !== "visible"
-      || status.width <= 0 || status.height <= 0
-      || actions.width <= 0 || actions.height <= 0) return null;
-    return {
-      viewportWidth: window.innerWidth,
-      status: { x: status.x, width: status.width },
-      actions: { x: actions.x, width: actions.width }
-    };
-  });
-  assert.ok(geometry !== null, "long status controls must remain mounted for geometry check");
-  assert.ok(geometry.status.x + geometry.status.width <= geometry.viewportWidth + 1, "long status must stay in the viewport");
-  assert.ok(geometry.actions.x + geometry.actions.width <= geometry.viewportWidth + 1, "actions must stay in the viewport beside long status");
+  const overflows = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
+  assert.ok(!overflows, "a long toast message must not cause horizontal overflow");
   await page.locator(".part-save").last().click();
-  await page.waitForFunction(() => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Saved") === true, { timeout: 15_000 });
   await page.locator(".part-text").last().fill(restoreText);
   await page.locator(".part-save").last().click();
-  await page.waitForFunction(() => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true, { timeout: 15_000 });
+  await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Saved") === true, { timeout: 15_000 });
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 900));
   await page.waitForTimeout(150);
 }
@@ -110,6 +75,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
       { timeout: 30_000 }
     );
     assert.equal(await page.locator(".story-title").innerText(), "The keeper of the quiet sea");
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.getByRole("button", { name: "Check for updates", exact: true }).click();
@@ -141,6 +107,8 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     assert.equal(await page.locator(":focus").getAttribute("data-preserve"), "search");
     await search.fill("");
 
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     await page.fill(".composer-input", "Opening line");
     await page.click(".composer-manual");
     await page.waitForSelector(".manuscript-part", { timeout: 15_000 });
@@ -169,7 +137,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await part.fill(editedText);
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       { timeout: 15_000 }
     );
     assert.equal(await part.inputValue(), editedText);
@@ -195,9 +163,9 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     assert.ok((await page.locator(".request-message-text").allTextContents()).some((text) => text.includes("preserve the request context")));
     await page.fill(".composer-input", "");
     const shortcut = process.platform === "darwin" ? "Meta" : "Control";
-    await page.locator(".composer-input").press(`${shortcut}+2`);
+    await page.locator(".composer-input").press(`${shortcut}+3`);
     await page.waitForSelector(".tab-content.facts", { timeout: 15_000 });
-    await page.keyboard.press(`${shortcut}+1`);
+    await page.keyboard.press(`${shortcut}+2`);
     await page.waitForSelector(".tab-content.write", { timeout: 15_000 });
     const cdp = await page.context().newCDPSession(page);
     const imeInput = page.locator(".composer-input");
@@ -209,6 +177,8 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await page.waitForFunction(() => document.activeElement?.getAttribute("data-preserve") === "composer", { timeout: 5_000 });
     assert.ok((await imeInput.inputValue()).length > 0);
     await imeInput.fill("");
+    await page.locator(".tab-settings").click();
+    await page.waitForSelector(".theme-select", { timeout: 15_000 });
     const theme = page.locator(".theme-select");
     await theme.selectOption("graphite");
     assert.equal(await page.locator("html").getAttribute("data-desktop-theme"), "graphite");
@@ -219,6 +189,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     assert.notEqual(await directions.getAttribute("aria-pressed"), directionsBefore);
     await directions.click();
 
+    await goToLibrary(page);
     await page.click(".new-story-button");
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     await page.fill(".modal-input", "Draft destination");
@@ -226,26 +197,36 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Draft destination", { timeout: 15_000 });
     const originalRow = page.locator(".story-row").filter({ hasText: "The keeper of the quiet sea" });
     const destinationRow = page.locator(".story-row").filter({ hasText: "Draft destination" });
+    await goToLibrary(page);
     await originalRow.click();
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "The keeper of the quiet sea", { timeout: 15_000 });
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".part-text", { timeout: 15_000 });
     const dirtyPart = page.locator(".part-text").last();
     await dirtyPart.fill("Keep this unsaved sentence.");
+    await goToLibrary(page);
     await destinationRow.click();
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     assert.equal(await page.locator(".modal-card h2").innerText(), "Discard unsaved edits?");
     await page.click(".modal-cancel");
     assert.equal(await page.locator(".story-title").innerText(), "The keeper of the quiet sea");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".part-text", { timeout: 15_000 });
     assert.equal(await page.locator(".part-text").last().inputValue(), "Keep this unsaved sentence.");
+    await goToLibrary(page);
     await destinationRow.click();
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     await page.click(".modal-submit");
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Draft destination", { timeout: 15_000 });
+    await goToLibrary(page);
     await originalRow.click();
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "The keeper of the quiet sea", { timeout: 15_000 });
     await page.waitForFunction(
-      () => /Story loaded|Aside unavailable/u.test(document.querySelector(".topbar-status")?.textContent ?? ""),
+      () => /Story loaded|Aside unavailable/u.test(document.querySelector(".toast")?.textContent ?? ""),
       { timeout: 15_000 }
     );
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".part-text", { timeout: 15_000 });
 
     await page.waitForTimeout(500);
     const selectionStart = editedText.indexOf("hand");
@@ -268,7 +249,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await page.fill(".modal-input", "make this word vivid");
     await page.click(".modal-submit");
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       { timeout: 30_000 }
     );
 
@@ -304,14 +285,14 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     assert.equal(await composerMode.inputValue(), "direct");
     await page.click(".composer-submit");
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Save the active part first") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Save the active part first") === true,
       { timeout: 15_000 }
     );
     assert.equal(await page.locator(".stream-card").count(), 0);
 
     await originalPartCard.locator(".part-save").click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       { timeout: 15_000 }
     );
     await page.locator(".part-switch").first().click();
@@ -339,7 +320,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     assert.equal(await page.locator(".modal-textarea").inputValue(), factSource.slice(0, 4));
     await page.fill(".modal-textarea", "Selected prose is durable.");
     await page.click(".modal-submit");
-    await page.waitForFunction(() => document.querySelector(".topbar-status")?.textContent?.includes("Done") === true, { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Done") === true, { timeout: 15_000 });
 
     await page.locator(".part-fact-here").last().click();
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
@@ -347,7 +328,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await page.click(".modal-submit");
     await page.fill(".modal-textarea", "The active part anchors this Fact.");
     await page.click(".modal-submit");
-    await page.waitForFunction(() => document.querySelector(".topbar-status")?.textContent?.includes("Done") === true, { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Done") === true, { timeout: 15_000 });
 
     await page.click(".tab-facts");
     await page.waitForSelector(".new-fact", { timeout: 15_000 });
@@ -399,7 +380,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await temperature.fill("0.7");
     await page.click(".settings-save");
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Settings saved") === true,
       { timeout: 15_000 }
     );
     assert.equal(await temperature.inputValue(), "0.7");
@@ -414,6 +395,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
       undefined, { timeout: 15_000 }
     );
     assert.equal((await page.locator(".story-save-state").innerText()).toLowerCase(), "saved");
+    await goToLibrary(page);
     await destinationRow.click();
     await page.waitForFunction(
       () => document.querySelector(".story-title")?.textContent === "Draft destination",

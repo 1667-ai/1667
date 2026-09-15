@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -36,6 +36,7 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.click(".modal-submit");
     await page.waitForSelector(".story-title", { timeout: 30_000 });
 
+    await goToLibrary(page);
     await page.click(".project-seal");
     await page.waitForSelector('.modal-card[aria-label="Choose a password to seal this project"]', { timeout: 15_000 });
     assert.equal(await page.locator("[data-dialog-field=password]").count(), 1);
@@ -70,6 +71,7 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.waitForSelector(".story-title", { timeout: 30_000 });
     assert.equal(await page.locator(".story-title").innerText(), "Vault proof");
 
+    await goToLibrary(page);
     await page.click(".project-seal");
     await page.waitForSelector('.modal-card[aria-label="Choose a password to seal this project"]', { timeout: 15_000 });
     await page.fill('[data-dialog-field="password"]', "vault-password");
@@ -91,6 +93,7 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.getByRole("button", { name: "Unseal permanently" }).click();
     await page.waitForSelector(".story-title", { timeout: 30_000 });
 
+    await goToLibrary(page);
     await page.click(".project-seal");
     await page.waitForSelector('.modal-card[aria-label="Choose a password to seal this project"]', { timeout: 15_000 });
     await page.fill('[data-dialog-field="password"]', "vault-password");
@@ -111,20 +114,26 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.getByRole("button", { name: "Unlock project" }).click();
     await page.waitForSelector(".story-title", { timeout: 30_000 });
     assert.equal(await page.locator(".story-title").innerText(), "Vault proof");
+    await goToLibrary(page);
     await page.waitForSelector(".project-unseal", { timeout: 15_000 });
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     await page.locator(".composer-input").fill("Keep this direction after a wrong vault password.");
+    await goToLibrary(page);
     await page.click(".project-unseal");
     await page.waitForSelector('.modal-card[aria-label="Unseal project"]', { timeout: 15_000 });
     await page.fill(".modal-input", "wrong-password");
     await page.click(".modal-submit");
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
     await page.click(".modal-submit");
-    await page.waitForFunction(() => document.querySelector(".topbar-status")?.textContent?.includes("Host action failed") === true,
+    await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Host action failed") === true,
       undefined, { timeout: 30_000 });
     await page.locator(".tab-settings").click();
     await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".composer-input").inputValue(), "Keep this direction after a wrong vault password.");
     await page.locator(".composer-input").fill("");
+    await goToLibrary(page);
     await page.click(".project-unseal");
     await page.waitForSelector('.modal-card[aria-label="Unseal project"]', { timeout: 15_000 });
     assert.match(await page.locator(".modal-card").innerText(), /remove encryption permanently/iu);

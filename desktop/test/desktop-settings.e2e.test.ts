@@ -8,7 +8,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -46,7 +46,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.click(".settings-save");
     await page.waitForFunction(
       () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
-        && document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true
+        && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
         || Boolean(document.querySelector(".settings-global-error")?.textContent),
       undefined,
       { timeout: 30_000 }
@@ -62,7 +62,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.click(".settings-save");
     await page.waitForFunction(
       () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
-        && document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true
+        && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
         || Boolean(document.querySelector(".settings-global-error")?.textContent),
       undefined,
       { timeout: 30_000 }
@@ -109,7 +109,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.click(".settings-save");
     await page.waitForFunction(
       () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
-        && document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true
+        && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
         || Boolean(document.querySelector(".settings-global-error")?.textContent),
       undefined,
       { timeout: 30_000 }
@@ -149,7 +149,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.fill(".settings-control-profile-maxOutputTokens", "2049");
     await page.click(".settings-save");
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true
+      () => document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
         || Boolean(document.querySelector(".settings-global-error")?.textContent),
       undefined,
       { timeout: 30_000 }
@@ -226,7 +226,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
 
     await page.click(".settings-discard-pending");
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Pending settings discarded") === true
+      () => document.querySelector(".toast")?.textContent?.includes("Pending settings discarded") === true
         || Boolean(document.querySelector(".settings-global-error")?.textContent),
       undefined,
       { timeout: 30_000 }
@@ -270,17 +270,20 @@ test("Electron restores the Settings editor after discarding a dirty story switc
     await page.waitForSelector(".new-story-button", { timeout: 30_000 });
     await createStoryForSettings(page, "Settings story");
     await createStoryForSettings(page, "Other story");
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Settings story" }).click();
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Settings story", undefined, { timeout: 15_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
     await page.fill(".settings-control-profile-maxOutputTokens", "1234");
 
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Other story" }).click();
     const discardDialog = page.locator('.modal-card[aria-label="Discard unsaved edits?"]');
     await discardDialog.waitFor({ state: "visible", timeout: 15_000 });
     await discardDialog.locator(".modal-submit").click();
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Other story", undefined, { timeout: 30_000 });
+    await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
     assert.notEqual(await page.locator(".settings-control-profile-maxOutputTokens").inputValue(), "1234");
   } finally {
@@ -384,6 +387,7 @@ async function typeSetting(page: Page, selector: string, value: string): Promise
 }
 
 async function createStoryForSettings(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.click(".new-story-button");
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.fill(".modal-input", title);

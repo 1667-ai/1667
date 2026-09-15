@@ -1,32 +1,26 @@
-import type { StoryFact, StoryPathNode, StoryPayload, StorySummary } from "../shared/types.js";
-import type { SearchHit } from "../shared/story-search.js";
+import type { StoryFact, StoryPathNode, StoryPayload } from "../shared/types.js";
 import { isFactEndState, type FactState } from "../shared/fact-state.js";
 import { imageAttachmentLabel, imageMediaTypeLabel } from "../shared/image-attachment.js";
 import { estimateTokens } from "../shared/tokens.js";
 import { continuationStats, rememberedLeafId } from "../shared/story-model.js";
 import {
   activeLeaf,
-  ASIDE_CURRENT_KEY,
-  ASIDE_UNANCHORED_KEY,
-  asideAnchorKey,
+  effectiveFocusedPartId,
   factLabel,
   storyChapterInfo,
   storyChapters,
-  storyWordCount,
-  storyHasUnsavedDrafts,
+  DESKTOP_THEMES,
   type DesktopTheme,
   type RendererActions,
   type RendererState,
-  type RendererTab,
-  type TextSelection,
-  visibleStories
+  type TextSelection
 } from "./renderer-model.js";
 import { renderLauncher } from "./renderer-launcher-view.js";
 import { renderSettingsEditor } from "./renderer-settings-view.js";
-import { DESKTOP_THEMES } from "./renderer-model.js";
-import { renderRequestContext } from "./renderer-context.js";
-
-type ElementChild = Node | string;
+import { actionButton, bindDraftInput, el, resizeTextarea } from "./renderer-dom.js";
+import { renderTitlebar, renderRail, renderFeedbackStack } from "./renderer-shell-view.js";
+import { renderLibraryDestination } from "./renderer-library-view.js";
+import { renderInspector } from "./renderer-inspector-view.js";
 
 export function renderApp(root: HTMLElement, state: RendererState, actions: RendererActions): void {
   document.documentElement.dataset.desktopTheme = state.theme;
@@ -41,10 +35,10 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
   const shell = el("div", "app-shell");
   const hadDialog = root.querySelector(".modal-card") !== null;
   shell.append(
-    renderHeader(state, actions),
-    renderLibrary(state, actions),
+    renderTitlebar(state, actions),
+    renderRail(state, actions),
     renderWorkspace(state, actions),
-    renderContextRail(state, actions)
+    renderInspector(state, actions)
   );
   const dialog = renderDialog(state, actions, !hadDialog);
   if (dialog !== null) shell.append(dialog);
@@ -168,119 +162,25 @@ function renderDialog(state: RendererState, actions: RendererActions, focusIniti
   return backdrop;
 }
 
-function renderHeader(state: RendererState, actions: RendererActions): HTMLElement {
-  const header = el("header", "topbar");
-  const brand = el("div", "brand");
-  const mark = document.createElement("img");
-  mark.src = "../docs/assets/1667-rainbow.svg";
-  mark.alt = "";
-  mark.className = "brand-mark";
-  brand.append(mark, el("span", "brand-word", "1667"), el("span", "brand-mode", "desktop"));
-  const stateChip = el("span", `connection-chip ${state.connection}`, state.connection);
-  const actionsBox = el("div", "topbar-actions");
-  const theme = document.createElement("select");
-  theme.className = "theme-select";
-  theme.dataset.preserve = "theme-select";
-  theme.setAttribute("aria-label", "Desktop theme");
-  for (const value of DESKTOP_THEMES) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    option.selected = value === state.theme;
-    theme.append(option);
-  }
-  theme.value = state.theme;
-  theme.addEventListener("change", () => actions.setTheme(theme.value as DesktopTheme));
-  const directions = actionButton("directions-toggle", state.showDirections ? "Directions on" : "Directions off", () => actions.setDirections(!state.showDirections));
-  directions.setAttribute("aria-pressed", String(state.showDirections));
-  directions.title = state.showDirections ? "Hide part directions" : "Show part directions";
-  actionsBox.append(
-    stateChip,
-    theme,
-    directions,
-    state.project === null ? "" : actionButton("project-reveal", "Reveal folder", actions.revealProject),
-    state.project?.open === true ? actionButton("project-browser", "Projects", () => actions.showProjects(true)) : "",
-    state.project?.open === true
-      ? state.project.vault === "sealed"
-        ? actionButton("project-unseal", "Unseal", actions.unsealProject)
-        : actionButton("project-seal", "Seal", actions.sealProject)
-      : "",
-    actionButton("help-button", "Help", actions.showHelp),
-    actionButton("new-story-button", "+ new story", actions.createStory),
-    actionButton("refresh-button", "↻", actions.refresh, "Refresh library")
-  );
-  const status = el("div", "topbar-status", state.status);
-  status.title = state.status;
-  status.setAttribute("aria-live", "polite");
-  header.append(brand, status, actionsBox);
-  return header;
-}
-
-function renderLibrary(state: RendererState, actions: RendererActions): HTMLElement {
-  const aside = el("aside", "library");
-  const heading = el("div", "section-heading");
-  heading.append(el("span", "eyebrow", "Library"), el("span", "library-count", `${state.stories.length} stor${state.stories.length === 1 ? "y" : "ies"}`), actionButton("library-import", "Import", actions.importMarkdown));
-  const search = document.createElement("input");
-  search.className = "library-search";
-  search.type = "search";
-  search.placeholder = "Find a story";
-  search.value = state.search;
-  search.dataset.preserve = "search";
-  search.setAttribute("aria-label", "Find a story");
-  bindDraftInput(search, () => actions.setSearch(search.value));
-  const list = el("div", "story-list");
-  for (const story of visibleStories(state)) list.append(renderStoryRow(story, state.story?.id === story.id, actions));
-  if (list.childElementCount === 0) list.append(el("p", "empty-copy", "No stories match this search."));
-  aside.append(heading, search, list);
-  if (state.searchBusy) aside.append(el("p", "library-hint", "Searching the vault…"));
-  if (state.searchHits.length > 0) aside.append(renderSearchResults(state.searchHits, actions));
-  aside.append(el("p", "library-hint", "Stories in the active project. Search also checks prose, prompts, and Facts."));
-  return aside;
-}
-
-function renderSearchResults(hits: readonly SearchHit[], actions: RendererActions): HTMLElement {
-  const results = el("div", "search-results", el("span", "eyebrow", "Matches"));
-  for (const hit of hits.slice(0, 12)) {
-    const button = actionButton("search-result", "", () => actions.openSearchHit(hit));
-    button.dataset.preserve = `search-result:${hit.storyId}:${hit.kind}:${hit.targetId}:${hit.stateId ?? ""}`;
-    button.append(el("strong", "search-result-title", `${hit.storyTitle} · ${hit.kind}`), el("span", "search-result-snippet", hit.snippet));
-    results.append(button);
-  }
-  if (hits.length > 12) results.append(el("p", "library-hint", `${hits.length - 12} more matches`));
-  return results;
-}
-
-function renderStoryRow(story: StorySummary, active: boolean, actions: RendererActions): HTMLElement {
-  const row = el("button", `story-row ${active ? "active" : ""}`);
-  row.type = "button";
-  row.dataset.preserve = `story-row:${story.id}`;
-  row.addEventListener("click", () => actions.selectStory(story.id));
-  row.append(
-    el("span", "story-row-title", story.title),
-    el("span", "story-row-meta", `${story.words.toLocaleString()} words · ${story.partCount} part${story.partCount === 1 ? "" : "s"}`),
-    story.forked ? el("span", "story-row-mark", "forked") : ""
-  );
-  return row;
-}
-
 function renderWorkspace(state: RendererState, actions: RendererActions): HTMLElement {
   const main = el("main", "workspace");
-  const story = state.story;
-  if (story === null) {
-    main.append(el("div", "welcome", el("span", "eyebrow", "No story open"), el("h1", "Make a place for the next sentence."), el("p", "Create a story or choose one from the library."), actionButton("welcome-create", "Create story", actions.createStory)));
-    return main;
-  }
-  main.append(renderStoryHeader(story, state, actions), renderTabs(state.tab, actions));
   if (state.recoveryWarnings.length > 0) main.append(renderRecoveryWarnings(state, actions));
   const content = el("section", `tab-content ${state.tab}`);
-  if (state.tab === "write") content.append(renderWriting(story, state, actions));
-  if (state.tab === "facts") content.append(renderFacts(story, state, actions));
-  if (state.tab === "chapters") content.append(renderChapters(story, state, actions));
-  if (state.tab === "map") content.append(renderMap(story, actions));
-  if (state.tab === "settings") content.append(renderSettings(state, actions));
-  if (state.tab === "inspect") content.append(renderInspect(story, state, actions));
-  main.append(content);
-  if (state.error !== null) main.append(el("div", "error-banner", state.error));
+  if (state.tab === "library") {
+    content.append(renderLibraryDestination(state, actions));
+  } else if (state.tab === "settings") {
+    content.append(renderSettings(state, actions));
+  } else if (state.story === null) {
+    content.append(el("div", "welcome", el("span", "eyebrow", "No story open"), el("h1", "", "Make a place for the next sentence."), el("p", "", "Choose a story from the Library, or create one."), actionButton("welcome-create", "Create story", actions.createStory)));
+  } else {
+    const story = state.story;
+    if (state.tab === "write") content.append(renderWriting(story, state, actions));
+    if (state.tab === "facts") content.append(renderFacts(story, state, actions));
+    if (state.tab === "chapters") content.append(renderChapters(story, state, actions));
+    if (state.tab === "map") content.append(renderMap(story, actions));
+    if (state.tab === "inspect") content.append(renderInspect(story, state, actions));
+  }
+  main.append(content, renderFeedbackStack(state));
   return main;
 }
 
@@ -297,50 +197,6 @@ function renderRecoveryWarnings(state: RendererState, actions: RendererActions):
   }
   card.append(list);
   return card;
-}
-
-function renderStoryHeader(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
-  const header = el("section", "story-header");
-  const titleLine = el("div", "story-title-line");
-  const titleCopy = el("div", "story-title-copy",
-    el("div", "story-kicker", story.origin === undefined ? "Current manuscript" : "Forked manuscript"),
-    el("h1", "story-title", story.title)
-  );
-  const menu = el("div", "story-menu");
-  menu.append(
-    actionButton("rename-story", "Rename", actions.renameStory),
-    actionButton("autoname-story", "Autoname", actions.autonameStory),
-    actionButton("export-story", "Export", actions.exportMarkdown),
-    actionButton("export-archive", "Export archive", () => { void exportArchive(story.id, actions); }),
-    actionButton("import-archive", "Import archive", () => { void importArchive(actions); }),
-    actionButton("import-card", "Import card", actions.importCard),
-    actionButton("import-lorebook", "Import lorebook", actions.importLorebook),
-    actionButton("delete-story", "Delete", actions.deleteStory, "Delete this story")
-  );
-  titleLine.append(titleCopy, menu);
-  const stats = el("div", "story-stats");
-  stats.append(
-    metric("words", storyWordCount(story).toLocaleString()),
-    metric("parts", story.path.length.toString()),
-    metric("facts", story.facts.length.toString()),
-    metric("chapters", (story.chapterBreaks.length + 1).toString()),
-    el("span", `story-save-state ${state.stream === null ? (storyHasUnsavedDrafts(story, state) ? "dirty" : "saved") : "streaming"}`, state.stream === null ? (storyHasUnsavedDrafts(story, state) ? "unsaved edits" : "saved") : "writing…")
-  );
-  header.append(titleLine, stats);
-  return header;
-}
-
-function renderTabs(active: RendererTab, actions: RendererActions): HTMLElement {
-  const tabs = el("nav", "tabs");
-  const entries: readonly [RendererTab, string][] = [
-    ["write", "Write"], ["facts", "Facts"], ["chapters", "Chapters"], ["map", "Map"], ["settings", "Settings"], ["inspect", "Inspect"]
-  ];
-  for (const [tab, label] of entries) {
-    const button = actionButton(`tab-${tab}`, label, () => actions.setTab(tab));
-    button.classList.toggle("active", tab === active);
-    tabs.append(button);
-  }
-  return tabs;
 }
 
 function renderWriting(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
@@ -393,7 +249,9 @@ function renderLineTools(story: StoryPayload, state: RendererState, actions: Ren
 
 function renderPart(story: StoryPayload, state: RendererState, node: StoryPathNode, index: number, actions: RendererActions): HTMLElement {
   const dirty = state.drafts[`part:${node.id}`] !== undefined && state.drafts[`part:${node.id}`] !== node.text;
-  const article = el("article", `manuscript-part ${node === activeLeaf(story) ? "active" : ""}${dirty ? " dirty" : ""}`);
+  const focused = node.id === effectiveFocusedPartId(state, story);
+  const article = el("article", `manuscript-part ${node === activeLeaf(story) ? "active" : ""}${dirty ? " dirty" : ""}${focused ? " focused" : ""}`);
+  if (!focused) article.addEventListener("click", () => actions.focusPart(node.id));
   const meta = el("div", "part-meta");
   const labels = el("span", "part-label", `part ${String(index + 1).padStart(2, "0")}`);
   const badges = el("span", "part-badges");
@@ -611,6 +469,7 @@ function renderComposer(state: RendererState, actions: RendererActions): HTMLEle
 }
 
 function renderFacts(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
+  if (!state.factConsistencySeen) queueMicrotask(() => actions.acknowledgeFactConsistencySeen());
   const panel = el("div", "panel");
   const factControls = el("div", "panel-heading-actions",
     actionButton("new-fact", "+ New Fact", actions.createFact),
@@ -790,16 +649,17 @@ function renderChapter(chapter: { id: string; parentPartId: string; title: strin
 }
 
 function renderSettings(state: RendererState, actions: RendererActions): HTMLElement {
+  const desktop = renderDesktopSection(state, actions);
   const transfer = el("div", "settings-transfer-bar",
     actionButton("profile-import", "Import profile", () => { void importProfile(actions); }),
     actionButton("profile-export", "Export profile", () => { void exportProfile(actions, state.settingsEditor?.draft.selectedProfileId ?? null); })
   );
-  if (state.settings === null) return el("div", "settings-editor-stack", transfer, el("div", "panel settings-panel", el("p", "empty-copy", "Loading settings…")));
+  if (state.settings === null) return el("div", "settings-editor-stack", desktop, transfer, el("div", "panel settings-panel", el("p", "empty-copy", "Loading settings…")));
   if (state.settingsEditor === null || state.settings.document === null) {
-    return el("div", "settings-editor-stack", transfer, el("div", "panel settings-panel", el("p", "empty-copy", "This settings document is read-only in the current project.")));
+    return el("div", "settings-editor-stack", desktop, transfer, el("div", "panel settings-panel", el("p", "empty-copy", "This settings document is read-only in the current project.")));
   }
   const editor = state.settingsEditor;
-  return el("div", "settings-editor-stack", transfer, renderSettingsEditor({
+  return el("div", "settings-editor-stack", desktop, transfer, renderSettingsEditor({
     document: editor.draft.document,
     draft: editor.draft,
     discovery: editor.discovery,
@@ -811,6 +671,34 @@ function renderSettings(state: RendererState, actions: RendererActions): HTMLEle
     activeRevision: state.settings.activeRevision,
     lastActivationOutcome: state.settings.lastActivationOutcome
   }, actions.settingsEditor));
+}
+
+/** The desktop display controls (theme, directions) live at the top of
+ * Settings until phase 4 builds the typed theme picker (D-19). */
+function renderDesktopSection(state: RendererState, actions: RendererActions): HTMLElement {
+  const theme = document.createElement("select");
+  theme.className = "theme-select settings-control";
+  theme.dataset.preserve = "theme-select";
+  theme.setAttribute("aria-label", "Desktop theme");
+  for (const value of DESKTOP_THEMES) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    option.selected = value === state.theme;
+    theme.append(option);
+  }
+  theme.value = state.theme;
+  theme.addEventListener("change", () => actions.setTheme(theme.value as DesktopTheme));
+  const directions = actionButton("directions-toggle", state.showDirections ? "directions on" : "directions off", () => actions.setDirections(!state.showDirections));
+  directions.setAttribute("aria-pressed", String(state.showDirections));
+  directions.title = state.showDirections ? "Hide part directions" : "Show part directions";
+  return el("div", "settings-section",
+    el("div", "settings-section-heading", el("h3", "", "Desktop"), el("p", "", "Display only; this does not change story data.")),
+    el("div", "settings-form",
+      el("label", "settings-field", "Theme", theme),
+      el("label", "settings-field", "Directions", directions)
+    )
+  );
 }
 
 function renderInspect(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
@@ -844,181 +732,14 @@ function renderInspect(story: StoryPayload, state: RendererState, actions: Rende
   return panel;
 }
 
-function renderContextRail(state: RendererState, actions: RendererActions): HTMLElement {
-  const rail = el("aside", "context-rail");
-  const story = state.story;
-  if (story === null) return rail;
-  const note = document.createElement("textarea");
-  note.className = "rail-textarea";
-  note.dataset.preserve = "authors-note";
-  note.value = state.drafts["authors-note"] ?? story.authorsNote ?? "";
-  note.placeholder = "A note for the next request…";
-  note.rows = 4;
-  bindDraftInput(note, () => actions.setDraft("authors-note", note.value));
-  const noteDepth = document.createElement("input");
-  noteDepth.type = "number";
-  noteDepth.min = "1";
-  noteDepth.max = "100";
-  noteDepth.step = "1";
-  noteDepth.value = state.drafts["authors-note-depth"] ?? String(story.authorsNoteDepth ?? 1);
-  noteDepth.dataset.preserve = "authors-note-depth";
-  noteDepth.setAttribute("aria-label", "Author's Note depth");
-  bindDraftInput(noteDepth, () => actions.setDraft("authors-note-depth", noteDepth.value));
-  const noteSave = actionButton("note-save", "Save note", () => {
-    const depth = Number(noteDepth.value);
-    actions.setAuthorsNote(note.value, Number.isSafeInteger(depth) && depth > 0 ? depth : undefined);
-  });
-  const brief = document.createElement("textarea");
-  brief.className = "rail-textarea";
-  brief.dataset.preserve = "author-brief";
-  brief.value = state.drafts["author-brief"] ?? story.authorBrief ?? "";
-  brief.placeholder = "A brief for this story…";
-  brief.rows = 3;
-  bindDraftInput(brief, () => actions.setDraft("author-brief", brief.value));
-  const briefSave = actionButton("brief-save", "Save brief", () => actions.setAuthorBrief(brief.value));
-  const asideQuestion = document.createElement("textarea");
-  asideQuestion.className = "rail-textarea aside-question";
-  asideQuestion.dataset.preserve = "aside-question";
-  asideQuestion.value = state.drafts["aside-question"] ?? state.aside.question;
-  asideQuestion.placeholder = "Ask about the manuscript…";
-  asideQuestion.rows = 3;
-  bindDraftInput(asideQuestion, () => actions.setDraft("aside-question", asideQuestion.value));
-  const asideAction = state.aside.busy
-    ? actionButton("aside-stop", "Stop", actions.stopAside)
-    : actionButton("aside-ask", "Ask Aside", () => actions.askAside(asideQuestion.value));
-  const asideControls = el("div", "aside-controls", asideAction, state.aside.answer.trim().length === 0 ? "" : actionButton("aside-use", "Use as line", actions.useAsideAnswer), state.aside.v2 ? "" : actionButton("aside-clear", "Clear", actions.clearAside));
-  const aside = el("section", "rail-card aside-card", el("div", "rail-card-heading", "Aside", el("span", "rail-kicker", "private thread")), asideQuestion, asideControls);
-  if (state.aside.v2) aside.append(renderAsideSessions(state, actions));
-  else {
-    if (state.aside.answer.length > 0) aside.append(el("p", "aside-answer", state.aside.answer));
-    if (state.aside.notes.length > 0) aside.append(el("div", "aside-history", `${state.aside.notes.length} turn${state.aside.notes.length === 1 ? "" : "s"} saved`));
-  }
-  const context = renderRequestContext(state.requestContext);
-  const noteDepthField = el("label", "note-depth-field", "depth", noteDepth);
-  const noteCard = el("section", "rail-card note-card", el("div", "rail-card-heading", "Author’s Note", el("span", "rail-kicker", "story control")), note, noteDepthField, noteSave);
-  const briefCard = el("section", "rail-card note-card", el("div", "rail-card-heading", "Author Brief", el("span", "rail-kicker", "story control")), brief, briefSave);
-  rail.append(context, noteCard, briefCard, aside);
-  return rail;
-}
-
-function renderAsideSessions(state: RendererState, actions: RendererActions): HTMLElement {
-  const wrapper = el("div", "aside-sessions");
-  const anchorPicker = document.createElement("select");
-  anchorPicker.className = "aside-anchor-picker";
-  anchorPicker.dataset.preserve = "aside-anchor-picker";
-  anchorPicker.setAttribute("aria-label", "Aside history");
-  const currentLeaf = state.story?.path.at(-1);
-  const currentAnchor = currentLeaf === undefined
-    ? null : { partId: currentLeaf.id, takeId: currentLeaf.id };
-  const selectedKey = state.aside.anchor === null
-    ? ASIDE_UNANCHORED_KEY : asideAnchorKey(state.aside.anchor);
-  const currentKey = currentAnchor === null ? ASIDE_UNANCHORED_KEY : asideAnchorKey(currentAnchor);
-  const anchorOptions: Array<{ readonly key: string; readonly label: string }> = [];
-  if (currentAnchor !== null || state.aside.unanchoredCount === 0) {
-    anchorOptions.push({
-      key: ASIDE_CURRENT_KEY,
-      label: currentAnchor === null ? "Current story · unanchored" : "Current story position"
-    });
-  }
-  for (const anchor of state.aside.anchors) {
-    const key = asideAnchorKey(anchor);
-    if (currentAnchor !== null && key === currentKey) continue;
-    const part = anchor.partNumber === undefined ? anchor.partId.slice(0, 8) : String(anchor.partNumber);
-    const take = anchor.takeIndex === undefined || anchor.takeCount === undefined
-      ? "take ?" : `take ${anchor.takeIndex}/${anchor.takeCount}`;
-    anchorOptions.push({ key, label: `Part ${part} · ${take} · ${anchor.sessionCount} session${anchor.sessionCount === 1 ? "" : "s"}` });
-  }
-  if (state.aside.unanchoredCount > 0) {
-    anchorOptions.push({
-      key: ASIDE_UNANCHORED_KEY,
-      label: `Unanchored · ${state.aside.unanchoredCount} session${state.aside.unanchoredCount === 1 ? "" : "s"}`
-    });
-  }
-  if (selectedKey !== currentKey && !anchorOptions.some((entry) => entry.key === selectedKey)) {
-    anchorOptions.push({
-      key: selectedKey,
-      label: state.aside.anchor === null
-        ? "Selected unanchored history"
-        : `Selected saved position · ${state.aside.anchor.partId.slice(0, 8)}`
-    });
-  }
-  for (const entry of anchorOptions) {
-    const option = document.createElement("option");
-    option.value = entry.key;
-    option.textContent = entry.label;
-    option.selected = entry.key === ASIDE_CURRENT_KEY ? selectedKey === currentKey : entry.key === selectedKey;
-    anchorPicker.append(option);
-  }
-  anchorPicker.addEventListener("change", () => {
-    actions.selectAsideAnchor(anchorPicker.value);
-  });
-  const picker = document.createElement("select");
-  picker.className = "aside-session-picker";
-  picker.dataset.preserve = "aside-session-picker";
-  picker.setAttribute("aria-label", "Aside session");
-  const newOption = document.createElement("option");
-  newOption.value = "";
-  newOption.textContent = "New session";
-  newOption.selected = state.aside.selectedSessionId === null;
-  picker.append(newOption);
-  for (const session of state.aside.sessions) {
-    const option = document.createElement("option");
-    option.value = session.id;
-    option.textContent = session.title || "Untitled session";
-    option.selected = session.id === state.aside.selectedSessionId;
-    picker.append(option);
-  }
-  picker.addEventListener("change", () => {
-    actions.selectAsideSession(picker.value);
-  });
-  wrapper.append(el("label", "aside-anchor-label", "History", anchorPicker), el("label", "aside-session-label", "Session", picker));
-  const session = state.aside.sessions.find((candidate) => candidate.id === state.aside.selectedSessionId);
-  const lastAnswer = session?.turns.at(-1)?.a;
-  if (state.aside.answer.length > 0 && (state.aside.busy || state.aside.answer !== lastAnswer)) {
-    wrapper.append(el("p", "aside-answer aside-live-answer", state.aside.answer));
-  }
-  if (session === undefined) {
-    wrapper.append(el("p", "aside-history", "No saved session at this story position yet."));
-    return wrapper;
-  }
-  const turns = el("div", "aside-turns");
-  session.turns.forEach((turn, index) => {
-    const row = el("article", "aside-turn");
-    row.dataset.preserve = `aside-turn:${session.id}:${index}`;
-    row.append(el("p", "aside-question-line", turn.q), el("p", "aside-answer", turn.a));
-    const controls = el("div", "aside-turn-controls");
-    controls.append(actionButton("aside-delete-turn", "Delete", () => actions.deleteAsideTurn(index)));
-    if (index < session.turns.length - 1) controls.append(actionButton("aside-reset-turn", "Reset here", () => actions.resetAside(index)));
-    if (index === session.turns.length - 1) controls.append(actionButton("aside-retake", "Retake", () => actions.retakeAside(index)));
-    row.append(controls);
-    turns.append(row);
-  });
-  wrapper.append(turns, actionButton("aside-clear-session", "Clear session", actions.clearAsideSession));
-  return wrapper;
-}
-
 function panelHeading(title: string, description: string, control?: HTMLElement): HTMLElement {
   const heading = el("div", "panel-heading", el("div", "panel-heading-copy", el("span", "eyebrow", "Workspace"), el("h2", "", title), el("p", "", description)));
   if (control !== undefined) heading.append(control);
   return heading;
 }
 
-function metric(label: string, value: string): HTMLElement {
-  return el("span", "metric", el("span", "metric-value", value), el("span", "metric-label", label));
-}
-
 function metricRow(label: string, value: string): HTMLElement {
   return el("div", "metric-row", el("span", "", label), el("strong", "", value));
-}
-
-function actionButton(className: string, label: string, action: () => void, title?: string): HTMLButtonElement {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.className = `button ${className}`;
-  button.textContent = label;
-  if (title !== undefined) button.title = title;
-  button.addEventListener("click", action);
-  return button;
 }
 
 /** Keep a textarea selection alive while a toolbar button opens a dialog. */
@@ -1028,32 +749,6 @@ function preserveTextSelection(button: HTMLButtonElement): void {
 
 function isTextFactState(state: FactState): state is Extract<FactState, { text: string }> {
   return !isFactEndState(state);
-}
-
-function resizeTextarea(text: HTMLTextAreaElement): void {
-  if (!text.isConnected) return;
-  text.style.height = "auto";
-  text.style.height = `${Math.max(88, text.scrollHeight)}px`;
-}
-
-function bindDraftInput(control: HTMLInputElement | HTMLTextAreaElement, commit: () => void): void {
-  control.addEventListener("input", (event) => {
-    if ((event as InputEvent).isComposing) return;
-    commit();
-  });
-  control.addEventListener("compositionend", commit);
-}
-
-async function importArchive(actions: RendererActions): Promise<void> {
-  const response = await actions.shellRequest({ type: "dialog.open", kind: "story-import" });
-  if (!response.ok || response.result.type !== "dialog" || response.result.paths[0] === undefined) return;
-  await actions.shellRequest({ type: "story.import", file: response.result.paths[0] });
-}
-
-async function exportArchive(storyId: string, actions: RendererActions): Promise<void> {
-  const response = await actions.shellRequest({ type: "dialog.directory" });
-  if (!response.ok || response.result.type !== "dialog" || response.result.paths[0] === undefined) return;
-  await actions.shellRequest({ type: "story.export", directory: response.result.paths[0], storyId, all: false, format: "story", force: false });
 }
 
 async function importProfile(actions: RendererActions): Promise<void> {
@@ -1066,17 +761,4 @@ async function exportProfile(actions: RendererActions, profile: string | null): 
   const response = await actions.shellRequest({ type: "dialog.directory" });
   if (!response.ok || response.result.type !== "dialog" || response.result.paths[0] === undefined) return;
   await actions.shellRequest({ type: "profile.export", directory: response.result.paths[0], profile, force: false });
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(tag: K, className?: string, ...children: ElementChild[]): HTMLElementTagNameMap[K] {
-  const element = document.createElement(tag);
-  if (className !== undefined) element.className = className;
-  for (const child of children) {
-    if (typeof child === "string") {
-      if (child.length > 0) element.append(document.createTextNode(child));
-    } else {
-      element.append(child);
-    }
-  }
-  return element;
 }
