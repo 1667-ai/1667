@@ -280,6 +280,7 @@ async function start(): Promise<void> {
     updater = new ElectronUpdater(await loadElectronUpdater(), {
       initialChannel: await updateChannels.read(),
       saveChannel: async (channel) => await updateChannels.write(channel),
+      openExternal: async (url) => await electronShell.openExternal(url),
       beforeInstall: () => prepareForUpdateInstall(),
       onInstallAborted: () => { updateInstalling = false; }
     });

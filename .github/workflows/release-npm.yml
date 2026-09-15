@@ -319,12 +319,6 @@ jobs:
           TARGET: ${{ matrix.target }}
           DESKTOP_VERSION: ${{ inputs.version }}
           DESKTOP_RELEASE: "1"
-          # Windows also reads CSC_LINK. Keep the Apple identity on Mac runners.
-          CSC_LINK: ${{ startsWith(matrix.target, 'darwin-') && secrets.CSC_LINK || '' }}
-          CSC_KEY_PASSWORD: ${{ startsWith(matrix.target, 'darwin-') && secrets.CSC_KEY_PASSWORD || '' }}
-          APPLE_ID: ${{ startsWith(matrix.target, 'darwin-') && secrets.APPLE_ID || '' }}
-          APPLE_APP_SPECIFIC_PASSWORD: ${{ startsWith(matrix.target, 'darwin-') && secrets.APPLE_APP_SPECIFIC_PASSWORD || '' }}
-          APPLE_TEAM_ID: ${{ startsWith(matrix.target, 'darwin-') && secrets.APPLE_TEAM_ID || '' }}
         run: npm run package:target -- "$TARGET"
 
       - name: Verify normalized desktop assets

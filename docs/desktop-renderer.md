@@ -12,6 +12,28 @@ The desktop app provides graphical writing controls on macOS, Windows, and
 Linux. The desktop app and the TUI use the same project files. Close the project
 in one app before you open it in the other app.
 
+## Install on macOS
+
+The Mac download has no Developer ID signature or Apple notarization.
+These are Apple checks that identify the publisher and inspect the app.
+macOS can block the first start.
+
+1. Download the Mac disk image for your processor.
+2. Open the disk image.
+3. Copy **1667** to **Applications**.
+4. Open **1667** from **Applications**.
+5. If macOS blocks the app, open **System Settings > Privacy & Security**.
+6. Select **Open Anyway** for **1667**.
+7. Confirm that you want to open the app.
+
+Use this exception only for a download that you trust. See
+[Apple's instructions for opening an app](https://support.apple.com/102445).
+
+Mac updates require a manual installation. Use **Download update** to open the
+release page for the available version. Save your work before you quit 1667.
+Then replace the app in **Applications** with the new app. Your project files
+are stored separately from the app.
+
 ## Run from source
 
 Install the root dependencies with `npm ci`. Then run these commands:
@@ -34,7 +56,8 @@ Use **Unlock project** to open a sealed project. Use **Unseal permanently**
 to remove its encryption.
 
 Use the launcher's update controls to select stable or beta updates. The
-desktop updater does not replace a newer version with an older version.
+desktop updater does not offer an older version. Windows and Linux can install
+the update from the app. macOS uses the manual installation above.
 
 ## Controls
 

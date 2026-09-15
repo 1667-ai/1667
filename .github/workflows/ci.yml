@@ -282,7 +282,7 @@ jobs:
       matrix:
         target: ["darwin-arm64", "darwin-x64", "linux-arm64", "linux-x64", "windows-x64"]
     runs-on: ${{ fromJSON('{"darwin-arm64":"macos-15","darwin-x64":"macos-15-intel","linux-arm64":"ubuntu-24.04-arm","linux-x64":"ubuntu-24.04","windows-x64":"windows-2025"}')[matrix.target] }}
-    timeout-minutes: ${{ matrix.target == 'darwin-x64' && 30 || (endsWith(matrix.target, 'arm64') || matrix.target == 'windows-x64') && 25 || 20 }}
+    timeout-minutes: ${{ matrix.target == 'darwin-x64' && 40 || (endsWith(matrix.target, 'arm64') || matrix.target == 'windows-x64') && 25 || 20 }}
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1

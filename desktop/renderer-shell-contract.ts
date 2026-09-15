@@ -65,6 +65,7 @@ export type DesktopShellRequest =
 
 export interface DesktopUpdaterState {
   readonly channel: "stable" | "beta";
+  readonly manual: boolean;
   readonly state: "idle" | "checking" | "available" | "not-available" | "downloading" | "downloaded" | "error";
   readonly version: string | null;
   readonly message: string | null;

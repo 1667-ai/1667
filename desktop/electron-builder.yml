@@ -22,12 +22,16 @@ nodeGypRebuild: false
 npmRebuild: false
 mac:
   category: public.app-category.productivity
-  forceCodeSigning: true
+  # The afterPack hook signs private releases with an anonymous identity.
+  identity: null
+  forceCodeSigning: false
+  # The builder template grants ad-hoc runtime library access.
   hardenedRuntime: true
   gatekeeperAssess: false
-  notarize: true
+  notarize: false
+afterPack: ./scripts/sign-mac-adhoc.mjs
 dmg:
-  # Squirrel.Mac updates from ZIP. Do not emit an unused DMG blockmap.
+  # DMG does not need an updater blockmap.
   writeUpdateInfo: false
 win:
   target:

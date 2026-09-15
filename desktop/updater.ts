@@ -4,11 +4,14 @@ import type { DesktopUpdaterState } from "./shell-contract.js";
 import type { DesktopUpdateChannel } from "./update-channel.js";
 
 export const DESKTOP_UPDATE_FEED_URL = "https://1667.ai/electron-updater/";
+export const DESKTOP_RELEASE_TAG_URL = "https://github.com/1667-ai/1667/releases/tag/";
 
 export interface ElectronUpdaterLike {
   channel: string | null;
   allowDowngrade: boolean;
   allowPrerelease: boolean;
+  autoDownload: boolean;
+  autoInstallOnAppQuit: boolean;
   setFeedURL(options: { provider: "generic"; url: string }): void;
   checkForUpdates(): Promise<unknown>;
   downloadUpdate(): Promise<readonly string[]>;
@@ -27,8 +30,12 @@ export interface DesktopUpdaterPort {
 }
 
 export interface ElectronUpdaterOptions {
+  /** Override the host platform in integration tests. */
+  readonly platform?: NodeJS.Platform;
   readonly initialChannel?: DesktopUpdateChannel;
   readonly saveChannel?: (channel: DesktopUpdateChannel) => Promise<void>;
+  /** Open the trusted release page for manual Mac updates. */
+  readonly openExternal?: (url: string) => Promise<void>;
   /** Ask the host to approve all renderer windows before the installer runs. */
   readonly beforeInstall?: () => Promise<boolean>;
   /** Release a host-side install guard when approval or installation fails. */
@@ -46,6 +53,7 @@ const BUSY_UPDATE_STATES = new Set<DesktopUpdaterState["state"]>([
 export class ElectronUpdater implements DesktopUpdaterPort {
   private current: DesktopUpdaterState = {
     channel: "stable",
+    manual: false,
     state: "idle",
     version: null,
     message: null
@@ -56,12 +64,16 @@ export class ElectronUpdater implements DesktopUpdaterPort {
   private readonly saveChannel: ((channel: DesktopUpdateChannel) => Promise<void>) | undefined;
   private readonly beforeInstall: (() => Promise<boolean>) | undefined;
   private readonly onInstallAborted: (() => void) | undefined;
+  private readonly manualMac: boolean;
+  private readonly openExternal: ((url: string) => Promise<void>) | undefined;
   private channelChange: Promise<void> = Promise.resolve();
 
   constructor(
     private readonly updater: ElectronUpdaterLike,
     options: ElectronUpdaterOptions = {}
   ) {
+    this.manualMac = (options.platform ?? process.platform) === "darwin";
+    this.openExternal = options.openExternal;
     this.saveChannel = options.saveChannel;
     this.beforeInstall = options.beforeInstall;
     this.onInstallAborted = options.onInstallAborted;
@@ -109,7 +121,7 @@ export class ElectronUpdater implements DesktopUpdaterPort {
   async setChannel(channel: "stable" | "beta"): Promise<DesktopUpdaterState> {
     const change = this.channelChange.then(async () => {
       if (channel === this.current.channel) return this.current;
-      if (BUSY_UPDATE_STATES.has(this.current.state)) {
+      if (this.isBusy()) {
         throw new Error(`Cannot change update channel while an update is ${this.current.state}.`);
       }
       await this.saveChannel?.(channel);
@@ -123,7 +135,7 @@ export class ElectronUpdater implements DesktopUpdaterPort {
 
   async check(): Promise<DesktopUpdaterState> {
     await this.channelChange;
-    if (BUSY_UPDATE_STATES.has(this.current.state)) return this.current;
+    if (this.isBusy()) return this.current;
     this.publish({ state: "checking", version: null, message: null });
     try {
       const result = await this.updater.checkForUpdates();
@@ -142,6 +154,22 @@ export class ElectronUpdater implements DesktopUpdaterPort {
   async install(): Promise<DesktopUpdaterState> {
     await this.channelChange;
     try {
+      if (this.manualMac) {
+        const version = this.current.version;
+        if (this.current.state !== "available" || version === null) {
+          this.publish({ state: "error", message: "No update is ready to download." });
+          return this.current;
+        }
+        if (this.openExternal === undefined) {
+          throw new Error("Manual Mac updates are unavailable in this build.");
+        }
+        await this.openExternal(`${DESKTOP_RELEASE_TAG_URL}v${encodeURIComponent(version)}`);
+        this.publish({
+          state: "available",
+          message: "Download the update from the release page, save your work, quit 1667, then replace the app manually."
+        });
+        return this.current;
+      }
       if (this.current.state !== "downloaded") await this.updater.downloadUpdate();
       if (this.beforeInstall !== undefined && !await this.beforeInstall()) {
         this.onInstallAborted?.();
@@ -179,7 +207,16 @@ export class ElectronUpdater implements DesktopUpdaterPort {
     this.updater.channel = channel === "stable" ? "latest" : "beta";
     this.updater.allowDowngrade = false;
     this.updater.allowPrerelease = channel === "beta";
-    this.current = { ...this.current, channel };
+    if (this.manualMac) {
+      this.updater.autoDownload = false;
+      this.updater.autoInstallOnAppQuit = false;
+    }
+    this.current = { ...this.current, channel, manual: this.manualMac };
+  }
+
+  private isBusy(): boolean {
+    return BUSY_UPDATE_STATES.has(this.current.state)
+      && !(this.manualMac && this.current.state === "available");
   }
 
   private publish(update: Partial<DesktopUpdaterState>): void {

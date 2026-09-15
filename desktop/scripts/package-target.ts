@@ -1,6 +1,6 @@
 #!/usr/bin/env -S node --import tsx
 
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawnSync } from "node:child_process";
 import { lstatSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
@@ -24,7 +24,6 @@ export function packageTarget(target: DesktopReleaseTarget): void {
   const version = packageVersion();
   buildRuntime();
   assertApplicationFiles();
-  if (target.startsWith("darwin-")) requireMacSigningEnvironment();
   const rawDirectory = path.join(DESKTOP_ROOT, "dist", "raw");
   const builder = path.join(
     DESKTOP_ROOT,
@@ -41,6 +40,14 @@ export function packageTarget(target: DesktopReleaseTarget): void {
     builderArgs.push("--win", "nsis", "--x64");
   }
   execFileSync(process.execPath, [builder, ...builderArgs], { cwd: DESKTOP_ROOT, stdio: "inherit" });
+  if (target.startsWith("darwin-")) {
+    const application = path.join(
+      rawDirectory,
+      target.endsWith("arm64") ? "mac-arm64" : "mac",
+      "1667.app"
+    );
+    assertAnonymousMacSignature(application);
+  }
   const outputDirectory = process.env.DESKTOP_ASSET_OUTPUT
     ?? path.join(DESKTOP_ROOT, "dist", "desktop");
   stageDesktopRelease({
@@ -50,6 +57,28 @@ export function packageTarget(target: DesktopReleaseTarget): void {
     outputDirectory,
     repository: process.env.GITHUB_REPOSITORY ?? "1667-ai/1667"
   });
+}
+
+export function assertAnonymousMacSignature(application: string): void {
+  const display = runCodesign(["--display", "--verbose=4"], application);
+  if (display.status !== 0) {
+    throw new Error(`Mac application signature inspection failed:\n${display.output}`);
+  }
+  if (!/^Signature=adhoc$/mu.test(display.output)
+    || !/^TeamIdentifier=not set$/mu.test(display.output)
+    || /^Authority=/mu.test(display.output)) {
+    throw new Error(`Mac application does not have an anonymous ad-hoc signature:\n${display.output}`);
+  }
+  const verify = runCodesign(["--verify", "--strict", "--verbose=2"], application);
+  if (verify.status !== 0) {
+    throw new Error(`Mac application signature verification failed:\n${verify.output}`);
+  }
+}
+
+function runCodesign(args: string[], application: string): { status: number | null; output: string } {
+  const result = spawnSync("/usr/bin/codesign", [...args, application], { encoding: "utf8" });
+  if (result.error !== undefined) throw result.error;
+  return { status: result.status, output: `${result.stdout}\n${result.stderr}`.trim() };
 }
 
 function assertApplicationFiles(): void {
@@ -77,22 +106,6 @@ function assertApplicationFiles(): void {
       throw new Error(`Desktop application is missing app/${relative}`);
     }
   }
-}
-
-function requireMacSigningEnvironment(): void {
-  const hasCertificate = nonEmpty(process.env.CSC_LINK) || nonEmpty(process.env.CSC_NAME);
-  if (!hasCertificate || !nonEmpty(process.env.APPLE_ID)
-    || !nonEmpty(process.env.APPLE_APP_SPECIFIC_PASSWORD)
-    || !nonEmpty(process.env.APPLE_TEAM_ID)) {
-    throw new Error(
-      "Mac desktop release requires CSC_LINK or CSC_NAME, APPLE_ID, "
-      + "APPLE_APP_SPECIFIC_PASSWORD, and APPLE_TEAM_ID"
-    );
-  }
-}
-
-function nonEmpty(value: string | undefined): boolean {
-  return value !== undefined && value.trim() !== "";
 }
 
 function packageVersion(): string {

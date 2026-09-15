@@ -160,7 +160,11 @@ function renderUpdater(state: RendererState, actions: RendererActions): HTMLElem
   const controls = node("div", "launcher-actions",
     channel,
     button("launcher-small", updater?.state === "checking" ? "Checking…" : "Check for updates", () => void actions.shellRequest({ type: "updater.check" })),
-    updater?.state === "downloaded" ? button("launcher-primary", "Install update", () => void actions.shellRequest({ type: "updater.install" })) : ""
+    updater?.manual === true && updater.state === "available"
+      ? button("launcher-primary", "Download update", () => void actions.shellRequest({ type: "updater.install" }))
+      : updater?.state === "downloaded"
+        ? button("launcher-primary", "Install update", () => void actions.shellRequest({ type: "updater.install" }))
+        : ""
   );
   controls.querySelectorAll("button").forEach((entry) => { (entry as HTMLButtonElement).disabled = state.launcherBusy; });
   const activePreserveKey = document.activeElement instanceof HTMLElement
@@ -175,6 +179,9 @@ function updaterMessage(updater: RendererState["updater"]): string {
   if (updater === null) return "Check for a stable desktop update.";
   if (updater.message !== null && updater.message.trim().length > 0) return updater.message;
   const version = updater.version ?? "the latest version";
+  if (updater.manual && updater.state === "available") {
+    return `Update ${version} is available. Download it, save your work, quit 1667, then replace the app manually.`;
+  }
   switch (updater.state) {
     case "checking": return `Checking the ${updater.channel} channel…`;
     case "available": return `Update ${version} is available. Downloading now.`;
