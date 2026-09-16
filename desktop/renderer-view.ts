@@ -5,13 +5,11 @@ import {
   activeLeaf,
   factLabel,
   storyChapters,
-  DESKTOP_THEMES,
-  type DesktopTheme,
   type RendererActions,
   type RendererState
 } from "./renderer-model.js";
 import { renderLauncher } from "./renderer-launcher-view.js";
-import { renderSettingsEditor } from "./renderer-settings-view.js";
+import { renderSettingsDestination } from "./renderer-settings-sections.js";
 import { actionButton, el } from "./renderer-dom.js";
 import { renderTitlebar, renderRail, renderFeedbackStack } from "./renderer-shell-view.js";
 import { renderLibraryDestination } from "./renderer-library-view.js";
@@ -215,26 +213,10 @@ function renderFacts(story: StoryPayload, state: RendererState, actions: Rendere
   );
   (factControls.querySelectorAll("button") as NodeListOf<HTMLButtonElement>).forEach((button) => { button.disabled = state.factConsistencyBusy; });
   panel.append(panelHeading("Story Facts", "Durable story memory travels with the active line.", factControls));
-  const budget = document.createElement("form");
-  budget.className = "facts-budget-form";
-  const budgetInput = document.createElement("input");
-  budgetInput.type = "number";
-  budgetInput.min = "1";
-  budgetInput.step = "1";
-  budgetInput.placeholder = "No limit";
-  budgetInput.value = story.factsBudgetTokens === undefined ? "" : String(story.factsBudgetTokens);
-  budgetInput.dataset.preserve = "facts-budget";
-  budgetInput.setAttribute("aria-label", "Facts budget in tokens");
-  const budgetSave = actionButton("facts-budget-save", "Save budget", () => {
-    const value = budgetInput.value.trim();
-    actions.setFactsBudget(value.length === 0 ? null : Number(value));
-  });
-  budget.addEventListener("submit", (event) => { event.preventDefault(); budgetSave.click(); });
-  budget.append(el("label", "facts-budget-label", "Facts budget", budgetInput), budgetSave);
   const list = el("div", "fact-list");
   if (story.facts.length === 0) list.append(el("p", "empty-copy", "No Facts yet. Add one for a person, place, promise, or rule."));
   story.facts.forEach((fact, index) => list.append(renderFact(fact, index, story.facts.length, actions)));
-  panel.append(budget, list, el("div", "panel-note", `Facts budget: ${story.factsBudgetTokens === undefined ? "open" : `${story.factsBudgetTokens.toLocaleString()} tokens`}.`));
+  panel.append(list, el("div", "panel-note", `Facts budget: ${story.factsBudgetTokens === undefined ? "open" : `${story.factsBudgetTokens.toLocaleString()} tokens`}. Set it in Settings › Story tools.`));
   if (state.factConsistency !== null) panel.append(renderFactConsistency(state.factConsistency, story));
   return panel;
 }
@@ -385,18 +367,18 @@ function renderChapter(chapter: { id: string; parentPartId: string; title: strin
 }
 
 function renderSettings(state: RendererState, actions: RendererActions): HTMLElement {
-  const desktop = renderDesktopSection(state, actions);
   const transfer = el("div", "settings-transfer-bar",
     actionButton("profile-import", "Import profile", () => { void importProfile(actions); }),
     actionButton("profile-export", "Export profile", () => { void exportProfile(actions, state.settingsEditor?.draft.selectedProfileId ?? null); })
   );
-  if (state.settings === null) return el("div", "settings-editor-stack", desktop, transfer, el("div", "panel settings-panel", el("p", "empty-copy", "Loading settings…")));
+  if (state.settings === null) return el("div", "settings-editor-stack", transfer, el("div", "panel settings-panel", el("p", "empty-copy", "Loading settings…")));
   if (state.settingsEditor === null || state.settings.document === null) {
-    return el("div", "settings-editor-stack", desktop, transfer, el("div", "panel settings-panel", el("p", "empty-copy", "This settings document is read-only in the current project.")));
+    return el("div", "settings-editor-stack", transfer, el("div", "panel settings-panel", el("p", "empty-copy", "This settings document is read-only in the current project.")));
   }
   const editor = state.settingsEditor;
-  return el("div", "settings-editor-stack", desktop, transfer, renderSettingsEditor({
+  const props = {
     document: editor.draft.document,
+    activeDocument: state.settings.document,
     draft: editor.draft,
     discovery: editor.discovery,
     busy: editor.busy,
@@ -406,35 +388,8 @@ function renderSettings(state: RendererState, actions: RendererActions): HTMLEle
     pendingRevision: state.settings.pendingRevision,
     activeRevision: state.settings.activeRevision,
     lastActivationOutcome: state.settings.lastActivationOutcome
-  }, actions.settingsEditor));
-}
-
-/** The desktop display controls (theme, directions) live at the top of
- * Settings until phase 4 builds the typed theme picker (D-19). */
-function renderDesktopSection(state: RendererState, actions: RendererActions): HTMLElement {
-  const theme = document.createElement("select");
-  theme.className = "theme-select settings-control";
-  theme.dataset.preserve = "theme-select";
-  theme.setAttribute("aria-label", "Desktop theme");
-  for (const value of DESKTOP_THEMES) {
-    const option = document.createElement("option");
-    option.value = value;
-    option.textContent = value;
-    option.selected = value === state.theme;
-    theme.append(option);
-  }
-  theme.value = state.theme;
-  theme.addEventListener("change", () => actions.setTheme(theme.value as DesktopTheme));
-  const directions = actionButton("directions-toggle", state.showDirections ? "directions on" : "directions off", () => actions.setDirections(!state.showDirections));
-  directions.setAttribute("aria-pressed", String(state.showDirections));
-  directions.title = state.showDirections ? "Hide part directions" : "Show part directions";
-  return el("div", "settings-section",
-    el("div", "settings-section-heading", el("h3", "", "Desktop"), el("p", "", "Display only; this does not change story data.")),
-    el("div", "settings-form",
-      el("label", "settings-field", "Theme", theme),
-      el("label", "settings-field", "Directions", directions)
-    )
-  );
+  };
+  return el("div", "settings-editor-stack", transfer, renderSettingsDestination(state, actions, props, actions.settingsEditor));
 }
 
 function renderInspect(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {

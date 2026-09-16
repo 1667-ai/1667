@@ -32,6 +32,10 @@ import {
   MAX_SETTINGS_TIMEOUT_MS
 } from "../shared/settings-validation-scalars.js";
 
+/** Settings 2c's left-nav sections (DESIGN_SPEC.md §6, COMPONENTS.md §03). */
+export const SETTINGS_SECTION_IDS = ["routes", "profiles", "connections", "sampling", "output", "writing", "story-tools", "desktop"] as const;
+export type SettingsSectionId = typeof SETTINGS_SECTION_IDS[number];
+
 export type SettingsEditorField =
   | "profile.name"
   | "profile.modelId"

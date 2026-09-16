@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, editPart, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -125,6 +125,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
 
     await page.locator(".tab-settings").click();
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "output");
     const settingsDraft = page.locator('[data-settings-field="profile.maxOutputTokens"]');
     await settingsDraft.fill("654");
     await goToLibrary(page);
@@ -145,15 +146,17 @@ test("Electron guards active generation, seal cancellation, and display choices"
       { timeout: 30_000 }
     );
 
-    await page.locator(".theme-select").selectOption("graphite");
+    await openSettingsSection(page, "desktop");
+    await page.locator('.theme-swatch[data-theme="graphite"]').click();
     const directions = page.locator(".directions-toggle");
     await directions.click();
     const directionsAfterChange = await directions.getAttribute("aria-pressed");
     await page.reload();
     await page.waitForSelector(".new-story-button", { timeout: 30_000 });
     await page.locator(".tab-settings").click();
-    await page.waitForSelector(".theme-select", { timeout: 30_000 });
-    assert.equal(await page.locator(".theme-select").inputValue(), "graphite");
+    await page.waitForSelector(".settings-editor", { timeout: 30_000 });
+    await openSettingsSection(page, "desktop");
+    assert.equal(await page.locator('.theme-swatch[data-theme="graphite"]').getAttribute("aria-pressed"), "true");
     assert.equal(await page.locator("html").getAttribute("data-desktop-theme"), "graphite");
     assert.equal(await page.locator(".directions-toggle").getAttribute("aria-pressed"), directionsAfterChange);
   } finally {

@@ -26,7 +26,7 @@ import type {
   DesktopUpdaterState
 } from "./renderer-shell-contract.js";
 import type { SettingsEditorActions } from "./renderer-settings-controls.js";
-import type { SettingsEditorDraft } from "./renderer-settings-model.js";
+import type { SettingsEditorDraft, SettingsSectionId } from "./renderer-settings-model.js";
 
 export type RendererTab = "library" | "write" | "facts" | "chapters" | "map" | "settings" | "inspect";
 export type StreamMode = "continue" | "direct" | "retake" | "rewrite" | "summary";
@@ -257,6 +257,9 @@ export interface RendererState {
   readonly inspectorHidden: boolean;
   readonly mapCursorId: string | null;
   readonly popover: DesktopPopover | null;
+  /** Which Settings 2c left-nav sheet is showing. Not persisted; a fresh
+   * launch always opens on Routes. */
+  readonly settingsSection: SettingsSectionId;
 }
 
 export const INITIAL_STATE: RendererState = {
@@ -304,11 +307,13 @@ export const INITIAL_STATE: RendererState = {
   theme: savedDesktopTheme(),
   inspectorHidden: savedDesktopInspectorHidden(),
   mapCursorId: null,
-  popover: null
+  popover: null,
+  settingsSection: "routes"
 };
 
 export interface RendererActions {
   readonly setTab: (tab: RendererTab) => void;
+  readonly setSettingsSection: (section: SettingsSectionId) => void;
   readonly focusPart: (id: string) => void;
   /** Enters edit mode on a part (also focusing it), or `null` leaves edit
    * mode and keeps whatever draft is there (D-09; `esc` and a completed save

@@ -2,6 +2,7 @@ import type { StoryPathNode, StoryPayload } from "../shared/types.js";
 import { effectiveFactAtPath } from "../shared/fact-state.js";
 import { rememberedLeafId } from "../shared/story-model.js";
 import { actionButton, bindDraftInput, el } from "./renderer-dom.js";
+import { scalar } from "./renderer-controls.js";
 import { renderRequestContext } from "./renderer-context.js";
 import {
   ASIDE_CURRENT_KEY,
@@ -256,20 +257,23 @@ function renderAuthorsNoteSection(state: RendererState, story: StoryPayload, act
   note.placeholder = "A note for the next request…";
   note.rows = 4;
   bindDraftInput(note, () => actions.setDraft("authors-note", note.value));
-  const noteDepth = document.createElement("input");
-  noteDepth.type = "number";
-  noteDepth.min = "1";
-  noteDepth.max = "100";
-  noteDepth.step = "1";
+  const noteDepthControl = scalar({
+    value: story.authorsNoteDepth ?? 1,
+    min: 1,
+    max: 100,
+    step: 1,
+    defaultValue: 1,
+    id: "authors-note-depth",
+    onChange: (raw) => actions.setDraft("authors-note-depth", raw)
+  });
+  const noteDepth = noteDepthControl.querySelector<HTMLInputElement>(".scalar-input")!;
   noteDepth.value = state.drafts["authors-note-depth"] ?? String(story.authorsNoteDepth ?? 1);
-  noteDepth.dataset.preserve = "authors-note-depth";
   noteDepth.setAttribute("aria-label", "Author's Note depth");
-  bindDraftInput(noteDepth, () => actions.setDraft("authors-note-depth", noteDepth.value));
   const noteSave = actionButton("note-save", "Save note", () => {
     const depth = Number(noteDepth.value);
     actions.setAuthorsNote(note.value, Number.isSafeInteger(depth) && depth > 0 ? depth : undefined);
   });
-  const noteDepthField = el("label", "note-depth-field", "depth", noteDepth);
+  const noteDepthField = el("label", "note-depth-field", "depth", noteDepthControl);
   const count = (state.drafts["authors-note"] ?? story.authorsNote ?? "").trim().length === 0 ? 0 : 1;
   return inspectorSection("authors-note", "Author's Note", count, [note, noteDepthField, noteSave]);
 }

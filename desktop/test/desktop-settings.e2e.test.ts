@@ -8,7 +8,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -39,43 +39,36 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.waitForSelector(".story-title", { timeout: 30_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "output");
 
     const keepThoughts = page.locator(".settings-control-profile-discardReasoning");
-    assert.equal(await keepThoughts.isChecked(), true);
-    await keepThoughts.uncheck();
+    await assertToggleOn(page, keepThoughts, true);
+    await clickToggleOff(keepThoughts);
     await page.click(".settings-save");
-    await page.waitForFunction(
-      () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
-        && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
-        || Boolean(document.querySelector(".settings-global-error")?.textContent),
-      undefined,
-      { timeout: 30_000 }
-    );
+    await waitForSaveSettled(page);
     assert.deepEqual(await page.locator(".settings-global-error").allTextContents(), []);
     await page.reload();
     await page.waitForSelector(".new-story-button", { timeout: 30_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
-    assert.equal(await page.locator(".settings-control-profile-discardReasoning").isChecked(), false);
+    await openSettingsSection(page, "output");
+    await assertToggleOn(page, keepThoughts, false);
 
-    await page.locator(".settings-control-profile-discardReasoning").check();
+    await clickToggleOn(keepThoughts);
     await page.click(".settings-save");
-    await page.waitForFunction(
-      () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
-        && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
-        || Boolean(document.querySelector(".settings-global-error")?.textContent),
-      undefined,
-      { timeout: 30_000 }
-    );
+    await waitForSaveSettled(page);
     assert.deepEqual(await page.locator(".settings-global-error").allTextContents(), []);
     await page.reload();
     await page.waitForSelector(".new-story-button", { timeout: 30_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
-    assert.equal(await page.locator(".settings-control-profile-discardReasoning").isChecked(), true);
+    await openSettingsSection(page, "output");
+    await assertToggleOn(page, keepThoughts, true);
 
+    await openSettingsSection(page, "profiles");
     await page.click(".settings-connection-create");
     const profileName = await page.locator(".settings-profile-select.active strong").innerText();
+    await openSettingsSection(page, "connections");
     await page.fill(".settings-control-connection-name", "Saved provider");
     await page.selectOption(".settings-control-connection-preset", "custom");
     await page.selectOption(".settings-control-connection-protocol", "openai-chat-completions");
@@ -83,14 +76,18 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.selectOption(".settings-control-connection-authType", "bearer-stored");
     const secret = page.locator("input[data-preserve^='settings:secret:']");
     await secret.fill("pending-secret");
+    await openSettingsSection(page, "profiles");
     await page.click(".settings-profile-duplicate");
     const selectedProfileName = await page.locator(".settings-profile-select.active strong").innerText();
     assert.notEqual(selectedProfileName, profileName);
+    await openSettingsSection(page, "connections");
     assert.equal(await page.locator("input[data-preserve^='settings:secret:']").inputValue(), "pending-secret");
+    await openSettingsSection(page, "profiles");
     await page.locator(".settings-profile-select").filter({
       has: page.locator("strong").filter({ hasText: new RegExp(`^${escapeRegExp(profileName)}$`, "u") })
     }).click();
 
+    await openSettingsSection(page, "sampling");
     await typeSetting(page, ".settings-control-sampling-topP", "0.7");
     await typeSetting(page, ".settings-control-profile-temperature", "0.9");
     await page.fill(".settings-control-sampling-topK", "200");
@@ -103,22 +100,21 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.fill(".settings-control-sampling-seed", "");
     await page.fill(".settings-control-sampling-dryRange", "");
     await page.fill(".settings-control-sampling-stop", "END\nTHE END");
+    await openSettingsSection(page, "output");
     await page.fill(".settings-control-profile-tokenProbabilities", "4");
     await page.fill(".settings-control-profile-tokenProbabilities", "");
+    await openSettingsSection(page, "routes");
     await page.selectOption(".settings-control-route-prose", { label: profileName });
     await page.click(".settings-save");
-    await page.waitForFunction(
-      () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
-        && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
-        || Boolean(document.querySelector(".settings-global-error")?.textContent),
-      undefined,
-      { timeout: 30_000 }
-    );
+    await waitForSaveSettled(page);
     assert.deepEqual(await page.locator(".settings-global-error").allTextContents(), []);
+    await openSettingsSection(page, "profiles");
     assert.equal(await page.locator(".settings-profile-select.active strong").innerText(), profileName);
+    await openSettingsSection(page, "sampling");
     assert.equal(await page.locator(".settings-control-sampling-topP").inputValue(), "0.7");
     assert.equal(await page.locator(".settings-control-profile-temperature").inputValue(), "0.9");
 
+    await openSettingsSection(page, "profiles");
     await page.locator(".settings-profile-select").filter({
       has: page.locator("strong").filter({ hasText: new RegExp(`^${escapeRegExp(selectedProfileName)}$`, "u") })
     }).click();
@@ -146,6 +142,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     const importedCount = await page.locator(".settings-profile-card").count();
     assert.equal(importedCount, profileCountBeforeImport + 1);
     await page.locator(".settings-profile-select").last().click();
+    await openSettingsSection(page, "output");
     await page.fill(".settings-control-profile-maxOutputTokens", "2049");
     await page.click(".settings-save");
     await page.waitForFunction(
@@ -160,7 +157,9 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.fill(".composer-input", "Keep this composer draft during profile import.");
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "sampling");
     await page.fill(".settings-control-sampling-topP", "0.91");
+    await openSettingsSection(page, "profiles");
     const profileCountBeforeConfirmedImport = await page.locator(".settings-profile-card").count();
     await app.evaluate(({ dialog }, file) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
@@ -168,18 +167,22 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.click(".profile-import");
     await page.locator('.modal-card[aria-label="Discard Settings edits?"] .modal-submit').click();
     await page.waitForSelector(".error-banner", { timeout: 15_000 });
+    await openSettingsSection(page, "sampling");
     assert.equal(await page.locator(".settings-control-sampling-topP").inputValue(), "0.91");
 
     await app.evaluate(({ dialog }, file) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [file] });
     }, exportedPath);
+    await openSettingsSection(page, "profiles");
     await page.click(".profile-import");
     const discardSettingsDialog = page.locator('.modal-card[aria-label="Discard Settings edits?"]');
     await discardSettingsDialog.waitFor({ state: "visible", timeout: 15_000 });
     await discardSettingsDialog.locator(".modal-cancel").click();
     await page.waitForSelector('.modal-card[aria-label="Discard Settings edits?"]', { state: "detached", timeout: 15_000 });
+    await openSettingsSection(page, "sampling");
     assert.equal(await page.locator(".settings-control-sampling-topP").inputValue(), "0.91");
 
+    await openSettingsSection(page, "profiles");
     await page.click(".profile-import");
     await page.locator('.modal-card[aria-label="Discard Settings edits?"] .modal-submit').click();
     await page.waitForFunction(
@@ -193,6 +196,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
 
+    await openSettingsSection(page, "profiles");
     await page.locator(".settings-profile-select").filter({
       has: page.locator("strong").filter({ hasText: new RegExp(`^${escapeRegExp(profileName)}$`, "u") })
     }).click();
@@ -202,6 +206,7 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
       profileName,
       { timeout: 15_000 }
     );
+    await openSettingsSection(page, "sampling");
     assert.equal(await page.locator(".settings-control-sampling-topP").inputValue(), "0.7");
     assert.equal(await page.locator(".settings-control-profile-temperature").inputValue(), "0.9");
     await page.waitForSelector(".settings-discard-pending", { timeout: 15_000 });
@@ -215,13 +220,17 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.waitForSelector(".new-story-button", { timeout: 30_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "profiles");
     await page.locator(".settings-profile-select").filter({
       has: page.locator("strong").filter({ hasText: new RegExp(`^${escapeRegExp(profileName)}$`, "u") })
     }).click();
+    await openSettingsSection(page, "sampling");
     assert.equal(await page.locator(".settings-control-sampling-topP").inputValue(), "0.7");
     assert.equal(await page.locator(".settings-control-profile-temperature").inputValue(), "0.9");
     assert.equal(await page.locator(".settings-control-sampling-stop").inputValue(), "END\nTHE END");
+    await openSettingsSection(page, "output");
     assert.equal(await page.locator(".settings-control-profile-tokenProbabilities").inputValue(), "");
+    await openSettingsSection(page, "profiles");
     assert.ok(await page.locator(".settings-profile-card").count() >= 2);
 
     await page.click(".settings-discard-pending");
@@ -234,8 +243,10 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     assert.deepEqual(await page.locator(".settings-global-error").allTextContents(), []);
     await page.waitForFunction(() => document.querySelector(".settings-discard-pending") === null, undefined, { timeout: 15_000 });
     assert.equal(await page.locator(".settings-profile-select.active strong").innerText(), "Default");
-    assert.equal(await page.locator(".settings-control-profile-discardReasoning").isChecked(), true);
+    await openSettingsSection(page, "output");
+    await assertToggleOn(page, page.locator(".settings-control-profile-discardReasoning"), true);
 
+    await openSettingsSection(page, "connections");
     await page.fill(".settings-control-connection-totalMs", "0");
     await page.waitForSelector(".settings-error", { timeout: 5_000 });
     assert.match(await page.locator(".settings-error").first().innerText(), /number|positive|whole/iu);
@@ -275,6 +286,7 @@ test("Electron restores the Settings editor after discarding a dirty story switc
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Settings story", undefined, { timeout: 15_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "output");
     await page.fill(".settings-control-profile-maxOutputTokens", "1234");
 
     await goToLibrary(page);
@@ -285,6 +297,7 @@ test("Electron restores the Settings editor after discarding a dirty story switc
     await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Other story", undefined, { timeout: 30_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "output");
     assert.notEqual(await page.locator(".settings-control-profile-maxOutputTokens").inputValue(), "1234");
   } finally {
     await closeDesktopApp(app);
@@ -330,11 +343,13 @@ test("Electron keeps discovery focus on the model card that was used", async () 
     await createStoryForSettings(page, "Discovery focus");
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "profiles");
     await page.click(".settings-connection-create");
+    await openSettingsSection(page, "connections");
     await page.selectOption(".settings-control-connection-preset", "custom");
     await page.selectOption(".settings-control-connection-protocol", "openai-chat-completions");
     await page.fill(".settings-control-connection-baseUrl", `http://127.0.0.1:${port}/v1`);
-    await page.locator(".settings-control-connection-allowInsecureHttp").check();
+    await clickToggleOn(page.locator(".settings-control-connection-allowInsecureHttp"));
     await page.click(".settings-discover");
     await page.waitForFunction(
       () => document.querySelectorAll(".settings-discovery-card").length === 2,
@@ -365,6 +380,32 @@ test("Electron keeps discovery focus on the model card that was used", async () 
     await rm(stateDir, { recursive: true, force: true });
   }
 });
+
+async function waitForSaveSettled(page: Page): Promise<void> {
+  await page.waitForFunction(
+    () => (document.querySelector(".settings-save") as HTMLButtonElement | null)?.disabled === false
+      && document.querySelector(".toast")?.textContent?.includes("Settings saved") === true
+      || Boolean(document.querySelector(".settings-global-error")?.textContent),
+    undefined,
+    { timeout: 30_000 }
+  );
+}
+
+/** D-21 toggle: two adjacent buttons (`.toggle-on` / `.toggle-off`) with
+ * `aria-pressed` on the wrapper. `field` is the field's own
+ * `[data-settings-field]` element (the toggle's outer wrapper). */
+async function assertToggleOn(page: Page, field: import("playwright").Locator, on: boolean): Promise<void> {
+  assert.equal(await field.getAttribute("aria-pressed"), String(on));
+  void page;
+}
+
+async function clickToggleOn(field: import("playwright").Locator): Promise<void> {
+  await field.locator(".toggle-on").click();
+}
+
+async function clickToggleOff(field: import("playwright").Locator): Promise<void> {
+  await field.locator(".toggle-off").click();
+}
 
 async function waitForExport(directory: string): Promise<string> {
   for (let attempt = 0; attempt < 60; attempt += 1) {

@@ -67,6 +67,13 @@ The Desktop Renderer uses the same `StoryApi` contract as the TUI. The Shell
 gives the Renderer one `MessagePort` for the active project. The Renderer builds
 one Client facade for that port.
 
+`renderer-controls.ts` holds the shared controls every destination uses: a
+button (four kinds — primary, secondary, quiet, destructive), a segmented
+choice of up to four options, a settable number with chevrons and a track, a
+labeled field, a text area, a select, a chip, and a two-word boolean toggle.
+Pick a control by the kind of value it holds, not by how you want it to
+look. The desktop never shows a checkbox, a switch, or a range slider.
+
 ### Shell
 
 A 44px titlebar spans the top of the window. It shows the 1667 mark, a
@@ -197,9 +204,50 @@ The other destinations cover these TUI surfaces:
 - Map (`⌘`/`Ctrl` plus `5`): branch tree navigation and anchored Fact state links.
 - Inspect (`⌘`/`Ctrl` plus `6`): request context, thought, token alternatives, and
   Generation Record reads.
-- Settings (`⌘`/`Ctrl` plus `,`): the theme selector, the directions toggle, provider
-  connections, profiles, routes, sampling, output limits, reasoning display,
-  writing prompts, and pending changes.
+- Settings (`⌘`/`Ctrl` plus `,`): see "Settings" below.
+
+### Settings
+
+Settings (`⌘`/`Ctrl` plus `,`) has two panes. A left list names eight
+sections: Routes, Profiles, Connections, Sampling, Output & reasoning,
+Writing prompts, Story tools, and Desktop. Click a section, or use the arrow
+keys when the list has focus, to show its sheet on the right. The active
+section shows a 2px amber left edge. Below the list: the active revision
+number, the pending revision number, and the pending change count.
+
+Routes names which Generation Profile answers each kind of request: Default,
+Prose, and Utility. Profiles lists every profile and lets you create,
+duplicate, rename, and delete one. Connections holds a profile's provider,
+authentication, timeouts, and model discovery. Sampling holds temperature and
+the other sampling scalars, plus the stop, logit bias, phrase bias, banned
+strings, and DRY breaker lists. Output & reasoning holds the output token
+limit, reasoning effort and display, and the prompt cache policy. Writing
+prompts holds the prompts the Renderer sends for prose, titles, summaries,
+rewrites, and Aside. Story tools holds the story's Facts budget and the
+buttons that open phrase bias and banned strings for the open story. Desktop
+holds the theme picker and the directions toggle.
+
+A settable number — temperature, a token limit, a timeout — shows as
+`‹ value ›` with a track underneath. Click the chevrons, or press the arrow
+keys on a focused chevron, to step the value; hold Shift to step by ten. Type
+into the value to set it directly. A value that does not parse pins the track
+handle to ember and keeps the invalid text in the field; it does not block
+further typing. A boolean shows as two words, `on` and `off`, in adjacent
+buttons; the desktop never shows a checkbox, a switch, or a range slider.
+
+Editing a field only changes your local draft. A bar at the bottom of the
+sheet area appears once your draft differs from the last-applied settings. It
+names each change in words — for example, "temperature 0.8 → 0.65" — and
+offers **Apply revision `n`** and **Discard**. Apply sends the draft and
+shows a toast when the new revision takes effect. Discard reverts the draft
+without contacting the Host. A separate notice, with its own **Retry
+activation** and **Discard pending** buttons, appears when a saved revision
+failed to activate — for example, because the provider check failed.
+
+The theme picker shows all eight desktop themes as cards. Each card renders
+its own sample sentence in its own serif type and colors, so you can compare
+themes before you pick one. The active theme's card shows a 2px amber left
+edge.
 
 The Renderer keeps unsaved text in local draft state while a stream or library
 refresh changes the view. A save clears its draft after the Host confirms the

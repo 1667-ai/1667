@@ -188,7 +188,8 @@ const DESKTOP_COMMANDS: readonly DesktopCommand[] = [
     id: "desktop.switch-theme", group: "Desktop", label: "Switch theme", available: always,
     run: (ctx) => {
       ctx.actions.setTab("settings");
-      document.querySelector<HTMLSelectElement>(".theme-select")?.focus();
+      ctx.actions.setSettingsSection("desktop");
+      document.querySelector<HTMLButtonElement>(".theme-swatch")?.focus();
     }
   },
   {

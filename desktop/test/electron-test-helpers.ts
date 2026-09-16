@@ -64,6 +64,26 @@ export async function editPart(page: Page, nth: number | "last"): Promise<Locato
   }
 }
 
+/** Settings (phase 4a) shows one section sheet at a time behind a left nav.
+ * Click the nav entry for `section` and wait for its sheet to mount before
+ * touching any field that lives in it. */
+/** Open one Settings section. A late settings result can rebuild the page
+ *  between mousedown and mouseup and drop the click, so retry the click until
+ *  the sheet shows. */
+export async function openSettingsSection(page: Page, section: string): Promise<void> {
+  const sheet = `.settings-sheet[data-settings-section="${section}"]`;
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await page.locator(`.settings-sections [data-settings-section="${section}"]`).click();
+    try {
+      await page.waitForSelector(sheet, { timeout: 3_000 });
+      return;
+    } catch {
+      // The click landed on a replaced element; try again.
+    }
+  }
+  await page.waitForSelector(sheet, { timeout: 15_000 });
+}
+
 /** Let the native dirty-window prompt choose Discard during test teardown. */
 export async function closeDesktopApp(app: ElectronApplication): Promise<void> {
   for (const page of app.windows()) {

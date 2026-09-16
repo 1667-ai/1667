@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is a required dependency of the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type ElectronApplication, type Locator, type Page } from "playwright";
-import { closeDesktopApp, editPart, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -245,11 +245,11 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     assert.ok((await imeInput.inputValue()).length > 0);
     await imeInput.fill("");
     await page.locator(".tab-settings").click();
-    await page.waitForSelector(".theme-select", { timeout: 15_000 });
-    const theme = page.locator(".theme-select");
-    await theme.selectOption("graphite");
+    await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    await openSettingsSection(page, "desktop");
+    await page.locator('.theme-swatch[data-theme="graphite"]').click();
     assert.equal(await page.locator("html").getAttribute("data-desktop-theme"), "graphite");
-    await theme.selectOption("parchment");
+    await page.locator('.theme-swatch[data-theme="parchment"]').click();
     const directions = page.locator(".directions-toggle");
     const directionsBefore = await directions.getAttribute("aria-pressed");
     await directions.click();
@@ -443,9 +443,9 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await page.click(".tab-chapters");
     await page.waitForSelector(".new-chapter", { timeout: 15_000 });
     await page.click(".tab-settings");
-    await page.waitForSelector(".settings-panel", { timeout: 15_000 });
-    assert.equal(await page.locator(".settings-panel").isVisible(), true);
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    assert.equal(await page.locator(".settings-editor").isVisible(), true);
+    await openSettingsSection(page, "sampling");
     const temperature = page.locator('[data-settings-field="profile.temperature"]');
     await temperature.fill("0.7");
     await page.click(".settings-save");

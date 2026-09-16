@@ -11,7 +11,7 @@ import { initializeProject } from "../../host/launcher-project.js";
 import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import { closeDesktopApp, editPart, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -101,6 +101,7 @@ test("Electron resets the settings editor when the project changes", { timeout: 
       await page.waitForSelector(".new-story-button", { timeout: 30_000 });
       await page.locator(".tab-settings").click();
       await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+      await openSettingsSection(page, "output");
       const maxTokens = page.locator('[data-settings-field="profile.maxOutputTokens"]');
       await maxTokens.fill("654");
       await page.locator(".settings-save").click();

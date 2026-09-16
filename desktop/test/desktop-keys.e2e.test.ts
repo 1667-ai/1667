@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 const shortcut = process.platform === "darwin" ? "Meta" : "Control";
@@ -160,6 +160,7 @@ async function testPalette(page: Page): Promise<void> {
 async function testDestinationLettersAndMapEscape(page: Page): Promise<void> {
   await page.keyboard.press(`${shortcut}+,`);
   await page.waitForSelector(".tab-content.settings", { timeout: 15_000 });
+  await openSettingsSection(page, "desktop");
   const before = await page.locator(".directions-toggle").getAttribute("aria-pressed");
   await page.keyboard.press("p");
   await page.waitForFunction((expected) => document.querySelector(".directions-toggle")?.getAttribute("aria-pressed") !== expected, before, { timeout: 15_000 });

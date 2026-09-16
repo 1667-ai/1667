@@ -115,6 +115,7 @@ class RendererApp {
 
   private readonly actions: RendererActions = {
     setTab: (tab) => this.setTab(tab),
+    setSettingsSection: (section) => this.setState({ settingsSection: section }),
     focusPart: (id) => this.setState({ focusedPartId: id }),
     editPart: (id) => this.setState(id === null ? { editingPartId: null } : { editingPartId: id, focusedPartId: id }),
     acknowledgeFactConsistencySeen: () => this.setState({ factConsistencySeen: true }),
@@ -240,7 +241,8 @@ class RendererApp {
       checkConnection: () => { void this.settingsController.checkConnection(); },
       save: () => { void this.settingsController.save(); },
       reload: () => { void this.settingsController.load(); },
-      discardPending: () => { void this.settingsController.discardPending(); }
+      discardPending: () => { void this.settingsController.discardPending(); },
+      discardDraft: () => this.settingsController.discardDraft()
     },
     refresh: () => { void this.refresh(); },
     acknowledgeRecovery: (warning) => { void this.acknowledgeRecovery(warning); },

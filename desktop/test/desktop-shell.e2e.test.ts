@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type ElectronApplication, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -61,6 +61,9 @@ async function createStory(page: Page, title: string): Promise<void> {
 async function test1440Geometry(app: ElectronApplication, page: Page): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1440, 900));
   await page.waitForTimeout(150);
+  for (const selector of [".titlebar", ".rail", ".inspector"]) {
+    await page.locator(selector).waitFor({ state: "visible", timeout: 15_000 });
+  }
   const titlebar = await page.locator(".titlebar").boundingBox();
   const rail = await page.locator(".rail").boundingBox();
   const inspector = await page.locator(".inspector").boundingBox();
@@ -133,8 +136,9 @@ async function testBreadcrumbTruncation(app: ElectronApplication, page: Page): P
 // at 19px without a reload; selecting graphite restores the Literata stack.
 async function testThemeSwitch(page: Page): Promise<void> {
   await page.locator(".tab-settings").click();
-  await page.waitForSelector(".theme-select", { timeout: 15_000 });
-  await page.selectOption(".theme-select", "hi-contrast light");
+  await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+  await openSettingsSection(page, "desktop");
+  await page.locator('.theme-swatch[data-theme="hi-contrast light"]').click();
   await page.locator(".tab-write").click();
   await page.waitForSelector(".part-prose", { timeout: 15_000 });
   const hiContrast = await page.evaluate(() => {
@@ -148,8 +152,9 @@ async function testThemeSwitch(page: Page): Promise<void> {
   assert.equal(hiContrast!.fontSize, "19px");
 
   await page.locator(".tab-settings").click();
-  await page.waitForSelector(".theme-select", { timeout: 15_000 });
-  await page.selectOption(".theme-select", "graphite");
+  await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+  await openSettingsSection(page, "desktop");
+  await page.locator('.theme-swatch[data-theme="graphite"]').click();
   await page.locator(".tab-write").click();
   await page.waitForSelector(".part-prose", { timeout: 15_000 });
   const graphite = await page.evaluate(() => {
@@ -181,15 +186,19 @@ async function testShortcuts(page: Page): Promise<void> {
 async function testSettingsAttention(page: Page): Promise<void> {
   await page.locator(".tab-settings").click();
   await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+  await openSettingsSection(page, "profiles");
   await page.click(".settings-connection-create");
+  const profileName = await page.locator(".settings-profile-select.active strong").innerText();
+  await openSettingsSection(page, "connections");
   await page.fill(".settings-control-connection-name", "Unreachable provider");
   await page.selectOption(".settings-control-connection-preset", "custom");
   await page.selectOption(".settings-control-connection-protocol", "openai-chat-completions");
   await page.fill(".settings-control-connection-baseUrl", "https://example.test/v1");
   await page.selectOption(".settings-control-connection-authType", "bearer-stored");
   await page.locator("input[data-preserve^='settings:secret:']").fill("placeholder-secret");
-  const profileName = await page.locator(".settings-profile-select.active strong").innerText();
+  await openSettingsSection(page, "routes");
   await page.selectOption(".settings-control-route-prose", { label: profileName });
+  await openSettingsSection(page, "output");
   await page.fill('[data-settings-field="profile.maxOutputTokens"]', "999");
   await page.click(".settings-save");
   await page.waitForFunction(
