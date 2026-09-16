@@ -80,6 +80,7 @@ import {
   stopAside
 } from "./renderer-aside-commands.js";
 import { retakeLine, rewriteLine, summarizeLine } from "./renderer-generation-commands.js";
+import { eyebrowFor, submitLabel } from "./renderer-composer-view.js";
 import { createSettingsEditorState, RendererSettingsController } from "./renderer-settings-controller.js";
 
 const root = document.querySelector<HTMLElement>("#app");
@@ -115,6 +116,7 @@ class RendererApp {
   private readonly actions: RendererActions = {
     setTab: (tab) => this.setTab(tab),
     focusPart: (id) => this.setState({ focusedPartId: id }),
+    editPart: (id) => this.setState(id === null ? { editingPartId: null } : { editingPartId: id, focusedPartId: id }),
     acknowledgeFactConsistencySeen: () => this.setState({ factConsistencySeen: true }),
     setSearch: (value) => { this.setState({ search: value }); void this.searchStories(value); },
     openSearchHit: (hit) => { void this.openSearchHit(hit); },
@@ -125,6 +127,7 @@ class RendererApp {
     setMapCursor: (id) => this.setState({ mapCursorId: id }),
     openKeys: () => this.setState({ popover: { kind: "keys" } }),
     openPalette: (group) => this.setState({ popover: { kind: "palette", query: "", group: group ?? null } }),
+    openPartMenu: (partId) => this.setState({ popover: { kind: "part-menu", partId } }),
     setPaletteQuery: (value) => {
       if (this.state.popover?.kind === "palette") this.setState({ popover: { ...this.state.popover, query: value } });
     },
@@ -174,6 +177,7 @@ class RendererApp {
     deleteNode: (node) => { void this.deleteNode(node); },
     switchLine: (node) => { void this.switchLine(node); },
     switchNode: (nodeId) => { void this.switchNode(nodeId); },
+    switchToTaggedLine: (tagName, nodeId) => { void this.switchToTaggedLine(tagName, nodeId); },
     copyLine: (node) => this.copyLine(node),
     pasteLine: (node) => { void this.pasteLine(node); },
     takeFromCut: (node, selection) => { void this.takeFromCut(node, selection); },
@@ -599,7 +603,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, focusedPartId: null, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, focusedPartId: null, editingPartId: null, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -1154,7 +1158,8 @@ class RendererApp {
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (this.state.drafts[`part:${node.id}`] === text) this.setDraft(`part:${node.id}`, undefined);
-      this.setState({ status: "Saved" });
+      const editingPartId = this.state.editingPartId === node.id ? null : this.state.editingPartId;
+      this.setState({ status: "Saved", editingPartId });
     });
   }
 
@@ -1172,7 +1177,8 @@ class RendererApp {
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (this.state.drafts[`part:${node.id}`] === text) this.setDraft(`part:${node.id}`, undefined);
-      this.setState({ status: "Saved as take" });
+      const editingPartId = this.state.editingPartId === node.id ? null : this.state.editingPartId;
+      this.setState({ status: "Saved as take", editingPartId });
     });
   }
 
@@ -1203,7 +1209,9 @@ class RendererApp {
       const drafts = Object.fromEntries(Object.entries(this.state.drafts).filter(([key]) =>
         !key.startsWith("part:") || remainingIds.has(key.slice("part:".length))
       ));
-      this.setState({ drafts, status: "Part deleted" });
+      const editingPartId = this.state.editingPartId !== null && remainingIds.has(this.state.editingPartId)
+        ? this.state.editingPartId : null;
+      this.setState({ drafts, editingPartId, status: "Part deleted" });
       await this.replaceStory(next);
     });
   }
@@ -1222,6 +1230,19 @@ class RendererApp {
   }
 
   private async switchNode(nodeId: string): Promise<void> {
+    await this.switchToNode(nodeId, takeSwitchStatus);
+  }
+
+  /** Switching a tagged line from the Library (§7) names the tag, not the
+   * take position, in the toast. */
+  private async switchToTaggedLine(tagName: string, nodeId: string): Promise<void> {
+    await this.switchToNode(nodeId, (story, id) => {
+      const index = story.path.findIndex((node) => node.id === id);
+      return index === -1 ? `Switched to ${tagName}` : `Switched to ${tagName} · ¶ ${index + 1}`;
+    });
+  }
+
+  private async switchToNode(nodeId: string, status: (story: StoryPayload, nodeId: string) => string): Promise<void> {
     const api = this.requireApi();
     const story = this.requireStory();
     if (!story.nodes.some((node) => node.id === nodeId)) return;
@@ -1232,6 +1253,7 @@ class RendererApp {
       const next = await api.switchLine(story.id, nodeId);
       for (const key of drafts) this.setDraft(key, undefined);
       await this.replaceStory(next);
+      this.setState({ status: status(next, nodeId) });
     });
   }
 
@@ -1467,7 +1489,13 @@ class RendererApp {
       && previousLeaf?.id !== nextLeaf?.id;
     const shouldFollowCurrentAside = leafChanged
       && (this.state.aside.bucket === "current" || this.state.aside.selectedSessionId === null);
-    this.setState({ story });
+    // A genuinely different story: a part mid-edit in the old one must not
+    // reappear in edit mode if its id ever collides with a part here later
+    // (or, more immediately, if the writer navigates back to the old story
+    // without this having been cleared — `editingPartId` has no fallback
+    // like `effectiveFocusedPartId`'s "the id is gone, use the leaf").
+    const storyChanged = previousStory !== null && previousStory.id !== story.id;
+    this.setState({ story, ...(storyChanged ? { editingPartId: null } : {}) });
     const stories = this.state.stories.map((summary) => summary.id === story.id ? {
       ...summary,
       title: story.title,
@@ -1607,6 +1635,7 @@ class RendererApp {
       if (control !== undefined && (force || document.activeElement !== control) && control.value !== value) control.value = value;
     };
     updateEditable("composer", this.state.drafts.composer ?? "", this.state.drafts.composer === undefined);
+    this.updateComposerTypingState();
     updateEditable("authors-note", this.state.drafts["authors-note"] ?? story.authorsNote ?? "");
     updateEditable("authors-note-depth", this.state.drafts["authors-note-depth"] ?? String(story.authorsNoteDepth ?? 1));
     updateEditable("author-brief", this.state.drafts["author-brief"] ?? story.authorBrief ?? "");
@@ -1617,13 +1646,21 @@ class RendererApp {
       const node = story.path.find((candidate) => candidate.id === id);
       if (node === undefined) continue;
       const draft = this.state.drafts[`part:${id}`];
-      article.classList.toggle("dirty", draft !== undefined && draft !== node.text);
+      const dirty = draft !== undefined && draft !== node.text;
+      article.classList.toggle("dirty", dirty);
+      const dirtyMark = article.querySelector<HTMLElement>(".part-gutter-dirty");
+      if (dirtyMark !== null) dirtyMark.hidden = !(node.human === true || dirty);
       const text = article.querySelector<HTMLTextAreaElement>(".part-text");
       if (text !== null && document.activeElement !== text) {
         const value = draft ?? node.text ?? "";
         if (text.value !== value) text.value = value;
         text.style.height = "auto";
         text.style.height = `${Math.max(88, text.scrollHeight)}px`;
+      }
+      const prose = article.querySelector<HTMLElement>(".part-prose");
+      if (prose !== null) {
+        const value = draft ?? node.text ?? "";
+        if (prose.textContent !== value) prose.textContent = value;
       }
     }
     const saveState = renderRoot.querySelector<HTMLElement>(".story-save-state");
@@ -1632,6 +1669,28 @@ class RendererApp {
       saveState.className = `story-save-state ${this.state.stream === null ? dirty ? "dirty" : "saved" : "streaming"}`;
       saveState.textContent = this.state.stream === null ? dirty ? "unsaved edits" : "saved" : "writing…";
     }
+  }
+
+  /** The composer's grown/typing look (D-12) is a CSS class computed from
+   * the draft, but every keystroke takes the fast `draftOnly` path in
+   * `setState` — no full render — so nothing else keeps that class, the
+   * eyebrow text, or the submit label in step with what the writer typed.
+   * Left stale, the row's height only ever changes on the next unrelated
+   * full render, which can land mid-click on a footer button (the button
+   * shifts under the pointer between mousedown and mouseup, and the browser
+   * drops the click). Keeping these in sync on every keystroke is what
+   * keeps the row's height stable through a click, not just accurate. */
+  private updateComposerTypingState(): void {
+    const composer = renderRoot.querySelector<HTMLElement>(".composer");
+    if (composer === null) return;
+    const empty = (this.state.drafts.composer ?? "").trim().length === 0;
+    composer.classList.toggle("composer-typing", !empty);
+    const eyebrow = composer.querySelector<HTMLElement>(".composer-eyebrow");
+    if (eyebrow !== null && this.state.stream === null && this.state.stoppedGeneration === null) {
+      eyebrow.textContent = eyebrowFor(this.state.composerMode);
+    }
+    const submit = composer.querySelector<HTMLElement>(".composer-submit");
+    if (submit !== null && this.state.stream === null) submit.textContent = submitLabel(this.state.composerMode, empty);
   }
 
   private render(): void {
@@ -1716,6 +1775,18 @@ class RendererApp {
 }
 
 new RendererApp().start();
+
+/** The toast for a take switch (D-38, §7): "take j of k · ¶ n". Falls back to
+ * naming just the part when the switched-to node has no sibling takes. */
+function takeSwitchStatus(story: StoryPayload, nodeId: string): string {
+  const index = story.path.findIndex((node) => node.id === nodeId);
+  if (index === -1) return "Focused";
+  const node = story.path[index]!;
+  const siblings = story.nodes.filter((candidate) => candidate.parentId === node.parentId && candidate.role !== "summary");
+  const takeIndex = siblings.findIndex((candidate) => candidate.id === node.id);
+  if (siblings.length < 2 || takeIndex === -1) return `¶ ${index + 1}`;
+  return `take ${takeIndex + 1} of ${siblings.length} · ¶ ${index + 1}`;
+}
 
 async function rewriteStreamDigest(text: string): Promise<string> {
   const input = new TextEncoder().encode(`1667-partial-rewrite\0${text}`);

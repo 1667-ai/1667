@@ -38,11 +38,13 @@ export type ComposerMode = "continue" | "direct" | "write";
  * Project · Desktop. Lives here, not in `renderer-commands.ts`, so a popover
  * view can name a group without importing the whole command registry. */
 export type DesktopCommandGroup = "Story" | "Take" | "Facts" | "Chapters" | "Map" | "Project" | "Desktop";
-/** One popover open at a time (D-05): the keys sheet, or the command palette
- * with its own query and optional group pre-filter (`x` opens it on `Take`). */
+/** One popover open at a time (D-05): the keys sheet, the command palette
+ * with its own query and optional group pre-filter (`x` opens it on `Take`),
+ * or a part's `···` overflow menu (D-11). */
 export type DesktopPopover =
   | { readonly kind: "keys" }
-  | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null };
+  | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null }
+  | { readonly kind: "part-menu"; readonly partId: string };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -226,6 +228,9 @@ export interface RendererState {
   readonly factConsistencyBusy: boolean;
   readonly factConsistencySeen: boolean;
   readonly focusedPartId: string | null;
+  /** The one part currently showing `textarea.part-text` in place of its
+   * `.part-prose` (D-09). At most one part edits at a time. */
+  readonly editingPartId: string | null;
   readonly chapterUndo: { readonly breakId: string; readonly removed: RemovedChapterBreak } | null;
   readonly search: string;
   readonly searchHits: readonly SearchHit[];
@@ -273,6 +278,7 @@ export const INITIAL_STATE: RendererState = {
   factConsistencyBusy: false,
   factConsistencySeen: false,
   focusedPartId: null,
+  editingPartId: null,
   chapterUndo: null,
   search: "",
   searchHits: [],
@@ -304,6 +310,10 @@ export const INITIAL_STATE: RendererState = {
 export interface RendererActions {
   readonly setTab: (tab: RendererTab) => void;
   readonly focusPart: (id: string) => void;
+  /** Enters edit mode on a part (also focusing it), or `null` leaves edit
+   * mode and keeps whatever draft is there (D-09; `esc` and a completed save
+   * both call this with `null`). */
+  readonly editPart: (id: string | null) => void;
   readonly acknowledgeFactConsistencySeen: () => void;
   readonly setSearch: (value: string) => void;
   readonly openSearchHit: (hit: SearchHit) => void;
@@ -314,6 +324,7 @@ export interface RendererActions {
   readonly setMapCursor: (id: string | null) => void;
   readonly openKeys: () => void;
   readonly openPalette: (group?: DesktopCommandGroup) => void;
+  readonly openPartMenu: (partId: string) => void;
   readonly setPaletteQuery: (value: string) => void;
   readonly closePopover: () => void;
   readonly toast: (text: string) => void;
@@ -350,6 +361,7 @@ export interface RendererActions {
   readonly deleteNode: (node: StoryPathNode) => void;
   readonly switchLine: (node: StoryPathNode) => void;
   readonly switchNode: (nodeId: string) => void;
+  readonly switchToTaggedLine: (tagName: string, nodeId: string) => void;
   readonly copyLine: (node: StoryPathNode) => void;
   readonly pasteLine: (node: StoryPathNode) => void;
   readonly takeFromCut: (node: StoryPathNode, selection?: TextSelection) => void;

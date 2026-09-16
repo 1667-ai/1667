@@ -14,7 +14,8 @@ import {
   type ComposerMode,
   type DesktopCommandGroup,
   type RendererActions,
-  type RendererState
+  type RendererState,
+  type TextSelection
 } from "./renderer-model.js";
 import { VERB_COMMANDS } from "./renderer-commands-verbs.js";
 
@@ -31,6 +32,11 @@ export interface DesktopCommandContext {
    * or a click — only the `compose` command reads it (`i` sets Direct mode,
    * plain `enter` does not). */
   readonly binding: ReferenceBinding | null;
+  /** A selection captured on `mousedown`, before a toolbar click could steal
+   * it (D-11 Rewrite / Take from cut / Fact from selection). Undefined for
+   * every keyboard- or palette-triggered run, which then apply to the whole
+   * part. */
+  readonly selection?: TextSelection;
   readonly focusComposer: (mode?: ComposerMode) => void;
   readonly focusInspectorSection: (key: string) => void;
   readonly toast: (text: string) => void;
@@ -55,13 +61,22 @@ export interface DesktopCommand {
   readonly handles?: { readonly mode: "NAV" | "MAP"; readonly action: KeyAction };
 }
 
+export interface DesktopCommandContextOptions {
+  /** Runs the command against this specific part instead of the state's
+   * effectively-focused one — a D-11 toolbar verb always targets the part
+   * whose toolbar it came from, even when the writer merely hovered it. */
+  readonly focusOverride?: StoryPathNode;
+  readonly selection?: TextSelection;
+}
+
 export function buildDesktopCommandContext(
   state: RendererState,
   actions: RendererActions,
-  binding: ReferenceBinding | null
+  binding: ReferenceBinding | null,
+  options: DesktopCommandContextOptions = {}
 ): DesktopCommandContext {
   const story = state.story;
-  const focused = focusedNode(state, story);
+  const focused = options.focusOverride ?? focusedNode(state, story);
   const siblings = story === null || focused === null
     ? []
     : story.nodes.filter((node) => node.parentId === focused.parentId && node.role !== "summary");
@@ -72,6 +87,7 @@ export function buildDesktopCommandContext(
     focused,
     siblings,
     binding,
+    selection: options.selection,
     focusComposer: (mode) => focusComposer(state, actions, mode),
     focusInspectorSection: (key) => revealInspectorSection(key),
     toast: (text) => actions.toast(text)
@@ -291,6 +307,7 @@ const TAKE_COMMANDS: readonly DesktopCommand[] = [
     available: hasFocus, handles: { mode: "NAV", action: "edit" },
     run: (ctx) => {
       if (ctx.state.tab !== "write") ctx.actions.setTab("write");
+      ctx.actions.editPart(ctx.focused!.id);
       document.querySelector<HTMLTextAreaElement>(`[data-preserve="part:${ctx.focused!.id}"]`)?.focus();
     }
   },
@@ -395,6 +412,16 @@ for (const command of COMMANDS) {
 
 export function commandForAction(action: KeyAction, mode: "NAV" | "MAP"): DesktopCommand | undefined {
   return BY_MODE_ACTION.get(`${mode}:${action}`);
+}
+
+const BY_ID = new Map(COMMANDS.map((command) => [command.id, command] as const));
+
+/** Looks a command up by its stable id — for a toolbar or menu verb with no
+ * key of its own (Rewrite, Take from cut, Fact from selection, Inspect, …),
+ * so the view can still run it through the registry instead of duplicating
+ * its `run` logic. */
+export function commandById(id: string): DesktopCommand | undefined {
+  return BY_ID.get(id);
 }
 
 const SUPPORTED_BINDING_IDS: ReadonlySet<ReferenceBindingId> = new Set(

@@ -164,7 +164,7 @@
 @media (prefers-reduced-motion: reduce) {
   * { transition-duration: 0s !important; animation-duration: .001s !important; }
   .caret { animation: none !important; opacity: 1; }
-  .streaming-fresh { color: var(--ink) !important; }
+  .fresh { animation: none !important; color: var(--ink) !important; }
 }
 
 * { box-sizing: border-box; }
@@ -205,11 +205,11 @@ button:disabled { cursor: default; opacity: .46; }
 }
 
 .brand, .breadcrumb, .titlebar-actions, .rail-group, .section-heading,
-.panel-heading, .panel-heading-copy, .part-meta, .part-badges, .composer-footer,
+.panel-heading, .panel-heading-copy, .composer-footer,
 .rail-card-heading, .aside-controls, .metric-row, .fact-head, .fact-controls,
-.chapter-card, .chapter-controls, .inspect-controls, .stream-head, .settings-actions,
-.line-tools-heading, .fact-state-row, .fact-state-controls, .library-section-actions,
-.inspector-section-header, .take-row {
+.chapter-card, .chapter-controls, .inspect-controls, .settings-actions,
+.fact-state-row, .fact-state-controls, .library-section-actions,
+.inspector-section-header, .take-row, .part-gutter-take, .part-edit-row {
   display: flex;
   align-items: center;
 }
@@ -300,7 +300,7 @@ button.inspector-section-header { display: flex; width: 100%; justify-content: s
 .chip.wash { background: var(--amber-wash); color: var(--amber-dark); }
 .section-heading { justify-content: space-between; margin-bottom: 15px; gap: 8px; }
 .eyebrow { display: block; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .15em; text-transform: uppercase; }
-.library-hint, .story-row-meta, .metric-label, .meter-caption, .panel-note, .part-meta, .part-instruction, .chapter-card p, .inspect-card-title, .stream-instruction, .stream-stopped { color: var(--muted); font-size: 11px; }
+.library-hint, .story-row-meta, .metric-label, .meter-caption, .panel-note, .chapter-card p, .inspect-card-title, .stream-stopped { color: var(--muted); font-size: 11px; }
 .library-search, .composer-input, .rail-textarea, .part-text, .settings-form input, .settings-form textarea, .settings-form select {
   width: 100%;
   color: var(--ink);
@@ -327,52 +327,123 @@ option { background: var(--paper); color: var(--ink); }
 .empty-copy { padding: 18px 0; color: var(--muted); font: 15px/1.55 var(--serif); }
 
 .tab-content { min-height: 450px; }
-.writing-layout { display: grid; gap: 24px; max-width: 760px; }
-.manuscript { padding: 0 2px; }
-.chapter-rule { display: flex; align-items: center; gap: 12px; margin: 5px 0 20px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.writing-layout { display: flex; flex-direction: column; min-height: 0; }
+
+/* Manuscript (D-09/D-10/D-11/D-13): a 150/660 grid, centred; each part
+   repeats the same two columns so its gutter and prose stay aligned with
+   the next. No boxes or hairlines between parts — vertical rhythm only. */
+.manuscript { display: grid; grid-template-columns: 150px 660px; column-gap: 28px; justify-content: center; padding: 40px 2px 12px; }
+@media (max-width: 960px) { .manuscript { grid-template-columns: 90px minmax(600px, 660px); } }
+.chapter-rule { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; margin: 5px 0 20px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .chapter-rule::after { content: ""; flex: 1; border-top: 1px solid var(--amber-wash); }
 .chapter-number { color: var(--faint); }
 .chapter-name { font-weight: 600; }
-.manuscript-part { position: relative; margin: 0 0 20px; padding: 0 0 22px 18px; border-left: var(--hairline); }
-.manuscript-part.active { border-left: var(--focus-edge) solid var(--amber); padding-left: 17px; }
-.manuscript-part.focused { color: var(--ink); }
-.manuscript-part.focused:not(.active) { border-left: var(--focus-edge) solid var(--amber); padding-left: 17px; }
-.part-meta { justify-content: space-between; gap: 12px; margin-bottom: 10px; }
-.part-label { color: var(--faint); font: 10px var(--mono); letter-spacing: .11em; text-transform: uppercase; }
-.part-badges { gap: 5px; }
-.badge { padding: 3px 6px; border-radius: 2px; background: var(--amber-wash); color: var(--amber-dark); font: 9px var(--mono); letter-spacing: .05em; text-transform: uppercase; }
-.badge.human { background: color-mix(in srgb, var(--pen) 16%, transparent); color: var(--pen); }
-.badge.quiet { background: var(--paper-deep); color: var(--muted); }
-.part-switch { margin-left: auto; padding: 3px 6px; border: 0; color: var(--muted); font-size: 10px; }
-.part-instruction { margin: 0 0 10px; font-style: italic; line-height: 1.45; }
+.manuscript-part { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; column-gap: 28px; margin-bottom: 22px; }
+@supports not (grid-template-columns: subgrid) {
+  .manuscript-part { grid-template-columns: 150px 660px; }
+}
+.part-gutter { grid-column: 1; display: grid; justify-items: end; gap: 5px; padding-top: 3px; text-align: right; }
+.part-gutter-waymark, .part-gutter-hint { color: var(--faint); font: 10px var(--mono); letter-spacing: .03em; }
+.part-gutter-dirty, .part-gutter-summary { color: var(--amber-dark); font: 10px var(--mono); }
+.part-gutter-take { gap: 3px; color: var(--amber-dark); font: 10px var(--mono); }
+.part-take-previous, .part-take-next { padding: 0 2px; border: 0; background: transparent; color: var(--amber-dark); font-size: 11px; }
+.part-take-count { color: var(--amber-dark); font: 10px var(--mono); }
+.part-direction-toggle { padding: 1px 0; border: 0; background: transparent; color: var(--faint); font: 10px var(--mono); }
+.part-direction-toggle:hover { color: var(--amber-dark); }
+.take-gauge { display: flex; justify-content: flex-end; gap: 4px; }
+.take-gauge.condensed { gap: 2px; }
+.take-gauge-dot { width: 6px; height: 6px; padding: 0; border: 1px solid var(--faint); border-radius: 50%; background: transparent; }
+.take-gauge.condensed .take-gauge-dot { width: 4px; height: 4px; }
+.take-gauge-dot.shown { border-color: var(--amber); background: var(--amber); }
+.take-gauge-track { position: relative; width: 84px; height: 3px; background: var(--paper-deep); }
+.take-gauge-track-marker { position: absolute; top: 50%; width: 8px; height: 8px; margin: -4px 0 0 -4px; border: 0; border-radius: 50%; background: var(--amber); }
+
+.part-body { position: relative; min-width: 0; border-left: var(--focus-edge) solid transparent; padding-left: 16px; }
+.manuscript-part.focused .part-body { border-left-color: var(--amber); }
+.part-prose { margin: 0; white-space: pre-wrap; cursor: text; font: var(--prose-weight) var(--prose-size)/var(--prose-leading) var(--serif); }
+.manuscript-part.dim .part-prose { color: var(--muted); }
+.manuscript-part.focused .part-prose { color: var(--ink); }
+.manuscript-part.human .part-prose { color: var(--pen); }
+.part-summary-header { margin: 0 0 8px; padding: 4px 8px; background: var(--amber-wash); color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .07em; text-transform: uppercase; }
+.manuscript-part.summary .part-body { border-top: 2px solid var(--amber-dark); padding-top: 10px; }
+.part-instruction { margin: 0 0 8px; color: var(--muted); font: 11px var(--mono); line-height: 1.5; }
+
+/* D-11 hover toolbar: sits in the 22px rhythm gap above the part, never over
+   prose. Hover reveals it (never hides it — opacity, not display). */
+.part-toolbar {
+  position: absolute;
+  top: -32px;
+  right: 0;
+  display: flex;
+  gap: 3px;
+  padding: 3px;
+  background: var(--paper);
+  box-shadow: var(--shadow-sm);
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity .16s ease;
+}
+.manuscript-part:hover .part-toolbar, .manuscript-part.focused .part-toolbar, .part-toolbar:focus-within { opacity: 1; pointer-events: auto; }
+.part-toolbar .button { padding: 5px 8px; border-color: transparent; color: var(--muted); font-size: 10px; }
+.part-toolbar .button:hover:not(:disabled) { border-color: var(--amber); color: var(--amber-dark); }
+.part-editor { position: relative; }
 .part-text { display: block; min-height: 88px; padding: 3px 0; border: 0; border-radius: 0; background: transparent; overflow-y: hidden; resize: vertical; font-family: var(--serif); font-size: var(--prose-size); font-weight: var(--prose-weight); line-height: var(--prose-leading); }
-.part-text:hover { background: var(--paper); }
-.part-save { display: block; margin-top: 7px; margin-left: auto; padding: 4px 7px; border-color: transparent; color: var(--muted); font-size: 10px; }
-.part-save:hover { border-color: var(--amber); }
-.part-tools { display: flex; flex-wrap: wrap; gap: 5px; margin: 4px 0 0; }
-.part-tools .button { padding: 4px 7px; border-color: transparent; color: var(--muted); font-size: 10px; }
-.part-tools .button:hover:not(:disabled) { border-color: var(--amber); }
-.empty-manuscript { min-height: 180px; display: grid; place-items: center; padding: 34px; color: var(--muted); text-align: center; font: 18px/1.6 var(--serif); }
-.stream-card { margin: 14px 0 20px 18px; padding: 16px 18px; border: 1px solid var(--amber); background: var(--amber-wash); box-shadow: var(--shadow-sm); }
-.stream-head { justify-content: space-between; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .11em; text-transform: uppercase; }
-.stream-text { margin: 9px 0; white-space: pre-wrap; font: 18px/1.65 var(--serif); }
-.stream-reasoning { color: var(--muted); font: 12px/1.5 var(--sans); }
+.part-edit-row { gap: 10px; margin-top: 7px; }
+.part-edit-row .button { padding: 4px 7px; border-color: transparent; color: var(--muted); font-size: 10px; }
+.part-edit-row .button:hover:not(:disabled) { border-color: var(--amber); }
+.empty-manuscript { grid-column: 1 / -1; min-height: 180px; display: grid; place-items: center; padding: 34px; color: var(--muted); text-align: center; font: 18px/1.6 var(--serif); }
+
+/* Streaming part (D-14): the last article in the prose column, not a card.
+   Fresh ink settles from a paper-tinted mix to --ink once; the caret blinks
+   at the tip. */
+.stream-text { margin: 0; white-space: pre-wrap; font: var(--prose-weight) var(--prose-size)/var(--prose-leading) var(--serif); }
+.stream-text .fresh { color: color-mix(in srgb, var(--ink) 70%, var(--paper)); animation: fresh-ink-settle 1s ease forwards; }
+@keyframes fresh-ink-settle { to { color: var(--ink); } }
+.caret { display: inline-block; width: 2px; height: 1em; margin-left: 1px; vertical-align: text-bottom; background: var(--amber); animation: caret-blink 1s steps(1) infinite; }
+@keyframes caret-blink { 50% { opacity: 0; } }
+.stream-reasoning { margin-top: 10px; color: var(--muted); font: 12px/1.5 var(--sans); }
 .stream-reasoning p { white-space: pre-wrap; }
-.stream-stopped { margin: 10px 0 0; }
-.composer { padding: 17px 18px 14px; border: var(--hairline-strong); background: var(--paper); box-shadow: var(--shadow-md); }
-.composer-label { display: block; margin-bottom: 8px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
-.composer-input { min-height: 72px; padding: 10px 11px; resize: vertical; font: 16px/1.5 var(--serif); }
-.composer-footer { justify-content: flex-end; gap: 10px; padding-top: 10px; }
-.composer-mode { padding: 6px 8px; border: var(--hairline); background: transparent; color: var(--muted); font-size: 11px; }
-.composer-shortcut { color: var(--faint); font: 10px var(--mono); }
+.stream-stopped { margin: 10px 0 0; color: var(--muted); font-size: 11px; }
+.stream-stop { padding: 1px 4px; border: 0; background: transparent; color: var(--faint); font: 10px var(--mono); }
+.stream-stop:hover { color: var(--ember); }
+
+/* Composer (D-12): docked (sticky) under the manuscript, its width the
+   gutter + the prose measure + their gap (150 + 28 + 660). One row at rest —
+   the direction field, the mode segmented, and the verbs share a line; the
+   field alone grows taller once there is something to write. */
+.composer { position: sticky; bottom: 0; z-index: 2; width: 838px; max-width: 100%; margin: 8px auto 0; padding: 10px 16px; border: var(--hairline-strong); background: var(--paper); box-shadow: var(--shadow-md); }
+.composer.blocked { opacity: .6; }
+.composer-eyebrow { display: none; margin: 0 0 7px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.composer.composer-typing .composer-eyebrow, .composer.blocked .composer-eyebrow { display: block; }
+.composer.blocked .composer-eyebrow { color: var(--muted); }
+.composer-hint { display: none; margin: 6px 0 0; color: var(--faint); font: 10px var(--mono); }
+.composer.composer-typing .composer-hint { display: block; }
+/* The direction field gets the full width on its own row, so the rest-state
+   placeholder stays on one line; the mode switch and the verbs sit below it. */
+.composer-row { display: grid; grid-template-columns: auto minmax(0, 1fr); grid-template-areas: "input input" "mode footer"; align-items: center; gap: 8px; }
+.composer-mode { grid-area: mode; display: flex; gap: 3px; }
+.composer-mode .button { padding: 5px 8px; border-color: transparent; color: var(--muted); font-size: 10px; }
+.composer-mode .button.active { background: var(--bar); color: var(--on-bar); }
+/* The row's height reads only `.composer-typing` (content, set once per
+   keystroke by `updateComposerTypingState`) — never a live `:focus`/
+   `:focus-within`. A focus-driven height would shrink mid-click whenever a
+   mousedown moves focus off the field onto a sibling button (the footer's
+   Attach/Save/Submit, the mode buttons), sliding that button out from under
+   the same click that was supposed to land on it. */
+.composer-input { grid-area: input; min-width: 0; min-height: 34px; padding: 8px 10px; resize: none; font: 15px/1.4 var(--serif); }
+.composer-input:focus { border-color: var(--amber); }
+.composer.composer-typing .composer-input { min-height: 72px; border-color: var(--amber); resize: vertical; }
+.composer-footer { grid-area: footer; justify-content: flex-end; gap: 8px; padding: 0; }
+.composer-footer .button { padding: 6px 8px; font-size: 10px; }
 .composer-submit { border-color: var(--amber); background: var(--amber); color: var(--on-amber); font-weight: 600; }
 .composer-images, .part-images { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
 .image-chip { border: var(--hairline); background: var(--paper-deep); color: var(--ink-soft); padding: 4px 7px; font-size: 10px; letter-spacing: .04em; }
-.line-tools { padding: 13px 16px; border: var(--hairline); background: var(--paper); }
-.line-tools-heading { justify-content: space-between; flex-wrap: wrap; gap: 8px 14px; }
-.line-tools-heading h2 { margin: 4px 0 0; color: var(--graphite); font: 600 19px var(--serif); }
-.line-tools-note, .line-tools-tags { margin: 10px 0 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
-.line-tools-tags { display: flex; flex-wrap: wrap; gap: 5px; }
+.stopped-generation { position: relative; z-index: 3; }
+.part-menu-list { display: grid; gap: 2px; min-width: 220px; }
+.part-menu-list .button { justify-content: flex-start; padding: 8px; border-color: transparent; font-size: 12px; }
+.part-menu-list .button:hover:not(:disabled) { border-color: var(--amber); background: color-mix(in srgb, var(--amber) 8%, transparent); }
+.part-menu-list .ember { color: var(--ember); }
+.library-tagged-lines { margin-top: 14px; }
 .line-tag { padding: 4px 7px; border: 0; background: var(--amber-wash); color: var(--amber-dark); font: 9px var(--mono); letter-spacing: .04em; text-align: left; text-transform: uppercase; }
 
 .panel { max-width: 760px; }
@@ -619,7 +690,6 @@ option { background: var(--paper); color: var(--ink); }
 .stopped-generation p { margin: 0; color: var(--muted); font-size: 12px; }
 .stopped-generation-text { white-space: pre-wrap; overflow-wrap: anywhere; color: var(--ink) !important; font: 16px/1.55 var(--serif); }
 .stopped-generation .button { margin-right: 6px; padding: 5px 7px; font-size: 10px; }
-.part-take-count { align-self: center; color: var(--muted); font: 9px var(--mono); }
 
 @media (max-width: 1180px) {
   .app-shell { grid-template-columns: 56px minmax(600px, 1fr) 280px; }

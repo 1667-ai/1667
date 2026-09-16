@@ -1,29 +1,24 @@
 import type { StoryFact, StoryPathNode, StoryPayload } from "../shared/types.js";
 import { isFactEndState, type FactState } from "../shared/fact-state.js";
-import { imageAttachmentLabel, imageMediaTypeLabel } from "../shared/image-attachment.js";
 import { estimateTokens } from "../shared/tokens.js";
-import { continuationStats, rememberedLeafId } from "../shared/story-model.js";
 import {
   activeLeaf,
-  effectiveFocusedPartId,
   factLabel,
-  storyChapterInfo,
   storyChapters,
   DESKTOP_THEMES,
-  type ComposerMode,
   type DesktopTheme,
   type RendererActions,
-  type RendererState,
-  type TextSelection
+  type RendererState
 } from "./renderer-model.js";
 import { renderLauncher } from "./renderer-launcher-view.js";
 import { renderSettingsEditor } from "./renderer-settings-view.js";
-import { actionButton, bindDraftInput, el, resizeTextarea } from "./renderer-dom.js";
+import { actionButton, el } from "./renderer-dom.js";
 import { renderTitlebar, renderRail, renderFeedbackStack } from "./renderer-shell-view.js";
 import { renderLibraryDestination } from "./renderer-library-view.js";
 import { renderInspector } from "./renderer-inspector-view.js";
 import { renderKeysSheet } from "./renderer-keys-view.js";
 import { renderPalette } from "./renderer-palette-view.js";
+import { renderWriting, renderPartMenu } from "./renderer-manuscript-view.js";
 
 export function renderApp(root: HTMLElement, state: RendererState, actions: RendererActions): void {
   document.documentElement.dataset.desktopTheme = state.theme;
@@ -46,6 +41,10 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
   );
   if (state.popover?.kind === "keys") shell.append(renderKeysSheet(actions));
   if (state.popover?.kind === "palette") shell.append(renderPalette(state, actions, !hadPopover));
+  if (state.popover?.kind === "part-menu") {
+    const menu = renderPartMenu(state, actions, state.popover.partId);
+    if (menu !== null) shell.append(menu);
+  }
   const dialog = renderDialog(state, actions, !hadDialog);
   if (dialog !== null) shell.append(dialog);
   root.replaceChildren(shell);
@@ -203,280 +202,6 @@ function renderRecoveryWarnings(state: RendererState, actions: RendererActions):
   }
   card.append(list);
   return card;
-}
-
-function renderWriting(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
-  const writing = el("div", "writing-layout");
-  const manuscript = el("div", "manuscript");
-  let previousChapter = -1;
-  const chapters = storyChapters(story);
-  story.path.forEach((node, index) => {
-    const chapter = chapters.find((candidate) => candidate.parts.some((part) => part.id === node.id));
-    const chapterNumber = chapter?.number ?? storyChapterInfo(story, node).number;
-    const chapterTitle = chapter?.title.trim() || storyChapterInfo(story, node).title;
-    if (chapterNumber !== previousChapter) {
-      manuscript.append(el("div", "chapter-rule", el("span", "chapter-number", `Chapter ${chapterNumber}`), el("span", "chapter-name", chapterTitle)));
-      previousChapter = chapterNumber;
-    }
-    manuscript.append(renderPart(story, state, node, index, actions));
-  });
-  if (story.path.length === 0) manuscript.append(el("div", "empty-manuscript", "The page is blank. Start with a direction or write the first line yourself."));
-  if (state.stream !== null) manuscript.append(renderStream(state.stream, actions));
-  writing.append(manuscript, renderLineTools(story, state, actions), renderComposer(state, actions));
-  return writing;
-}
-
-function renderLineTools(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
-  const panel = el("section", "line-tools");
-  const heading = el("div", "line-tools-heading", el("div", "panel-heading-copy", el("span", "eyebrow", "Line tools"), el("h2", "", "Keep the branches legible.")));
-  const prune = actionButton("prune-unused", "Prune unused takes", actions.pruneUnused);
-  const summary = actionButton("summary-take", "Summary take", actions.summarizeLine);
-  prune.disabled = state.stream !== null;
-  summary.disabled = state.stream !== null;
-  heading.append(prune, summary, actionButton("manage-tags", "Manage tags", actions.manageTags));
-  heading.append(actionButton("phrase-bias", "Phrase bias", actions.editPhraseBias), actionButton("banned-strings", "Banned strings", actions.editBannedStrings));
-  panel.append(heading);
-  const tagCount = story.tags.length;
-  const clipboard = state.lineClipboard;
-  panel.append(
-    el("p", "line-tools-note", clipboard === null
-      ? `${tagCount} named line${tagCount === 1 ? "" : "s"}. Copy a continuation from any part, then paste it below another part.`
-      : `Copied ${clipboard.parts} part${clipboard.parts === 1 ? "" : "s"} from ${clipboard.sourceNodeId.slice(0, 8)}. Paste it below a part in this story.`),
-    story.tags.length === 0
-      ? el("p", "line-tools-tags", "No named lines yet.")
-      : el("div", "line-tools-tags", ...story.tags.map((tag) => {
-        const button = actionButton("line-tag", `${tag.status || "tag"} · ${tag.name}`, () => actions.switchNode(tag.nodeId), "Open tagged line");
-        button.dataset.preserve = `line-tag:${tag.nodeId}`;
-        return button;
-      }))
-  );
-  return panel;
-}
-
-function renderPart(story: StoryPayload, state: RendererState, node: StoryPathNode, index: number, actions: RendererActions): HTMLElement {
-  const dirty = state.drafts[`part:${node.id}`] !== undefined && state.drafts[`part:${node.id}`] !== node.text;
-  const focused = node.id === effectiveFocusedPartId(state, story);
-  const article = el("article", `manuscript-part ${node === activeLeaf(story) ? "active" : ""}${dirty ? " dirty" : ""}${focused ? " focused" : ""}`);
-  if (!focused) article.addEventListener("click", () => actions.focusPart(node.id));
-  const meta = el("div", "part-meta");
-  const labels = el("span", "part-label", `part ${String(index + 1).padStart(2, "0")}`);
-  const badges = el("span", "part-badges");
-  badges.append(node.human === true ? el("span", "badge human", "your words") : el("span", "badge", node.role === "summary" ? "summary" : node.model || "model"));
-  if (node.reasoning === true) badges.append(el("span", "badge quiet", "thought"));
-  const siblings = story.nodes.filter((candidate) => candidate.parentId === node.parentId && candidate.role !== "summary");
-  const takeCount = siblings.length;
-  if (takeCount > 1) badges.append(el("span", "badge quiet", `${takeCount} takes`));
-  meta.append(labels, badges, actionButton("part-switch", "Write from here", () => actions.switchLine(node)));
-  const instruction = node.instruction.trim();
-  article.dataset.preserve = `part-card:${node.id}`;
-  if (state.showDirections && instruction.length > 0) article.append(el("p", "part-instruction", instruction));
-  const text = document.createElement("textarea");
-  text.className = "part-text";
-  text.value = state.drafts[`part:${node.id}`] ?? node.text;
-  text.rows = Math.max(4, Math.min(18, text.value.split("\n").length + 1));
-  text.setAttribute("aria-label", `Edit part ${index + 1}`);
-  text.dataset.preserve = `part:${node.id}`;
-  bindDraftInput(text, () => {
-    actions.setDraft(`part:${node.id}`, text.value);
-    resizeTextarea(text);
-  });
-  queueMicrotask(() => resizeTextarea(text));
-  const selectedText = (): TextSelection | undefined => {
-    const start = text.selectionStart ?? 0;
-    const end = text.selectionEnd ?? start;
-    if (end <= start) return undefined;
-    if (text.value !== node.text) return undefined;
-    return { start, end, expected: text.value.slice(start, end) };
-  };
-  const save = actionButton("part-save", "Save edit", () => actions.editNode(node, text.value));
-  const saveTake = actionButton("part-save-take", "Save as take", () => actions.saveEditedTake(node, text.value));
-  const editDirection = actionButton("part-edit-direction", "Edit direction", () => actions.editNodeDirection(node));
-  const tag = story.tags.find((candidate) => candidate.nodeId === rememberedLeafId(story, node.id));
-  const tools = el("div", "part-tools");
-  const continuation = continuationStats(story, node.id).parts;
-  let selectionAtPointer: TextSelection | undefined;
-  const consumeSelection = (): TextSelection | undefined => {
-    const selection = selectionAtPointer ?? selectedText();
-    selectionAtPointer = undefined;
-    return selection;
-  };
-  const captureSelection = (event: MouseEvent): void => {
-    event.preventDefault();
-    selectionAtPointer = selectedText();
-  };
-  const rewrite = actionButton("part-rewrite", "Rewrite", () => actions.rewriteLine(node, consumeSelection()));
-  const cut = actionButton("part-cut", "Take from cut", () => actions.takeFromCut(node, consumeSelection()));
-  const factFromSelection = actionButton("part-fact-selection", "Fact from selection", () => {
-    const selection = consumeSelection();
-    if (selection !== undefined) actions.createFact(node, selection);
-  }, "Select saved text first");
-  const factFromPart = actionButton("part-fact-here", "New Fact here", () => actions.createFact(node));
-  const retake = actionButton("part-retake", "Retake", () => actions.retakeLine(node));
-  rewrite.addEventListener("mousedown", captureSelection);
-  cut.addEventListener("mousedown", captureSelection);
-  factFromSelection.addEventListener("mousedown", captureSelection);
-  rewrite.disabled = state.stream !== null;
-  cut.disabled = state.stream !== null;
-  retake.disabled = state.stream !== null;
-  saveTake.disabled = state.stream !== null || node.role === "summary";
-  editDirection.disabled = state.stream !== null || node.role === "summary";
-  const siblingIndex = siblings.findIndex((candidate) => candidate.id === node.id);
-  const takePrevious = actionButton("part-take-previous", "‹ take", () => {
-    const previous = siblings[siblingIndex - 1];
-    if (previous !== undefined) actions.switchNode(previous.id);
-  });
-  takePrevious.disabled = siblingIndex <= 0;
-  const takeNext = actionButton("part-take-next", "take ›", () => {
-    const next = siblings[siblingIndex + 1];
-    if (next !== undefined) actions.switchNode(next.id);
-  });
-  takeNext.disabled = siblingIndex < 0 || siblingIndex >= siblings.length - 1;
-  const deleteButton = actionButton("part-delete", "Delete", () => actions.deleteNode(node), "Delete this part and its takes");
-  deleteButton.disabled = state.stream !== null;
-  tools.append(
-    actionButton("part-tag", tag === undefined ? "Tag" : `${tag.status || "tag"}: ${tag.name}`, () => actions.tagLine(node)),
-    tag === undefined ? "" : actionButton("part-untag", "Remove tag", () => actions.removeTag(node)),
-    retake,
-    rewrite,
-    cut,
-    factFromPart,
-    factFromSelection,
-    actionButton("part-copy", "Copy line below", () => actions.copyLine(node)),
-    state.lineClipboard === null ? "" : actionButton("part-paste", "Paste below", () => actions.pasteLine(node)),
-    siblings.length < 2 ? "" : takePrevious,
-    siblings.length < 2 ? "" : el("span", "part-take-count", `take ${siblingIndex + 1}/${siblings.length}`),
-    siblings.length < 2 ? "" : takeNext,
-    deleteButton
-  );
-  if (continuation === 0) (tools.querySelector(".part-copy") as HTMLButtonElement).disabled = true;
-  if (node.role === "summary" || node.text.length < 2) cut.disabled = true;
-  article.append(meta, text, save, saveTake, editDirection, tools);
-  if (node.imageAttachments !== undefined) {
-    const images = el("div", "part-images", el("span", "eyebrow", "Attached images"));
-    node.imageAttachments.forEach((image, imageIndex) => {
-      images.append(el("span", "image-chip", `${imageAttachmentLabel(imageIndex)} · ${imageMediaTypeLabel(image.mediaType)} · ${image.width}×${image.height}`));
-    });
-    article.append(images);
-  }
-  return article;
-}
-
-function renderStream(stream: NonNullable<RendererState["stream"]>, actions: RendererActions): HTMLElement {
-  const card = el("article", "stream-card");
-  const label = stream.mode === "continue"
-    ? "Continuing the line"
-    : stream.mode === "direct"
-      ? "Writing a new take"
-      : stream.mode === "retake"
-        ? "Retaking this part"
-        : stream.mode === "rewrite"
-          ? "Rewriting this part"
-          : "Writing a summary take";
-  const head = el("div", "stream-head", label);
-  head.append(actionButton("stream-stop", "Stop", actions.stopStream));
-  card.append(head, el("p", "stream-instruction", stream.instruction || "No direction"), el("p", "stream-text", stream.text || "…"));
-  const reasoning = document.createElement("details");
-  reasoning.className = "stream-reasoning";
-  reasoning.dataset.preserve = "stream:reasoning";
-  const reasoningText = el("p", "", stream.reasoning);
-  reasoning.append(el("summary", "", "Thoughts"), reasoningText);
-  reasoning.hidden = stream.reasoning.length === 0;
-  const stopped = el("p", "stream-stopped", stream.stoppedText.length === 0 ? "" : `Stopped with ${stream.stoppedText.length.toLocaleString()} characters retained.`);
-  stopped.hidden = stream.stoppedText.length === 0;
-  card.append(reasoning, stopped);
-  return card;
-}
-
-function renderComposer(state: RendererState, actions: RendererActions): HTMLElement {
-  const composer = el("form", "composer");
-  const mode = document.createElement("select");
-  mode.className = "composer-mode";
-  mode.dataset.preserve = "composer-mode";
-  for (const optionData of [["continue", "Continue current line"], ["direct", "Direct take"], ["write", "Write it myself"]] as const) {
-    const option = document.createElement("option");
-    option.value = optionData[0];
-    option.textContent = optionData[1];
-    option.selected = optionData[0] === state.composerMode;
-    mode.append(option);
-  }
-  mode.value = state.composerMode;
-  mode.addEventListener("change", () => actions.setComposerMode(mode.value as ComposerMode));
-  const prompt = document.createElement("textarea");
-  prompt.className = "composer-input";
-  prompt.placeholder = "Give the next passage a direction…";
-  prompt.setAttribute("aria-label", "Generation direction");
-  prompt.dataset.preserve = "composer";
-  prompt.value = state.drafts.composer ?? "";
-  prompt.rows = Math.max(3, Math.min(10, prompt.value.split("\n").length + 1));
-  bindDraftInput(prompt, () => {
-    actions.setDraft("composer", prompt.value);
-    resizeTextarea(prompt);
-  });
-  const generationBlocked = state.stream !== null || state.stoppedGeneration !== null;
-  const submit = actionButton("composer-submit", state.stream !== null
-    ? "Writing…"
-    : state.composerMode === "write" ? "Save this line  ↗"
-    : state.composerMode === "direct" ? "Write take  ↗" : "Continue  ↗", () => {
-    if (generationBlocked) return;
-    if (mode.value === "write") {
-      if (prompt.value.trim().length > 0) actions.writeManual(prompt.value);
-      return;
-    }
-    actions.continueStory(mode.value === "direct" ? "direct" : "continue", prompt.value);
-  });
-  submit.disabled = generationBlocked;
-  prompt.addEventListener("keydown", (event) => {
-    if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-      event.preventDefault();
-      submit.click();
-    }
-  });
-  const manual = actionButton("composer-manual", "Save as line", () => {
-    if (!generationBlocked && prompt.value.trim().length > 0) actions.writeManual(prompt.value);
-  });
-  manual.disabled = generationBlocked;
-  const imageInput = document.createElement("input");
-  imageInput.type = "file";
-  imageInput.accept = "image/png,image/jpeg,image/webp";
-  imageInput.hidden = true;
-  imageInput.addEventListener("change", () => {
-    const file = imageInput.files?.[0];
-    imageInput.value = "";
-    if (file !== undefined) actions.attachImage(file);
-  });
-  const attach = actionButton("composer-attach-image", "Attach image", () => imageInput.click());
-  attach.disabled = generationBlocked;
-  const images = el("div", "composer-images");
-  state.draftImages.forEach((image, index) => {
-    images.append(
-      el("span", "image-chip", `Image ${index + 1} · ${imageMediaTypeLabel(image.attachment.mediaType)} · ${image.attachment.width}×${image.attachment.height}`),
-      actionButton("composer-remove-image", "Remove", () => actions.removeImage(index))
-    );
-  });
-  composer.addEventListener("submit", (event) => {
-    event.preventDefault();
-    submit.click();
-  });
-  if (state.stoppedGeneration !== null) {
-    const stopped = state.stoppedGeneration;
-    const summary = stopped.mode === "summary";
-    const rewriteUnavailable = stopped.saveable === false;
-    const stoppedCard = el("div", "stopped-generation",
-      el("span", "eyebrow", summary ? "Interrupted summary" : "Interrupted generation"),
-      el("p", "stopped-generation-text", stopped.text),
-      el("p", "", summary
-        ? "This summary is kept for review. It is not saved as story prose."
-        : rewriteUnavailable
-          ? "The Host no longer has this rewrite. Copy the retained text before you discard it."
-        : `${stopped.text.length.toLocaleString()} characters are ready to save as provider output.`)
-    );
-    if (summary) stoppedCard.append(actionButton("stopped-discard", "Discard summary", actions.discardStoppedGeneration));
-    else if (rewriteUnavailable) stoppedCard.append(actionButton("stopped-copy", "Copy text", actions.copyStoppedGeneration), actionButton("stopped-discard", "Discard", actions.discardStoppedGeneration));
-    else stoppedCard.append(actionButton("stopped-save", "Save interrupted text", actions.saveStoppedGeneration), actionButton("stopped-discard", "Discard", actions.discardStoppedGeneration));
-    composer.append(stoppedCard);
-  }
-  composer.append(el("label", "composer-label", "Next passage"), prompt, images, imageInput, el("div", "composer-footer", mode, el("span", "composer-shortcut", "⌘ ↵"), attach, manual, submit));
-  return composer;
 }
 
 function renderFacts(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
@@ -751,11 +476,6 @@ function panelHeading(title: string, description: string, control?: HTMLElement)
 
 function metricRow(label: string, value: string): HTMLElement {
   return el("div", "metric-row", el("span", "", label), el("strong", "", value));
-}
-
-/** Keep a textarea selection alive while a toolbar button opens a dialog. */
-function preserveTextSelection(button: HTMLButtonElement): void {
-  button.addEventListener("mousedown", (event) => event.preventDefault());
 }
 
 function isTextFactState(state: FactState): state is Extract<FactState, { text: string }> {

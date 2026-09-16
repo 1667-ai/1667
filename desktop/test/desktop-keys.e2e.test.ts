@@ -60,10 +60,10 @@ async function saveManualPart(page: Page, text: string): Promise<void> {
   await page.waitForFunction((expected) => document.querySelectorAll(".manuscript-part").length === expected, before + 1, { timeout: 15_000 });
 }
 
-/** Clicking the label (not the textarea) focuses the part without stealing
- * keyboard focus into a field, matching how a writer clicks the margin. */
+/** A single click on the prose focuses the part without entering edit mode
+ * (double-click does that); it never steals keyboard focus into a field. */
 async function clickPartLabel(page: Page, index: number): Promise<void> {
-  await page.locator(".manuscript-part").nth(index).locator(".part-label").click();
+  await page.locator(".manuscript-part").nth(index).locator(".part-prose").click();
 }
 
 // 1. Click part 1 -> it is focused; ArrowDown -> part 2; g -> part 1; G -> part 2.
@@ -130,8 +130,9 @@ async function testKeysSheet(page: Page): Promise<void> {
 interface PaletteRow { readonly label: string; readonly key: string }
 
 // 5. ⌘/Ctrl+K opens the palette; typing filters it; Enter runs the top match
-// and closes; escape peels a reopened popover before anything else, and a
-// second escape stops nothing (the stream keeps running).
+// and closes; a running stream is the outermost escape layer (phase 3): the
+// first escape stops it even under a reopened popover; the popover stays
+// open until a second escape closes it.
 async function testPalette(page: Page): Promise<void> {
   await page.keyboard.press(`${shortcut}+k`);
   await page.waitForSelector(".palette", { timeout: 15_000 });
@@ -148,12 +149,10 @@ async function testPalette(page: Page): Promise<void> {
   await page.keyboard.press(`${shortcut}+k`);
   await page.waitForSelector(".palette", { timeout: 15_000 });
   await page.keyboard.press("Escape");
-  await page.waitForSelector(".palette", { state: "detached", timeout: 15_000 });
-  assert.equal(await page.locator(".stream-card").count(), 1, "escape must close the popover, not stop the stream");
-  await page.keyboard.press("Escape");
-  await page.waitForTimeout(300);
-  assert.equal(await page.locator(".stream-card").count(), 1, "a second escape must do nothing else while the stream runs");
   await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
+  assert.equal(await page.locator(".palette").count(), 1, "escape must stop the running stream first, leaving the popover open");
+  await page.keyboard.press("Escape");
+  await page.waitForSelector(".palette", { state: "detached", timeout: 15_000 });
 }
 
 // 6. p / , / o / f / c / m reach their destinations; escape in Map returns to
@@ -187,7 +186,7 @@ async function testDestinationLettersAndMapEscape(page: Page): Promise<void> {
 // 7. y copies the focused part's text.
 async function testCopyPart(page: Page): Promise<void> {
   await clickPartLabel(page, 0);
-  const expected = await page.locator(".manuscript-part").nth(0).locator(".part-text").inputValue();
+  const expected = await page.locator(".manuscript-part").nth(0).locator(".part-prose").innerText();
   await page.keyboard.press("y");
   const clipboard = await page.evaluate(async () => {
     try {

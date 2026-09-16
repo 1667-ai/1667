@@ -81,17 +81,28 @@ export class RendererKeysController {
     command.run(ctx);
   }
 
-  /** Escape peels one layer: an open popover, then a dialog, then a focused
-   * field (blur it — the toast already clears on any keydown), then, in Map,
-   * back to Write at the same focused part. */
+  /** Escape peels one layer: a running stream first (it is the outermost
+   * layer — it stops even under an open popover or dialog), then an open
+   * popover, then a dialog, then a part mid-edit (leaves edit mode, keeps
+   * the draft), then a focused field (blur it — the toast already clears on
+   * any keydown), then, in Map, back to Write at the same focused part. */
   private peelEscape(): void {
     const state = this.hooks.state();
+    if (state.stream !== null) {
+      this.hooks.actions().stopStream();
+      return;
+    }
     if (state.popover !== null) {
       this.hooks.actions().closePopover();
       return;
     }
     if (state.dialog !== null) {
       this.hooks.closeDialog();
+      return;
+    }
+    if (state.editingPartId !== null) {
+      this.hooks.actions().editPart(null);
+      (document.activeElement as HTMLElement | null)?.blur();
       return;
     }
     if (fieldHasFocus()) {

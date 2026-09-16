@@ -114,8 +114,14 @@ test("Electron navigates Aside history buckets and anchors new sessions at the f
     await waitForAsideQuestion(page, secondAnchoredQuestion);
     assert.equal(await page.locator(":focus").getAttribute("data-preserve"), "aside-anchor-picker");
     await page.locator(".tab-write").click();
-    await page.waitForSelector(".part-switch", { timeout: 15_000 });
-    await page.locator(".part-switch").first().click();
+    await page.waitForSelector(".manuscript-part", { timeout: 15_000 });
+    // "Write from here" (`.part-switch`) now lives in the part's `···`
+    // overflow menu (D-11).
+    const firstPart = page.locator(".manuscript-part").first();
+    await firstPart.locator(".part-prose").hover();
+    await firstPart.locator(".part-more").click();
+    await page.waitForSelector(".part-menu", { timeout: 15_000 });
+    await page.locator(".part-menu .part-switch").click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
     const sessionPicker = page.locator(".aside-session-picker");

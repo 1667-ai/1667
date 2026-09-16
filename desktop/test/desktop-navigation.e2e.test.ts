@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -36,7 +36,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await page.locator(".composer-manual").click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
-    await page.locator(".summary-take").click();
+    await openPartMenuAndClick(page, 0, ".summary-take");
     await page.waitForSelector(".stream-card", { timeout: 15_000 });
     await page.waitForFunction(
       () => (document.querySelector(".stream-text")?.textContent?.length ?? 0) > 8,
@@ -83,7 +83,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     assert.equal(await page.locator(".manuscript-part").count(), 0);
 
     await selectStory(page, "Active generation");
-    const part = page.locator(".part-text").last();
+    const part = await editPart(page, "last");
     await part.fill("Unsaved part text");
     await page.locator(".composer-input").fill("Unsaved composer direction");
 
@@ -186,7 +186,7 @@ test("Electron keeps a stopped summary visible until the writer discards it", as
     await page.locator(".composer-manual").click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
-    await page.locator(".summary-take").click();
+    await openPartMenuAndClick(page, 0, ".summary-take");
     await page.waitForSelector(".stream-card", { timeout: 15_000 });
     await page.waitForFunction(
       () => (document.querySelector(".stream-text")?.textContent?.length ?? 0) > 8,
@@ -391,7 +391,8 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
 
     const submitted = "The submitted edit arrives first.";
     const newer = "The newer edit must remain after the save.";
-    await page.locator(".part-text").last().fill(submitted);
+    const editing = await editPart(page, "last");
+    await editing.fill(submitted);
     await delayEditNode(page);
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
@@ -405,12 +406,17 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
       undefined,
       { timeout: 30_000 }
     );
+    // The save's own text (`submitted`) no longer matches the draft the
+    // writer kept typing (`newer`), so the draft survives — but a completed
+    // save still leaves edit mode (D-09), so the part shows it as prose now.
+    await page.waitForSelector(".part-text", { state: "detached", timeout: 15_000 });
+    assert.equal(await page.locator(".manuscript-part").last().locator(".part-prose").innerText(), newer);
 
     await page.locator(".tab-settings").click();
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
     await page.locator(".tab-write").click();
-    await page.waitForSelector(".part-text", { timeout: 15_000 });
-    assert.equal(await page.locator(".part-text").last().inputValue(), newer);
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    assert.equal(await page.locator(".manuscript-part").last().locator(".part-prose").innerText(), newer);
 
     await goToLibrary(page);
     await page.locator(".project-browser").click();
@@ -423,8 +429,8 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
     await discardDialog.locator(".modal-cancel").click();
     await page.getByRole("button", { name: "Back to story" }).click();
     await page.locator(".tab-write").click();
-    await page.waitForSelector(".part-text", { timeout: 15_000 });
-    assert.equal(await page.locator(".part-text").last().inputValue(), newer);
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    assert.equal(await page.locator(".manuscript-part").last().locator(".part-prose").innerText(), newer);
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });
@@ -457,7 +463,8 @@ test("Electron ignores a delayed part save after the writer changes stories", { 
     await createStory(page, "Other story");
     await selectStory(page, "Delayed source story");
 
-    await page.locator(".part-text").last().fill("A source edit still in flight.");
+    const sourcePart = await editPart(page, "last");
+    await sourcePart.fill("A source edit still in flight.");
     await delayEditNode(page, 2_000);
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
@@ -499,6 +506,18 @@ async function selectStory(page: Page, title: string): Promise<void> {
   await goToLibrary(page);
   await page.locator(".story-row").filter({ hasText: title }).click();
   await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 15_000 });
+}
+
+/** "Write from here", "Summary take", and the other per-part verbs that used
+ * to sit in the always-visible tools row now live in the part's `···`
+ * overflow menu (D-11): hover the part to reveal its toolbar, open the menu,
+ * then click the verb inside it. The menu closes itself once the verb runs. */
+async function openPartMenuAndClick(page: Page, nth: number, selector: string): Promise<void> {
+  const part = page.locator(".manuscript-part").nth(nth);
+  await part.locator(".part-prose").hover();
+  await part.locator(".part-more").click();
+  await page.waitForSelector(".part-menu", { timeout: 15_000 });
+  await page.locator(`.part-menu ${selector}`).click();
 }
 
 async function delayEditNode(page: Page, delayMs = 750): Promise<void> {
@@ -574,7 +593,8 @@ test("Electron retains drafts after a refused project open and guards hidden par
       await page.waitForFunction((expected) => document.querySelectorAll(".manuscript-part").length === expected,
         count + 1, { timeout: 15_000 });
     }
-    await page.locator(".part-text").last().fill("Unsaved second part.");
+    const secondPart = await editPart(page, "last");
+    await secondPart.fill("Unsaved second part.");
     await page.locator(".composer-input").fill("Keep my next direction.");
     await app.evaluate(({ dialog }, selected) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] });
@@ -589,16 +609,20 @@ test("Electron retains drafts after a refused project open and guards hidden par
     await page.getByRole("button", { name: "Back to story" }).click();
     await page.locator(".tab-write").click();
     await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    // Still mid-edit on the second part: nothing since touched editingPartId.
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved second part.");
     assert.equal(await page.locator(".composer-input").inputValue(), "Keep my next direction.");
-    await page.locator(".part-switch").first().click();
+    await openPartMenuAndClick(page, 0, ".part-switch");
     await page.waitForSelector('.modal-card[aria-label="Discard part edits?"]', { timeout: 15_000 });
     await page.locator(".modal-cancel").click();
-    assert.equal(await page.locator(".part-text").count(), 2);
+    // Cancelling the discard must leave both parts, with the hidden second
+    // part's unsaved edit intact (it is still the one part-text in edit
+    // mode — only one part ever edits at a time now).
+    assert.equal(await page.locator(".manuscript-part").count(), 2);
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved second part.");
-    await page.locator(".part-switch").first().click();
+    await openPartMenuAndClick(page, 0, ".part-switch");
     await page.locator(".modal-submit").click();
-    await page.waitForFunction(() => document.querySelectorAll(".part-text").length === 1, undefined, { timeout: 15_000 });
+    await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
     assert.equal(await page.locator(".composer-input").inputValue(), "Keep my next direction.");
     await page.locator(".composer-input").fill("");
     await page.locator(".tab-settings").click();

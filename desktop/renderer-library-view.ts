@@ -1,4 +1,4 @@
-import type { StorySummary } from "../shared/types.js";
+import type { StoryPayload, StorySummary } from "../shared/types.js";
 import type { SearchHit } from "../shared/story-search.js";
 import { actionButton, bindDraftInput, el } from "./renderer-dom.js";
 import {
@@ -36,7 +36,7 @@ export function renderLibraryDestination(state: RendererState, actions: Renderer
   }
   if (state.searchBusy) library.append(el("p", "library-hint", "Searching the vault…"));
   if (state.searchHits.length > 0) library.append(renderSearchResults(state.searchHits, actions));
-  if (state.story !== null) library.append(renderStorySection(state.story.id, actions));
+  if (state.story !== null) library.append(renderStorySection(state.story, actions));
   library.append(renderProjectSection(state, actions));
   return library;
 }
@@ -66,7 +66,7 @@ function renderSearchResults(hits: readonly SearchHit[], actions: RendererAction
   return results;
 }
 
-function renderStorySection(storyId: string, actions: RendererActions): HTMLElement {
+function renderStorySection(story: StoryPayload, actions: RendererActions): HTMLElement {
   const section = el("section", "library-section");
   section.append(el("span", "eyebrow", "Story"));
   const buttons = el("div", "library-section-actions");
@@ -74,13 +74,25 @@ function renderStorySection(storyId: string, actions: RendererActions): HTMLElem
     actionButton("rename-story", "Rename", actions.renameStory),
     actionButton("autoname-story", "Autoname", actions.autonameStory),
     actionButton("export-story", "Export", actions.exportMarkdown),
-    actionButton("export-archive", "Export archive", () => { void exportArchive(storyId, actions); }),
+    actionButton("export-archive", "Export archive", () => { void exportArchive(story.id, actions); }),
     actionButton("import-archive", "Import archive", () => { void importArchive(actions); }),
     actionButton("import-card", "Import card", actions.importCard),
     actionButton("import-lorebook", "Import lorebook", actions.importLorebook),
     actionButton("delete-story", "Delete story…", actions.deleteStory, "Delete this story")
   );
   section.append(buttons);
+  if (story.tags.length > 0) {
+    const tagged = el("div", "library-tagged-lines");
+    tagged.append(el("span", "eyebrow", "Tagged lines"));
+    const chips = el("div", "library-section-actions");
+    for (const tag of story.tags) {
+      const chip = actionButton("line-tag", `${tag.status || "tag"} · ${tag.name}`, () => actions.switchToTaggedLine(tag.name, tag.nodeId), "Open tagged line");
+      chip.dataset.preserve = `line-tag:${tag.nodeId}`;
+      chips.append(chip);
+    }
+    tagged.append(chips);
+    section.append(tagged);
+  }
   return section;
 }
 

@@ -136,14 +136,14 @@ async function testThemeSwitch(page: Page): Promise<void> {
   await page.waitForSelector(".theme-select", { timeout: 15_000 });
   await page.selectOption(".theme-select", "hi-contrast light");
   await page.locator(".tab-write").click();
-  await page.waitForSelector(".part-text", { timeout: 15_000 });
+  await page.waitForSelector(".part-prose", { timeout: 15_000 });
   const hiContrast = await page.evaluate(() => {
-    const part = document.querySelector<HTMLElement>(".part-text");
+    const part = document.querySelector<HTMLElement>(".part-prose");
     if (part === null) return null;
     const style = getComputedStyle(part);
     return { fontFamily: style.fontFamily, fontSize: style.fontSize };
   });
-  assert.ok(hiContrast !== null, "the part text must be present to measure its font");
+  assert.ok(hiContrast !== null, "the part prose must be present to measure its font");
   assert.match(hiContrast!.fontFamily, /Georgia/u);
   assert.equal(hiContrast!.fontSize, "19px");
 
@@ -151,9 +151,9 @@ async function testThemeSwitch(page: Page): Promise<void> {
   await page.waitForSelector(".theme-select", { timeout: 15_000 });
   await page.selectOption(".theme-select", "graphite");
   await page.locator(".tab-write").click();
-  await page.waitForSelector(".part-text", { timeout: 15_000 });
+  await page.waitForSelector(".part-prose", { timeout: 15_000 });
   const graphite = await page.evaluate(() => {
-    const part = document.querySelector<HTMLElement>(".part-text");
+    const part = document.querySelector<HTMLElement>(".part-prose");
     return part === null ? null : getComputedStyle(part).fontFamily;
   });
   assert.ok(graphite !== null);
@@ -213,7 +213,7 @@ async function testFocusedPart(page: Page): Promise<void> {
   await page.locator(".composer-manual").click();
   await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 2, undefined, { timeout: 15_000 });
   const firstPart = page.locator(".manuscript-part").first();
-  await firstPart.click();
+  await firstPart.locator(".part-prose").click();
   await page.waitForFunction(() => document.querySelector(".manuscript-part.focused") !== null, undefined, { timeout: 15_000 });
   assert.equal(await page.locator(".manuscript-part").first().evaluate((el) => el.classList.contains("focused")), true);
   const eyebrow = page.locator(".inspector-section-header").first();

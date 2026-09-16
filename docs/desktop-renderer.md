@@ -3,6 +3,8 @@ summary: Desktop Renderer controls and parity map
 read_when:
   - changing desktop/renderer.ts
   - changing desktop/renderer-view.ts
+  - changing desktop/renderer-manuscript-view.ts
+  - changing desktop/renderer-composer-view.ts
   - adding a desktop Renderer integration test
 ---
 
@@ -140,17 +142,46 @@ Selecting or creating a story switches to Write.
 
 ### Write
 
-Write (`⌘`/`Ctrl` plus `2`) edits manuscript parts and starts a Continue or
-Direct take. The Stop control cancels the stream and saves the received
-prose. If that save fails, the Renderer keeps the text and offers Save or
-Discard. A stopped summary take can only be discarded. Provider generation
-IDs remain attached to saved text. Click a part to focus it in the inspector.
+Write (`⌘`/`Ctrl` plus `2`) shows the manuscript as plain paragraphs with a
+gutter to their left. Each part has a waymark: `¶ n` always, `×k` when the
+part has k takes, `✎` for a human-written or human-edited part, and `◈` for
+a summary. Click a part to focus it. The focused part gets a 2px amber edge
+on the left of its prose.
 
-Use **Save edit** to replace the saved part text. Use **Save as take** to keep
-the original part and save an edited take. Use **Edit direction** to change
-the part's direction. **Retake** generates a new take from the same parent.
-If the Host can no longer save a stopped rewrite, use **Copy text** before
-you discard it.
+Double-click a part, or press `e` on the focused part, to edit it. Editing
+replaces the prose with a text field at the same measure. Below the field:
+**Save edit** (or `⌘S`) replaces the saved part text. **Save as take** keeps
+the original part and saves the edit as a new take. **Edit direction**
+changes the part's direction. **Discard** drops the draft. `Escape` leaves
+edit mode and keeps the draft; the gutter shows `✎` until you save it.
+
+Hover or focus a part to show its toolbar above its first line: **Retake**
+(`r`) makes a new take from the same direction. **Rewrite** rewrites the
+selected text, or the whole part when nothing is selected. **Direct** (`i`)
+focuses the composer in Direct mode. **Tag** (`t`) names the story line
+through this part. The **···** button opens more actions: Take from cut,
+Fact from selection, New Fact here, Copy line below, Paste below, Write from
+here, Summary take, Prune unused takes, Remove tag, Inspect, and Delete part.
+
+When a part has more than one take, the gutter shows `‹ take j/k ›` and a
+take gauge: dots for up to 12 takes, a positional track beyond that. Click a
+take, a dot, or press the arrow keys to switch. Switching a take shows a
+toast that names the take and the part. Switching a tagged line from the
+Library names the tag instead.
+
+A streaming take grows at the end of the manuscript with a blinking caret
+and a gutter that reads `⟳ writing · esc stops`. The composer is blocked
+while a take streams. If a save fails, the Renderer keeps the text and
+offers Save or Discard. A stopped summary take can only be discarded.
+Provider generation IDs remain attached to saved text. If the Host can no
+longer save a stopped rewrite, use **Copy text** before you discard it.
+
+The composer sits at the bottom of Write. At rest it shows one line: a
+placeholder direction hint, the mode buttons (**Continue**, **Direct**,
+**Write it myself**), and the primary button. Typing grows the field and
+shows a title naming the mode. `⇧↵` inserts a newline, `⌘↵` sends, `Escape`
+clears focus. **Attach image** attaches a source image. **Save as my own
+line** saves the typed text as your own words, with no model call.
 
 Use the Aside **History** control to select a story position or **Unanchored**
 history. Then select a conversation with **Session**. **New session** starts
@@ -196,3 +227,6 @@ destination shortcuts, the Settings attention dot, and part focus.
 the keys sheet, and the command palette.
 `desktop/test/desktop-keys-contract.integration.test.ts` checks the key
 registry against the TUI's own reference, with no Electron window.
+`desktop/test/desktop-manuscript.e2e.test.ts` checks focus versus edit mode,
+the hover toolbar and its `···` menu, the take gauge, and the composer
+states.

@@ -54,10 +54,18 @@ const STORY_COMMANDS: readonly DesktopCommand[] = [
 ];
 
 const TAKE_VERB_COMMANDS: readonly DesktopCommand[] = [
-  { id: "take.rewrite", group: "Take", label: "Rewrite this part", available: hasFocus, run: (ctx) => ctx.actions.rewriteLine(ctx.focused!) },
-  { id: "take.take-from-cut", group: "Take", label: "Take from cut", available: hasFocus, run: (ctx) => ctx.actions.takeFromCut(ctx.focused!) },
-  { id: "take.fact-from-selection", group: "Take", label: "Fact from selection", available: hasFocus, run: (ctx) => ctx.actions.createFact(ctx.focused!) },
+  { id: "take.rewrite", group: "Take", label: "Rewrite this part", available: hasFocus, run: (ctx) => ctx.actions.rewriteLine(ctx.focused!, ctx.selection) },
+  { id: "take.take-from-cut", group: "Take", label: "Take from cut", available: hasFocus, run: (ctx) => ctx.actions.takeFromCut(ctx.focused!, ctx.selection) },
+  { id: "take.fact-from-selection", group: "Take", label: "Fact from selection", available: (ctx) => hasFocus(ctx) && ctx.selection !== undefined, run: (ctx) => ctx.actions.createFact(ctx.focused!, ctx.selection) },
   { id: "take.new-fact-here", group: "Take", label: "New Fact here", available: hasFocus, run: (ctx) => ctx.actions.createFact(ctx.focused!) },
+  {
+    id: "take.inspect-part", group: "Take", label: "Inspect this part", available: hasFocus,
+    run: (ctx) => {
+      const id = ctx.focused!.id;
+      ctx.actions.setTab("inspect");
+      queueMicrotask(() => document.querySelector<HTMLElement>(`[data-preserve="inspect:${id}"]`)?.scrollIntoView({ block: "nearest" }));
+    }
+  },
   { id: "take.copy-line-below", group: "Take", label: "Copy line below", available: hasFocus, run: (ctx) => ctx.actions.copyLine(ctx.focused!) },
   {
     id: "take.paste-below", group: "Take", label: "Paste below", available: (ctx) => hasFocus(ctx) && ctx.state.lineClipboard !== null,
@@ -75,9 +83,9 @@ const TAKE_VERB_COMMANDS: readonly DesktopCommand[] = [
   },
   { id: "take.summary-take", group: "Take", label: "Summary take", available: hasStory, run: (ctx) => ctx.actions.summarizeLine() },
   { id: "take.prune-unused", group: "Take", label: "Prune unused takes", available: hasStory, run: (ctx) => ctx.actions.pruneUnused() },
-  { id: "take.manage-tags", group: "Take", label: "Manage tags", available: hasStory, run: (ctx) => ctx.actions.manageTags() },
-  { id: "take.phrase-bias", group: "Take", label: "Phrase bias", available: hasStory, run: (ctx) => ctx.actions.editPhraseBias() },
-  { id: "take.banned-strings", group: "Take", label: "Banned strings", available: hasStory, run: (ctx) => ctx.actions.editBannedStrings() },
+  { id: "story.manage-tags", group: "Story", label: "Manage tags", available: hasStory, run: (ctx) => ctx.actions.manageTags() },
+  { id: "story.phrase-bias", group: "Story", label: "Phrase bias", available: hasStory, run: (ctx) => ctx.actions.editPhraseBias() },
+  { id: "story.banned-strings", group: "Story", label: "Banned strings", available: hasStory, run: (ctx) => ctx.actions.editBannedStrings() },
   {
     id: "take.aside-stop", group: "Take", label: "Stop Aside", available: (ctx) => ctx.state.aside.busy,
     run: (ctx) => ctx.actions.stopAside()
