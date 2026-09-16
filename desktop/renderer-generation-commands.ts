@@ -2,9 +2,20 @@ import type { StoryPathNode } from "../shared/types.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
 import { makeMutationId, type StreamMode, type TextSelection } from "./renderer-model.js";
 
-export async function retakeLine(ctx: RendererCommandContext, node: StoryPathNode): Promise<void> {
-  const instruction = await ctx.textDialog("Retake direction", node.instruction ?? "", "Write a new take from this part.");
-  if (instruction === null) return;
+export async function retakeLine(
+  ctx: RendererCommandContext,
+  node: StoryPathNode,
+  options: { readonly editDirection?: boolean } = {}
+): Promise<void> {
+  let instruction: string;
+  if (options.editDirection === false) {
+    // `r` (regenerate): skip the dialog and reuse the part's own direction.
+    instruction = node.instruction ?? "";
+  } else {
+    const edited = await ctx.textDialog("Retake direction", node.instruction ?? "", "Write a new take from this part.");
+    if (edited === null) return;
+    instruction = edited;
+  }
   if (ctx.continueStory === undefined) {
     ctx.setState({ status: "Retake unavailable", error: "This desktop surface cannot start a retake." });
     return;

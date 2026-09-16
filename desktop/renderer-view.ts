@@ -10,6 +10,7 @@ import {
   storyChapterInfo,
   storyChapters,
   DESKTOP_THEMES,
+  type ComposerMode,
   type DesktopTheme,
   type RendererActions,
   type RendererState,
@@ -21,6 +22,8 @@ import { actionButton, bindDraftInput, el, resizeTextarea } from "./renderer-dom
 import { renderTitlebar, renderRail, renderFeedbackStack } from "./renderer-shell-view.js";
 import { renderLibraryDestination } from "./renderer-library-view.js";
 import { renderInspector } from "./renderer-inspector-view.js";
+import { renderKeysSheet } from "./renderer-keys-view.js";
+import { renderPalette } from "./renderer-palette-view.js";
 
 export function renderApp(root: HTMLElement, state: RendererState, actions: RendererActions): void {
   document.documentElement.dataset.desktopTheme = state.theme;
@@ -32,14 +35,17 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
     root.replaceChildren(launcher);
     return;
   }
-  const shell = el("div", "app-shell");
+  const shell = el("div", `app-shell${state.inspectorHidden ? " inspector-hidden" : ""}`);
   const hadDialog = root.querySelector(".modal-card") !== null;
+  const hadPopover = root.querySelector(".popover") !== null;
   shell.append(
     renderTitlebar(state, actions),
     renderRail(state, actions),
     renderWorkspace(state, actions),
-    renderInspector(state, actions)
+    ...(state.inspectorHidden ? [] : [renderInspector(state, actions)])
   );
+  if (state.popover?.kind === "keys") shell.append(renderKeysSheet(actions));
+  if (state.popover?.kind === "palette") shell.append(renderPalette(state, actions, !hadPopover));
   const dialog = renderDialog(state, actions, !hadDialog);
   if (dialog !== null) shell.append(dialog);
   root.replaceChildren(shell);
@@ -386,7 +392,7 @@ function renderComposer(state: RendererState, actions: RendererActions): HTMLEle
   const mode = document.createElement("select");
   mode.className = "composer-mode";
   mode.dataset.preserve = "composer-mode";
-  for (const optionData of [["continue", "Continue current line"], ["direct", "Direct take"]] as const) {
+  for (const optionData of [["continue", "Continue current line"], ["direct", "Direct take"], ["write", "Write it myself"]] as const) {
     const option = document.createElement("option");
     option.value = optionData[0];
     option.textContent = optionData[1];
@@ -394,7 +400,7 @@ function renderComposer(state: RendererState, actions: RendererActions): HTMLEle
     mode.append(option);
   }
   mode.value = state.composerMode;
-  mode.addEventListener("change", () => actions.setComposerMode(mode.value === "direct" ? "direct" : "continue"));
+  mode.addEventListener("change", () => actions.setComposerMode(mode.value as ComposerMode));
   const prompt = document.createElement("textarea");
   prompt.className = "composer-input";
   prompt.placeholder = "Give the next passage a direction…";
@@ -407,10 +413,15 @@ function renderComposer(state: RendererState, actions: RendererActions): HTMLEle
     resizeTextarea(prompt);
   });
   const generationBlocked = state.stream !== null || state.stoppedGeneration !== null;
-  const submit = actionButton("composer-submit", state.stream === null
-    ? state.composerMode === "direct" ? "Write take  ↗" : "Continue  ↗"
-    : "Writing…", () => {
+  const submit = actionButton("composer-submit", state.stream !== null
+    ? "Writing…"
+    : state.composerMode === "write" ? "Save this line  ↗"
+    : state.composerMode === "direct" ? "Write take  ↗" : "Continue  ↗", () => {
     if (generationBlocked) return;
+    if (mode.value === "write") {
+      if (prompt.value.trim().length > 0) actions.writeManual(prompt.value);
+      return;
+    }
     actions.continueStory(mode.value === "direct" ? "direct" : "continue", prompt.value);
   });
   submit.disabled = generationBlocked;

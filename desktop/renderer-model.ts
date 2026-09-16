@@ -30,6 +30,19 @@ import type { SettingsEditorDraft } from "./renderer-settings-model.js";
 
 export type RendererTab = "library" | "write" | "facts" | "chapters" | "map" | "settings" | "inspect";
 export type StreamMode = "continue" | "direct" | "retake" | "rewrite" | "summary";
+/** The composer's own mode select. `"write"` never streams — it hands the
+ * typed text straight to `writeManual` — so it stays out of `StreamMode`,
+ * which only names modes that can own a `stream`/`stoppedGeneration`. */
+export type ComposerMode = "continue" | "direct" | "write";
+/** Palette groups (D-43), fixed order Story · Take · Facts · Chapters · Map ·
+ * Project · Desktop. Lives here, not in `renderer-commands.ts`, so a popover
+ * view can name a group without importing the whole command registry. */
+export type DesktopCommandGroup = "Story" | "Take" | "Facts" | "Chapters" | "Map" | "Project" | "Desktop";
+/** One popover open at a time (D-05): the keys sheet, or the command palette
+ * with its own query and optional group pre-filter (`x` opens it on `Take`). */
+export type DesktopPopover =
+  | { readonly kind: "keys" }
+  | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -51,6 +64,7 @@ export function asideAnchorKey(anchor: Pick<AsideAnchor, "partId" | "takeId">): 
 
 const DESKTOP_THEME_STORAGE_KEY = "1667.desktop.theme";
 const DESKTOP_DIRECTIONS_STORAGE_KEY = "1667.desktop.show-directions";
+const DESKTOP_INSPECTOR_HIDDEN_STORAGE_KEY = "1667.desktop.inspector-hidden";
 
 export function savedDesktopTheme(): DesktopTheme {
   if (typeof localStorage === "undefined") return "graphite";
@@ -73,6 +87,15 @@ export function persistDesktopTheme(theme: DesktopTheme): void {
 
 export function persistDesktopDirections(show: boolean): void {
   try { localStorage.setItem(DESKTOP_DIRECTIONS_STORAGE_KEY, show ? "1" : "0"); } catch { /* private mode */ }
+}
+
+export function savedDesktopInspectorHidden(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try { return localStorage.getItem(DESKTOP_INSPECTOR_HIDDEN_STORAGE_KEY) === "1"; } catch { return false; }
+}
+
+export function persistDesktopInspectorHidden(hidden: boolean): void {
+  try { localStorage.setItem(DESKTOP_INSPECTOR_HIDDEN_STORAGE_KEY, hidden ? "1" : "0"); } catch { /* private mode */ }
 }
 
 export interface StoryStream {
@@ -190,7 +213,7 @@ export interface RendererState {
   readonly tab: RendererTab;
   readonly stream: StoryStream | null;
   readonly stoppedGeneration: StoppedGenerationDraft | null;
-  readonly composerMode: Extract<StreamMode, "continue" | "direct">;
+  readonly composerMode: ComposerMode;
   readonly lineClipboard: LineClipboard | null;
   readonly draftImages: readonly DraftImage[];
   readonly recoveryWarnings: readonly RendererRecoveryWarning[];
@@ -226,6 +249,9 @@ export interface RendererState {
   readonly updater: DesktopUpdaterState | null;
   readonly showDirections: boolean;
   readonly theme: DesktopTheme;
+  readonly inspectorHidden: boolean;
+  readonly mapCursorId: string | null;
+  readonly popover: DesktopPopover | null;
 }
 
 export const INITIAL_STATE: RendererState = {
@@ -269,7 +295,10 @@ export const INITIAL_STATE: RendererState = {
   authLinks: [],
   updater: null,
   showDirections: savedDesktopDirections(),
-  theme: savedDesktopTheme()
+  theme: savedDesktopTheme(),
+  inspectorHidden: savedDesktopInspectorHidden(),
+  mapCursorId: null,
+  popover: null
 };
 
 export interface RendererActions {
@@ -278,9 +307,17 @@ export interface RendererActions {
   readonly acknowledgeFactConsistencySeen: () => void;
   readonly setSearch: (value: string) => void;
   readonly openSearchHit: (hit: SearchHit) => void;
-  readonly setComposerMode: (mode: Extract<StreamMode, "continue" | "direct">) => void;
+  readonly setComposerMode: (mode: ComposerMode) => void;
   readonly setDirections: (show: boolean) => void;
   readonly setTheme: (theme: DesktopTheme) => void;
+  readonly setInspectorHidden: (hidden: boolean) => void;
+  readonly setMapCursor: (id: string | null) => void;
+  readonly openKeys: () => void;
+  readonly openPalette: (group?: DesktopCommandGroup) => void;
+  readonly setPaletteQuery: (value: string) => void;
+  readonly closePopover: () => void;
+  readonly toast: (text: string) => void;
+  readonly saveCurrentEdit: () => void;
   readonly setDraft: (key: string, value: string | undefined) => void;
   readonly setAuthPromptValue: (value: string) => void;
   readonly submitDialog: (value: string) => void;
@@ -296,9 +333,8 @@ export interface RendererActions {
   readonly unsealProject: () => void;
   readonly revealProject: () => void;
   readonly showProjects: (show: boolean) => void;
-  readonly showHelp: () => void;
   readonly continueStory: (mode: StreamMode, instruction: string) => void;
-  readonly retakeLine: (node: StoryPathNode) => void;
+  readonly retakeLine: (node: StoryPathNode, options?: { readonly editDirection?: boolean }) => void;
   readonly rewriteLine: (node: StoryPathNode, selection?: TextSelection) => void;
   readonly summarizeLine: () => void;
   readonly writeManual: (text: string) => void;

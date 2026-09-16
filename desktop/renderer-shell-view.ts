@@ -82,7 +82,7 @@ function renderTitlebarActions(state: RendererState, actions: RendererActions): 
     const saveLabel = state.stream === null ? (dirty ? "unsaved edits" : "saved") : "writing…";
     box.append(el("span", `story-save-state ${saveClass}`, saveLabel));
   }
-  box.append(actionButton("palette-chip", "⌘K", actions.showHelp, "Command palette"));
+  box.append(actionButton("palette-chip", "⌘K", () => actions.openPalette(), "Command palette"));
   box.append(el("span", `connection-chip ${state.connection}`, state.connection));
   return box;
 }

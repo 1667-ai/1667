@@ -49,7 +49,9 @@ export function projectRendererContext(input: ContextInput): RendererContext | n
   const active = settings.effectiveProse;
   const requestedInstruction = (input.drafts.composer ?? "").trim();
   const append = shouldAppendRendererContinuation(
-    story, input.composerMode, requestedInstruction, input.draftImages.length > 0
+    // "write" never streams, so it never appends; treat it like "direct" for
+    // this projection, which only distinguishes "continue" from everything else.
+    story, input.composerMode === "write" ? "direct" : input.composerMode, requestedInstruction, input.draftImages.length > 0
   );
   const instruction = resolveContinueRequestDirection(
     requestedInstruction, settings.activeWriting, append

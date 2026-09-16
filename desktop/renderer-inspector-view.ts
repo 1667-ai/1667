@@ -34,8 +34,24 @@ function persistCollapsedSections(collapsed: ReadonlySet<string>): void {
  * `RendererState` (it is presentation only, never read back by any command). */
 const collapsedSections = loadCollapsedSections();
 
+/** Force-expands an inspector section from outside a click — the keyboard
+ * commands `a` (Aside), `n` (Author's Note), and ⌃g (Context) all reveal
+ * their section this way. Updates the persisted collapsed set and, when the
+ * section is already in the DOM, reflects the change immediately without a
+ * full re-render. */
+export function expandInspectorSection(key: string): void {
+  if (collapsedSections.delete(key)) persistCollapsedSections(collapsedSections);
+  const section = document.querySelector<HTMLElement>(`[data-inspector-section="${key}"]`);
+  const header = section?.querySelector<HTMLButtonElement>(".inspector-section-header");
+  const body = section?.querySelector<HTMLElement>(".inspector-section-body");
+  if (header === null || header === undefined || body === null || body === undefined) return;
+  body.hidden = false;
+  header.setAttribute("aria-expanded", "true");
+}
+
 function inspectorSection(key: string, label: string, count: number, content: readonly HTMLElement[]): HTMLElement {
   const section = el("section", "inspector-section");
+  section.dataset.inspectorSection = key;
   const header = document.createElement("button");
   header.type = "button";
   header.className = "eyebrow inspector-section-header";

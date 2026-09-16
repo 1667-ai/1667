@@ -15,6 +15,7 @@ import {
   INITIAL_STATE,
   makeMutationId,
   persistDesktopDirections,
+  persistDesktopInspectorHidden,
   persistDesktopTheme,
   storyHasUnsavedDrafts,
   type RendererActions,
@@ -33,6 +34,7 @@ import { RendererContextController, shouldAppendRendererContinuation } from "./r
 import { createRendererApi, desktopShell, messageOf } from "./renderer-runtime.js";
 import type { DesktopShellRequest, DesktopShellResponse } from "./renderer-shell-contract.js";
 import { RendererShellController } from "./renderer-shell-controller.js";
+import { RendererKeysController } from "./renderer-keys-controller.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
 import {
   addFactState,
@@ -90,6 +92,7 @@ class RendererApp {
   private asideController: AbortController | null = null;
   private dialogResolver: ((value: string | null) => void) | null = null;
   private shellController: RendererShellController | null = null;
+  private keysController: RendererKeysController | null = null;
   private connectInFlight: Promise<void> | null = null;
   private connectedProjectRoot: string | null = null;
   private searchSequence = 0;
@@ -118,6 +121,16 @@ class RendererApp {
     setComposerMode: (mode) => this.setState({ composerMode: mode }),
     setDirections: (show) => this.setDirections(show),
     setTheme: (theme) => this.setTheme(theme),
+    setInspectorHidden: (hidden) => this.setInspectorHidden(hidden),
+    setMapCursor: (id) => this.setState({ mapCursorId: id }),
+    openKeys: () => this.setState({ popover: { kind: "keys" } }),
+    openPalette: (group) => this.setState({ popover: { kind: "palette", query: "", group: group ?? null } }),
+    setPaletteQuery: (value) => {
+      if (this.state.popover?.kind === "palette") this.setState({ popover: { ...this.state.popover, query: value } });
+    },
+    closePopover: () => this.setState({ popover: null }),
+    toast: (text) => this.setState({ status: text, error: null }),
+    saveCurrentEdit: () => this.keysController?.saveCurrentEdit(),
     setDraft: (key, value) => this.setDraft(key, value),
     setAuthPromptValue: (value) => this.setState({ authPromptValue: value }),
     submitDialog: (value) => this.resolveDialog(value),
@@ -144,9 +157,8 @@ class RendererApp {
     unsealProject: () => { void this.unsealProject(); },
     revealProject: () => { void this.revealProject(); },
     showProjects: (show) => this.setState({ showProjects: show }),
-    showHelp: () => { void this.showHelp(); },
     continueStory: (mode, instruction) => { void this.continueStory(mode, instruction); },
-    retakeLine: (node) => { void this.retakeLine(node); },
+    retakeLine: (node, options) => { void this.retakeLine(node, options); },
     rewriteLine: (node, selection) => { void this.rewriteLine(node, selection); },
     summarizeLine: () => { void this.summarizeLine(); },
     writeManual: (text) => { void this.writeManual(text); },
@@ -279,34 +291,16 @@ class RendererApp {
     const clearFeedbackOnNextInput = createFeedbackClearHandler(() => this.state, (status, error) => this.clearStaleFeedback(status, error));
     document.addEventListener("keydown", clearFeedbackOnNextInput, true);
     document.addEventListener("click", clearFeedbackOnNextInput, true);
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.state.dialog !== null) {
-        event.preventDefault();
-        this.resolveDialog(null);
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "r") {
-        event.preventDefault();
-        const details = renderRoot.querySelector<HTMLDetailsElement>(".request-details");
-        if (details !== null) {
-          details.open = true;
-          details.tabIndex = 0;
-          details.focus({ preventScroll: true });
-          details.scrollIntoView({ block: "nearest" });
-        }
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && /^[1-6]$/u.test(event.key)) {
-        event.preventDefault();
-        const tabs: readonly RendererTab[] = ["library", "write", "facts", "chapters", "map", "inspect"];
-        this.setTab(tabs[Number(event.key) - 1]!);
-      } else if ((event.metaKey || event.ctrlKey) && event.key === ",") {
-        event.preventDefault();
-        this.setTab("settings");
-      } else if (event.key === "?" && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) {
-        void this.showHelp();
-      }
+    this.keysController = new RendererKeysController({
+      state: () => this.state,
+      actions: () => this.actions,
+      setTab: (tab) => this.setTab(tab),
+      closeDialog: () => this.resolveDialog(null),
+      saveDirtyPart: (node, text) => { void this.editNode(node, text); },
+      hasDirtySettings: () => this.hasDirtySettings(),
+      saveSettingsDraft: () => { void this.settingsController.save(); }
     });
+    this.keysController.start();
     document.addEventListener("compositionstart", () => {
       this.compositionActive = true;
     });
@@ -493,6 +487,11 @@ class RendererApp {
   private setDirections(show: boolean): void {
     persistDesktopDirections(show);
     this.setState({ showDirections: show });
+  }
+
+  private setInspectorHidden(hidden: boolean): void {
+    persistDesktopInspectorHidden(hidden);
+    this.setState({ inspectorHidden: hidden });
   }
 
   private setTheme(theme: DesktopTheme): void {
@@ -749,15 +748,6 @@ class RendererApp {
     await this.shellRequest({ type: "project.reveal", path: project.root });
   }
 
-  private async showHelp(): Promise<void> {
-    await this.openDialog({
-      title: "Keyboard help",
-      kind: "notice",
-      value: "",
-      message: "⌘/Ctrl + Enter submits the generation direction. ⌘/Ctrl + 1–6 switches tabs. Escape closes a dialog. Use the focus, take, and map controls to move through branches."
-    });
-  }
-
   private async continueStory(
     mode: StreamMode,
     instruction: string,
@@ -875,13 +865,13 @@ class RendererApp {
     }
   }
 
-  private async retakeLine(node: StoryPathNode): Promise<void> {
+  private async retakeLine(node: StoryPathNode, options?: { readonly editDirection?: boolean }): Promise<void> {
     if (this.hasDirtyPart(node)) {
       this.setState({ status: "Save the part first", error: "Save the active text before creating a take." });
       return;
     }
     // Existing branch drafts stay editable through Map after a retake.
-    await retakeLine(this.commandContext(), node);
+    await retakeLine(this.commandContext(), node, options);
   }
 
   private async rewriteLine(node: StoryPathNode, selection?: TextSelection): Promise<void> {

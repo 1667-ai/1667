@@ -150,6 +150,7 @@ button:disabled { cursor: default; opacity: .46; }
   grid-template-columns: 56px minmax(600px, 1fr) 320px;
   grid-template-rows: 44px 1fr;
 }
+.app-shell.inspector-hidden { grid-template-columns: 56px minmax(600px, 1fr); }
 
 .titlebar {
   grid-column: 1 / -1;
@@ -506,6 +507,33 @@ button.inspector-section-header { display: flex; width: 100%; justify-content: s
 .modal-field .modal-textarea { min-height: 72px; }
 .modal-controls { display: flex; justify-content: flex-end; gap: 8px; margin-top: 18px; }
 .modal-submit { border-color: var(--amber); background: var(--amber); color: #251e15; font-weight: 600; }
+
+/* Popover D-05: keys sheet and command palette. One at a time, page dimmed
+   48% graphite, hard shadow, max width 760, esc closes (renderer.ts). */
+.popover { position: fixed; z-index: 12; inset: 0; display: grid; place-items: center; padding: 24px; background: rgba(38,35,31,.48); }
+.popover-card { display: grid; gap: 14px; width: min(760px, 100%); max-height: min(82vh, 640px); overflow: auto; padding: 24px 26px; border: var(--hairline-strong); background: var(--paper); box-shadow: var(--shadow-lg); }
+.popover-title { margin: 0; color: var(--graphite); font: 600 22px/1.15 var(--serif); }
+.keys-sheet-section { display: grid; gap: 6px; padding-top: 14px; border-top: var(--hairline); }
+.keys-sheet-section:first-of-type { padding-top: 0; border-top: 0; }
+.keys-sheet-heading { display: flex; align-items: baseline; gap: 10px; margin-bottom: 4px; }
+.keys-sheet-blurb { color: var(--muted); font-size: 11px; }
+.keys-sheet-row { display: grid; grid-template-columns: minmax(90px, auto) 1fr; gap: 14px; padding: 3px 0; align-items: baseline; }
+.keys-sheet-keys { color: var(--amber-dark); font: 12px var(--mono); }
+.keys-sheet-description { color: var(--ink); font-size: 12px; }
+.keys-sheet-footer { margin: 4px 0 0; color: var(--muted); font: 10px var(--mono); letter-spacing: .04em; }
+
+.palette-card { padding: 18px 20px; }
+.palette-input { width: 100%; height: 42px; padding: 9px 11px; border: var(--hairline-strong); border-radius: 2px; background: rgba(255,252,245,.76); color: var(--ink); font-size: 15px; outline: none; }
+.palette-input:focus { border-color: var(--amber); box-shadow: 0 0 0 3px rgba(189,125,48,.12); }
+.palette-list { display: grid; gap: 2px; max-height: 55vh; overflow-y: auto; }
+.palette-group-heading { margin-top: 8px; padding: 6px 4px 2px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
+.palette-group-heading:first-child { margin-top: 0; }
+.palette-row { display: flex; align-items: center; justify-content: space-between; gap: 14px; width: 100%; padding: 8px 8px; border: 0; border-left: 2px solid transparent; background: transparent; color: var(--ink); text-align: left; font-size: 13px; }
+.palette-row.selected, .palette-row:hover { border-left-color: var(--amber); background: rgba(241,223,191,.28); }
+.palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.palette-label mark { background: transparent; color: var(--amber-dark); font-weight: 600; }
+.palette-key { flex: none; color: var(--muted); font: 11px var(--mono); }
+
 .welcome { max-width: 560px; margin: 15vh auto; text-align: center; }
 .welcome h1 { margin: 11px 0; color: var(--graphite); font: 600 46px/1.05 var(--serif); }
 .welcome p { margin: 0 auto 25px; color: var(--muted); font: 18px/1.55 var(--serif); }
@@ -556,6 +584,7 @@ button.inspector-section-header { display: flex; width: 100%; justify-content: s
 
 @media (max-width: 1180px) {
   .app-shell { grid-template-columns: 56px minmax(600px, 1fr) 280px; }
+  .app-shell.inspector-hidden { grid-template-columns: 56px minmax(600px, 1fr); }
   .workspace { padding-inline: 28px; }
   .launcher-page { padding-inline: 28px; }
   .launcher-content { grid-template-columns: 1fr; }

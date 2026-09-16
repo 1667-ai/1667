@@ -92,6 +92,44 @@ A toast shows the last status message at the bottom-left of the window. It
 has no timeout. The next click or key press clears it, unless you click the
 toast itself. An error banner shows above the toast the same way.
 
+### Keys
+
+The desktop uses the TUI keymap when no field has focus. Press `?` for the
+list.
+
+The desktop reads the keymap from `tui/src/reference-bindings.ts`. It does not
+copy the keymap by hand. A letter key acts only when no text field, list box,
+or dialog has focus. A button or a link does not count as a field, so a
+letter key still acts when one of those has focus.
+
+These keys work with no field focused:
+
+- The arrow keys move the focused part and switch between its takes.
+- `g` and `G` jump to the first and the last part.
+- `r` retakes the focused part with its saved direction.
+- `R` retakes the focused part with a new direction.
+- `w` starts a take that you write yourself.
+- `e` edits the focused part.
+- `a` opens Aside. `n` opens the Author's Note.
+- `y` copies the focused part. `Y` copies the whole story line.
+- `t` tags the line. `D` deletes the part.
+- `p` toggles directions. `F` toggles the inspector.
+- `o`, `f`, `c`, `m`, and `,` open Library, Facts, Chapters, Map, and
+  Settings.
+
+Press `⌘`/`Ctrl` plus `K`, or the titlebar chip, to open the command palette.
+Type to filter the list. Use the arrow keys to move through it, `Enter` to
+run the selected command, and `Escape` to close it.
+
+`Escape` peels one layer at a time. It closes an open popover first, then a
+dialog, then a focused field. In Map, it then returns to Write at the same
+focused part.
+
+These chords use `⌘` on macOS and `Ctrl` on Windows and Linux: `⌘1` through
+`⌘6` for the destinations, `⌘,` for Settings, `⌘K` for the command palette,
+`⌘`/`Ctrl` plus `Enter` to send from the composer, and `⌘S` to save the
+focused edit.
+
 ### Library
 
 The Library destination (`⌘`/`Ctrl` plus `1`) opens, searches, creates,
@@ -146,8 +184,7 @@ confirmation actions. It does not use browser prompt or confirm dialogs.
 
 The launcher opens and creates projects, adopts an existing project, unlocks a
 vault, signs in to a subscription, and checks or installs updates. The workspace
-supports story archive and profile transfer. Keyboard help uses `?`, and `⌘`
-or `Ctrl` plus `Enter` submits the generation direction.
+supports story archive and profile transfer.
 
 Set `AI_1667_DESKTOP_APP_PATH` to the built Electron main entry and run
 `desktop/test/desktop-electron.e2e.test.ts` to run the desktop lane. The test
@@ -155,3 +192,7 @@ creates a temporary project and uses the built-in dry-run connection. It does
 not use a provider credential. `desktop/test/desktop-shell.e2e.test.ts` checks
 the shell's grid geometry, breadcrumb truncation, theme switching, the
 destination shortcuts, the Settings attention dot, and part focus.
+`desktop/test/desktop-keys.e2e.test.ts` checks focus and take-switching keys,
+the keys sheet, and the command palette.
+`desktop/test/desktop-keys-contract.integration.test.ts` checks the key
+registry against the TUI's own reference, with no Electron window.
