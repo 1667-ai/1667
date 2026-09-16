@@ -62,7 +62,13 @@ export function keyEventFromDom(event: KeyboardEvent): ReferenceKeyEvent {
   } as ReferenceKeyEvent;
 }
 
-const NAV_LANES: readonly ReferenceBindingLane[] = ["global", "nav", "nav-shifted", "nav-chord"];
+// Mirrors `resolveKey`'s own lane order in tui/src/keys.ts: global,
+// nav-shifted, nav-chord, (compose-chord — desktop never reaches COMPOSE
+// mode here), (map — MAP_LANES below handles that mode separately), nav
+// last. `nav-shifted` must beat `nav` or a Shift+arrow (line scroll) resolves
+// as the plain arrow's focus move instead, because a `nav` binding with no
+// `shift` field still matches a shifted key.
+const NAV_LANES: readonly ReferenceBindingLane[] = ["global", "nav-shifted", "nav-chord", "nav"];
 const MAP_LANES: readonly ReferenceBindingLane[] = ["global", "map"];
 
 /** Tries the lanes a plain (non-⌘) keypress can resolve through on the

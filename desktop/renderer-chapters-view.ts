@@ -60,7 +60,7 @@ function renderChaptersHeader(
     el("p", "", "Breaks belong to the line. A summary stands in for the parts above it in every later request.")
   );
   const controls: HTMLElement[] = [];
-  if (state.chapterUndo !== null) {
+  if (state.chapterUndo !== null && state.chapterUndo.kind === "removed") {
     const restore = button("secondary", `Restore removed · "${state.chapterUndo.removed.break.title}"`, undefined, () => actions.restoreChapter());
     restore.classList.add("restore-chapter");
     controls.push(restore);

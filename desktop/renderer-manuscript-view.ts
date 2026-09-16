@@ -202,7 +202,7 @@ function renderPartEditor(node: StoryPathNode, draft: string | undefined, action
     actionButton("part-save", "Save edit ⌘S", () => actions.editNode(node, text.value)),
     actionButton("part-save-take", "Save as take", () => actions.saveEditedTake(node, text.value)),
     actionButton("part-edit-direction", "Edit direction", () => actions.editNodeDirection(node)),
-    actionButton("part-discard", "Discard", () => actions.editPart(null))
+    actionButton("part-discard", "Discard", () => { actions.setDraft(`part:${node.id}`, undefined); actions.editPart(null); })
   );
   return el("div", "part-editor", text, row);
 }

@@ -113,6 +113,18 @@ test("a fork with many sibling takes caps its drawn branches and folds the rest"
   assert.equal(offPathNodes.length + overflowRuns[0]!.count, 19, "every hidden sibling is still counted");
 });
 
+test("two root takes both appear in the layout (review finding 12)", () => {
+  const p1 = pathNode("p1", null, 5);
+  const fixture = story({
+    nodes: [stub("p1", null, 5, { childCount: 0 }), stub("alt-root", null, 4, { childCount: 0 })],
+    path: [p1]
+  });
+  const layout = computeMapLayout(fixture, "p1");
+  const offPath = layout.nodes.filter((node) => !node.onPath);
+  assert.equal(offPath.length, 1, "the alternate root take should still be collected as a branch");
+  assert.equal(offPath[0]?.id, "alt-root");
+});
+
 test("the budget windows the spine and folds the rest into boundary bars", () => {
   const nodes: OrdinaryNodeStub[] = [];
   const path: StoryPathNode[] = [];

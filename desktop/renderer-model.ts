@@ -48,6 +48,13 @@ export type DesktopPopover =
   | { readonly kind: "part-menu"; readonly partId: string }
   | { readonly kind: "aside" }
   | { readonly kind: "log" };
+/** The last chapter-break operation `u` (TUI-mirrored undo) can reverse:
+ * a removal (today's shape — `restoreChapterBreak` needs the removed
+ * record) or an addition from `C`/`+ Break` (only the id `removeChapterBreak`
+ * needs). `u` toggles between the two, like the TUI's own undo. */
+export type ChapterUndo =
+  | { readonly kind: "removed"; readonly breakId: string; readonly removed: RemovedChapterBreak }
+  | { readonly kind: "added"; readonly breakId: string };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -251,7 +258,7 @@ export interface RendererState {
   /** The one part currently showing `textarea.part-text` in place of its
    * `.part-prose` (D-09). At most one part edits at a time. */
   readonly editingPartId: string | null;
-  readonly chapterUndo: { readonly breakId: string; readonly removed: RemovedChapterBreak } | null;
+  readonly chapterUndo: ChapterUndo | null;
   readonly search: string;
   readonly searchHits: readonly SearchHit[];
   readonly searchBusy: boolean;

@@ -229,11 +229,13 @@ for example `‹3 …`. Press `g`, with no field focused, to switch the story to
 the take of the position the hop strip currently shows.
 
 Below the hop strip, each turn shows its question, its thinking (when the
-answer has any, folded under a **thinking** disclosure), and its answer.
-**Retake** asks the last question again. **Use…** opens three actions: **Use
-as author's note** replaces the story's Author's Note with the answer, **Insert
-into story…** saves the answer as your own next take, and **Copy** copies the
-answer text. The question field at the bottom asks with **Ask ⌘↵**. Aside
+answer has any, folded under a **thinking** disclosure), and its answer. A
+question in progress, or one you just stopped, shows its answer live in the
+same place, above the saved turns. **Retake** asks the last question again.
+**Use…** opens three actions: **Use as author's note** replaces the story's
+Author's Note with the answer, **Insert into story…** saves the answer as
+your own next take, and **Copy** copies the answer text. The question field
+at the bottom asks with **Ask ⌘↵**. Aside
 answers never write to the story on their own; every write goes through
 **Use…** or **Insert into story…**.
 
@@ -256,9 +258,11 @@ The sheet on the right shows the selected Fact's fields: Name, Tag,
 Activation, Priority, Keys, and Fact cap. A Fact with one story-wide state
 shows a Body field. A Fact with more than one state, an anchored state, or
 an End State shows a States list instead. Each state shows its text, its
-anchor, and **edit** and **delete** links. Use the three links under the
-list to add a state: anchored at the focused part, story-wide, or an End
-State at the focused part.
+anchor, and **edit** and **delete** links. Below the Body field or the
+States list, use the three links to add a state: anchored at the focused
+part, story-wide, or an End State at the focused part. These links are
+always available, even for a saved Fact that still shows only a Body
+field, so it can gain its first anchored state or End State.
 
 A pending bar appears when your draft differs from the saved Fact. It
 names each change. Click **Save fact** (`⌘S`) to save your changes, or
@@ -355,11 +359,13 @@ holds the theme picker and the directions toggle.
 
 A settable number — temperature, a token limit, a timeout — shows as
 `‹ value ›` with a track underneath. Click the chevrons, or press the arrow
-keys on a focused chevron, to step the value; hold Shift to step by ten. Type
-into the value to set it directly. A value that does not parse pins the track
-handle to ember and keeps the invalid text in the field; it does not block
-further typing. A boolean shows as two words, `on` and `off`, in adjacent
-buttons; the desktop never shows a checkbox, a switch, or a range slider.
+keys on a focused chevron, to step the value; hold Shift to step by ten. Drag
+the track handle to set the value directly by position; the value applies
+when you release the handle. Type into the value to set it directly. A value
+that does not parse pins the track handle to ember and keeps the invalid text
+in the field; it does not block further typing. A boolean shows as two
+words, `on` and `off`, in adjacent buttons; the desktop never shows a
+checkbox, a switch, or a range slider.
 
 Editing a field only changes your local draft. A bar at the bottom of the
 sheet area appears once your draft differs from the last-applied settings. It

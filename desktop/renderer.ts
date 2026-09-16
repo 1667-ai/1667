@@ -92,6 +92,7 @@ import {
 import { retakeLine, rewriteLine, summarizeLine } from "./renderer-generation-commands.js";
 import { eyebrowFor, submitLabel } from "./renderer-composer-view.js";
 import { createSettingsEditorState, RendererSettingsController } from "./renderer-settings-controller.js";
+import { settingsDraftDirty } from "./renderer-settings-diff.js";
 
 const root = document.querySelector<HTMLElement>("#app");
 if (root === null) throw new Error("Desktop renderer root is missing.");
@@ -223,7 +224,7 @@ class RendererApp {
     addFactStateEnd: (fact) => { void this.addFactStateAt(fact, "end"); },
     setFactsScope: (scope) => this.setState({ factsScope: scope }),
     setFactsFilter: (value) => this.setState({ factsFilter: value }),
-    selectFact: (id) => selectFact(this.commandContext(), id),
+    selectFact: (id) => { void selectFact(this.commandContext(), id); },
     setFactDraft: (patch) => setFactDraft(this.commandContext(), patch),
     saveFactEditor: () => this.saveFactEditorDraft(),
     revertFactEditor: () => revertFactEditor(this.commandContext()),
@@ -606,6 +607,7 @@ class RendererApp {
     const originSettings = settingsDirty
       ? JSON.stringify(this.state.settingsEditor?.draft ?? null)
       : null;
+    const originFactEditor = JSON.stringify(this.state.factEditor);
     const isActiveRequest = (): boolean => requestSequence === this.loadStorySequence && this.api === api;
     const isOriginRequest = (): boolean => isActiveRequest() && this.state.story === originStory;
     const hasNewEdits = (): boolean => {
@@ -614,7 +616,8 @@ class RendererApp {
         : this.hasDirtySettings();
       const imagesChanged = this.state.draftImages.length !== originImageLeases.length
         || this.state.draftImages.some((image, index) => image.leaseId !== originImageLeases[index]);
-      return JSON.stringify(this.state.drafts) !== originDrafts || imagesChanged || settingsChanged;
+      const factEditorChanged = JSON.stringify(this.state.factEditor) !== originFactEditor;
+      return JSON.stringify(this.state.drafts) !== originDrafts || imagesChanged || settingsChanged || factEditorChanged;
     };
     let loaded = false;
     await this.run("Loading story", async () => {
@@ -921,10 +924,11 @@ class RendererApp {
     const story = this.state.story;
     const storyDirty = story !== null && storyHasUnsavedDrafts(story, this.state);
     const settingsDirty = this.hasDirtySettings();
-    if (!storyDirty && !settingsDirty) return true;
+    const factDirty = this.hasDirtyFactEditor();
+    if (!storyDirty && !settingsDirty && !factDirty) return true;
     return await this.confirmDialog(
       "Discard unsaved edits?",
-      "This action will discard unsaved part text, notes, brief, direction, staged images, or settings."
+      "This action will discard unsaved part text, notes, brief, direction, staged images, a Fact draft, or settings."
     );
   }
 
@@ -941,8 +945,7 @@ class RendererApp {
     const settings = this.state.settings;
     const editor = this.state.settingsEditor;
     return settings !== null && settings.document !== null && editor !== null
-      && (JSON.stringify(editor.draft.document) !== JSON.stringify(settings.document)
-        || Object.keys(editor.draft.connectionSecrets).length > 0);
+      && settingsDraftDirty(settings.document, editor.draft);
   }
 
   private canNavigateAway(): boolean {
@@ -975,6 +978,7 @@ class RendererApp {
       || this.state.aside.busy
       || this.asideController !== null) return true;
     if (story !== null && storyHasUnsavedDrafts(story, this.state)) return true;
+    if (this.hasDirtyFactEditor()) return true;
     return this.hasDirtySettings();
   }
 
@@ -1278,7 +1282,12 @@ class RendererApp {
       const next = await api.switchLine(story.id, nodeId);
       for (const key of drafts) this.setDraft(key, undefined);
       await this.replaceStory(next);
-      this.setState({ status: status(next, nodeId) });
+      // The switch target may not be the new path's leaf (it can carry its
+      // own remembered continuation) — focus the node the writer actually
+      // asked for, not wherever `effectiveFocusedPartId`'s leaf fallback
+      // would otherwise land now that the old focus is off the path.
+      const onNewPath = next.path.some((node) => node.id === nodeId);
+      this.setState({ status: status(next, nodeId), ...(onNewPath ? { focusedPartId: nodeId } : {}) });
     });
   }
 
@@ -1388,7 +1397,7 @@ class RendererApp {
 
   private async createFact(node?: StoryPathNode, selection?: TextSelection): Promise<void> {
     if (node === undefined && selection === undefined) {
-      startNewFactDraft(this.commandContext());
+      await startNewFactDraft(this.commandContext());
       return;
     }
     await createFact(this.commandContext(), node, selection);
@@ -1661,9 +1670,22 @@ class RendererApp {
   }
 
   private updateAsideStreamDom(aside: RendererState["aside"]): void {
+    // The docked inspector section and the popped-out popover (when open)
+    // read the same `state.aside` and each keep their own `.aside-live-answer`
+    // paragraph in step with the stream.
     const sessions = renderRoot.querySelector<HTMLElement>(".aside-sessions");
-    if (sessions === null) return;
-    let live = sessions.querySelector<HTMLElement>(".aside-live-answer");
+    this.syncAsideLiveAnswer(sessions, aside, () => sessions?.querySelector<HTMLElement>(".aside-session-label") ?? null);
+    const popoverTurns = renderRoot.querySelector<HTMLElement>(".aside-popover .aside-turns");
+    this.syncAsideLiveAnswer(popoverTurns, aside, () => null);
+  }
+
+  private syncAsideLiveAnswer(
+    container: HTMLElement | null,
+    aside: RendererState["aside"],
+    anchorFor: () => HTMLElement | null
+  ): void {
+    if (container === null) return;
+    let live = container.querySelector<HTMLElement>(".aside-live-answer");
     if (aside.answer.length === 0) {
       live?.remove();
       return;
@@ -1671,9 +1693,9 @@ class RendererApp {
     if (live === null) {
       live = document.createElement("p");
       live.className = "aside-answer aside-live-answer";
-      const label = sessions.querySelector<HTMLElement>(".aside-session-label");
-      if (label === null) sessions.prepend(live);
-      else label.after(live);
+      const anchor = anchorFor();
+      if (anchor === null) container.prepend(live);
+      else anchor.after(live);
     }
     live.textContent = aside.answer;
   }
@@ -1697,6 +1719,7 @@ class RendererApp {
     updateEditable("authors-note-depth", this.state.drafts["authors-note-depth"] ?? String(story.authorsNoteDepth ?? 1));
     updateEditable("author-brief", this.state.drafts["author-brief"] ?? story.authorBrief ?? "");
     updateEditable("aside-question", this.state.drafts["aside-question"] ?? this.state.aside.question);
+    updateEditable("aside-question-popover", this.state.drafts["aside-question"] ?? this.state.aside.question);
     for (const article of renderRoot.querySelectorAll<HTMLElement>(".manuscript-part[data-preserve^=\"part-card:\"]")) {
       const id = article.dataset.preserve?.slice("part-card:".length);
       if (id === undefined) continue;

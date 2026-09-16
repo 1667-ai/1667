@@ -31,6 +31,10 @@ export class RendererKeysController {
   }
 
   private handleKeydown(event: KeyboardEvent): void {
+    // A control that already handled this key (a scalar's chevron or drag
+    // handle, the settings-section nav) calls `preventDefault()` itself;
+    // respect that instead of also running a NAV command for the same key.
+    if (event.defaultPrevented) return;
     // Desktop-only chords (§4): ⌘ on macOS, Ctrl elsewhere, regardless of
     // field focus — the same cross-platform convention the destination
     // chords already used.
@@ -131,7 +135,9 @@ export class RendererKeysController {
   public saveCurrentEdit(): void {
     const state = this.hooks.state();
     const story = state.story;
-    if (story !== null) {
+    // Only Write owns the manuscript editor; a part draft left behind after
+    // Escape must not steal ⌘S from whatever editor is actually visible.
+    if (state.tab === "write" && story !== null) {
       const focusedId = effectiveFocusedPartId(state, story);
       const node = focusedId === null ? null : story.path.find((candidate) => candidate.id === focusedId) ?? null;
       if (node !== null) {

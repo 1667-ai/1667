@@ -164,10 +164,14 @@ export function computeMapLayout(
   const safeFocusedIndex = focusedIndex === -1 ? path.length - 1 : focusedIndex;
 
   // Off-path branch roots per path index, precomputed once (O(nodes) total).
+  // Index 0 also collects `childrenByParent.get(null)`: an alternate root
+  // take has `parentId: null`, the same key path[0] itself sits under, so it
+  // is never a child of `path[0].id` and would otherwise never be collected.
   const branchesByIndex = new Map<number, NodeStub[]>();
   for (let index = 0; index < path.length; index += 1) {
     const kids = childrenByParent.get(path[index]!.id) ?? [];
-    const offPath = kids.filter((kid) => !pathIds.has(kid.id));
+    const rootSiblings = index === 0 ? childrenByParent.get(null) ?? [] : [];
+    const offPath = [...kids, ...rootSiblings].filter((kid) => !pathIds.has(kid.id));
     if (offPath.length > 0) branchesByIndex.set(index, offPath);
   }
   const weight = path.map((_, index) => {

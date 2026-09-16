@@ -167,6 +167,11 @@ export function scalar(config: ScalarConfig): HTMLElement {
   tick.style.left = `${defaultFraction * 100}%`;
   positionTrack();
 
+  // A pointer move during a drag only updates the local value and the
+  // handle's own position; `onChange` fires once the drag ends. Calling
+  // `onChange` on every move re-renders the tree synchronously (the caller's
+  // state update), which detaches this very handle mid-drag and strands the
+  // pointer capture on an element no longer in the document.
   let dragging = false;
   const applyPointer = (event: PointerEvent): void => {
     const rect = track.getBoundingClientRect();
@@ -174,6 +179,11 @@ export function scalar(config: ScalarConfig): HTMLElement {
     const fraction = clamp((event.clientX - rect.left) / rect.width, 0, 1);
     const next = roundToStep(min + fraction * (max - min), step);
     input.value = format(clamp(next, min, max));
+    positionTrack();
+  };
+  const commitDrag = (): void => {
+    if (!dragging) return;
+    dragging = false;
     config.onChange(input.value);
   };
   handle.addEventListener("pointerdown", (event) => {
@@ -184,9 +194,11 @@ export function scalar(config: ScalarConfig): HTMLElement {
   });
   handle.addEventListener("pointermove", (event) => { if (dragging) applyPointer(event); });
   handle.addEventListener("pointerup", (event) => {
-    dragging = false;
+    applyPointer(event);
     handle.releasePointerCapture(event.pointerId);
+    commitDrag();
   });
+  handle.addEventListener("lostpointercapture", commitDrag);
   handle.addEventListener("keydown", (event) => {
     if (disabled) return;
     if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;

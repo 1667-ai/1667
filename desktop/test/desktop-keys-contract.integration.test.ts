@@ -4,6 +4,11 @@ import { REFERENCE_BINDINGS } from "../../tui/src/reference-bindings.js";
 import { KEYS_MODAL_MODEL } from "../../tui/src/keys-reference-model.js";
 import { COMMANDS, commandForAction, registryHasBinding } from "../renderer-commands.js";
 import { commandKeyDisplay } from "../renderer-palette-view.js";
+import { resolveDesktopBinding } from "../renderer-keymap.js";
+
+function syntheticKeydown(key: string, shiftKey: boolean): KeyboardEvent {
+  return { key, shiftKey, ctrlKey: false, metaKey: false, altKey: false } as unknown as KeyboardEvent;
+}
 
 // No Electron here: the registry table is pure data, so a plain `node --test`
 // run can check it against the TUI's own reference without a renderer.
@@ -74,4 +79,11 @@ test("the log binding (phase 5) is wired for both NAV and MAP", () => {
   for (const id of ["navOpenLog", "mapOpenLog"] as const) {
     assert.ok(registryHasBinding(REFERENCE_BINDINGS[id]), `"${id}" should now be in the desktop registry`);
   }
+});
+
+test("Shift+ArrowDown resolves as scroll, not focus move (review finding 10)", () => {
+  const shifted = resolveDesktopBinding(syntheticKeydown("ArrowDown", true), "NAV");
+  assert.equal(shifted?.action, "scroll-line-down", "nav-shifted must resolve before nav, mirroring tui/src/keys.ts");
+  const plain = resolveDesktopBinding(syntheticKeydown("ArrowDown", false), "NAV");
+  assert.equal(plain?.action, "focus-next", "an unshifted arrow still moves focus");
 });

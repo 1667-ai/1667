@@ -161,9 +161,21 @@ function renderTurnUseMenu(actions: RendererActions, answer: string): HTMLElemen
   return details;
 }
 
+/** Same rule `renderAsideSessions` (the docked inspector) uses: the live
+ * answer shows while a turn is streaming, or once it stops/is retained but
+ * has not yet landed as the session's own last turn. */
+function renderLiveAnswer(state: RendererState): HTMLElement | null {
+  const session = state.aside.sessions.find((candidate) => candidate.id === state.aside.selectedSessionId);
+  const lastAnswer = session?.turns.at(-1)?.a;
+  if (state.aside.answer.length === 0 || (!state.aside.busy && state.aside.answer === lastAnswer)) return null;
+  return el("p", "aside-answer aside-live-answer", state.aside.answer);
+}
+
 function renderTurns(state: RendererState, actions: RendererActions): HTMLElement {
   const session = state.aside.sessions.find((candidate) => candidate.id === state.aside.selectedSessionId);
   const list = el("div", "aside-turns");
+  const live = renderLiveAnswer(state);
+  if (live !== null) list.append(live);
   if (session === undefined) {
     list.append(el("p", "aside-history", "No saved session at this story position yet."));
     return list;
@@ -188,12 +200,17 @@ function renderTurns(state: RendererState, actions: RendererActions): HTMLElemen
 }
 
 function renderQuestionRow(state: RendererState, actions: RendererActions): HTMLElement {
-  // No `data-preserve` here: the docked inspector's own `.aside-question`
-  // already claims that key, and `render()`'s focus restore takes the first
-  // DOM match for a key — sharing it would risk landing focus back on the
-  // docked field (hidden behind this popover) after an unrelated re-render.
+  // A unique `data-preserve` key, not the docked inspector's `.aside-question`
+  // one: `render()`'s focus restore takes the first DOM match for a key, and
+  // the docked field is still in the document (hidden behind this popover),
+  // so sharing the key would restore focus there instead of here — or, with
+  // no key at all, restore it nowhere, dropping focus to the document on the
+  // next full render and letting the next keystroke run a NAV command
+  // instead of typing. The draft VALUE still comes from the shared
+  // "aside-question" key so both fields show the same text.
   const question = document.createElement("textarea");
   question.className = "aside-question";
+  question.dataset.preserve = "aside-question-popover";
   question.value = state.drafts["aside-question"] ?? state.aside.question;
   question.placeholder = "Ask about the manuscript…";
   question.rows = 3;

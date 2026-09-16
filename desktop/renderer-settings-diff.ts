@@ -8,6 +8,15 @@ import type { GenerationProfileV5, SettingsDocumentV5 } from "../shared/settings
 import { profileGenerationReasoning } from "./renderer-settings-controls.js";
 import { samplingForProfile, type SettingsEditorDraft } from "./renderer-settings-model.js";
 
+/** The complete-draft comparison the D-07 pending bar and section nav rely
+ * on for "is anything unsaved" (`describeSettingsChanges` below names only
+ * some fields, so its own length used to under-report). Mirrors
+ * `RendererApp.hasDirtySettings()`'s document comparison. */
+export function settingsDraftDirty(document: SettingsDocumentV5, draft: SettingsEditorDraft): boolean {
+  return JSON.stringify(draft.document) !== JSON.stringify(document)
+    || Object.keys(draft.connectionSecrets).length > 0;
+}
+
 export function describeSettingsChanges(document: SettingsDocumentV5, draft: SettingsEditorDraft): readonly string[] {
   const next = draft.document;
   const changes: string[] = [];
@@ -35,6 +44,13 @@ export function describeSettingsChanges(document: SettingsDocumentV5, draft: Set
     changes.push(...profileFieldChanges(before, after));
     changes.push(...samplingChanges(samplingForProfile(before), samplingForProfile(after)));
   }
+  // Connections, other profiles, writing prompts, and pending secrets have
+  // no named diff above. Rather than name every one of those fields too,
+  // fall back to one catch-all entry whenever the complete draft comparison
+  // still finds a difference the named changes above did not describe — so
+  // the pending bar and its Discard button never under-report "0 changes"
+  // while Save would still apply something.
+  if (changes.length === 0 && settingsDraftDirty(document, draft)) changes.push("other settings edited");
   return changes;
 }
 

@@ -115,8 +115,8 @@ const CHAPTERS_COMMANDS: readonly DesktopCommand[] = [
   },
   {
     id: "chapters.new", group: "Chapters", label: "New chapter", binding: "navCreateChapter",
-    available: hasStory, handles: { mode: "NAV", action: "create-chapter" },
-    run: (ctx) => ctx.actions.createChapter()
+    available: hasFocus, handles: { mode: "NAV", action: "create-chapter" },
+    run: (ctx) => ctx.actions.createChapter(ctx.focused!.id)
   },
   {
     id: "chapters.restore-removed", group: "Chapters", label: "Restore removed chapter", binding: "navUndo",

@@ -12,7 +12,7 @@ import {
   type TagStatus
 } from "../shared/types.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
-import type { TextSelection } from "./renderer-model.js";
+import { effectiveFocusedPartId, type TextSelection } from "./renderer-model.js";
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import type { FactConsistencyScope } from "../shared/fact-consistency-contract.js";
 import {
@@ -419,6 +419,7 @@ export async function createChapter(ctx: RendererCommandContext, parentPartId?: 
   await ctx.run("Creating chapter", async () => {
     const result = await api.createChapterBreak(story.id, parent.id, title);
     await ctx.replaceStory(result.payload);
+    ctx.setState({ chapterUndo: { kind: "added", breakId: result.breakId } });
   });
 }
 
@@ -437,20 +438,34 @@ export async function removeChapter(ctx: RendererCommandContext, id: string, tit
   await ctx.run("Removing chapter", async () => {
     const result = await api.removeChapterBreak(story.id, id);
     await ctx.replaceStory(result.payload);
-    ctx.setState({ chapterUndo: { breakId: id, removed: result.removed }, status: "Chapter removed · restore is available" });
+    ctx.setState({ chapterUndo: { kind: "removed", breakId: id, removed: result.removed }, status: "Chapter removed · restore is available" });
   });
 }
 
+/** `u` (and the Chapters header's "Restore removed" button): reverses
+ * whichever chapter-break operation happened last. Restoring a removal
+ * clears the undo record (matching the TUI, one step of history). Removing
+ * an addition instead records a fresh `removed` entry from that removal's
+ * own response, so pressing `u` again restores it — the same toggle the TUI
+ * gives `C` then `u` then `u`. */
 export async function restoreChapter(ctx: RendererCommandContext): Promise<void> {
   const story = ctx.story();
   const undo = ctx.state().chapterUndo;
   if (undo === null) {
-    ctx.setState({ status: "No removed chapter to restore", error: null });
+    ctx.setState({ status: "Nothing to undo", error: null });
     return;
   }
-  await ctx.run("Restoring chapter", async () => {
-    await ctx.replaceStory(await ctx.api().restoreChapterBreak(story.id, undo.breakId, undo.removed));
-    ctx.setState({ chapterUndo: null, status: "Chapter restored" });
+  if (undo.kind === "removed") {
+    await ctx.run("Restoring chapter", async () => {
+      await ctx.replaceStory(await ctx.api().restoreChapterBreak(story.id, undo.breakId, undo.removed));
+      ctx.setState({ chapterUndo: null, status: "Chapter break restored" });
+    });
+    return;
+  }
+  await ctx.run("Removing chapter break", async () => {
+    const result = await ctx.api().removeChapterBreak(story.id, undo.breakId);
+    await ctx.replaceStory(result.payload);
+    ctx.setState({ chapterUndo: { kind: "removed", breakId: undo.breakId, removed: result.removed }, status: "Chapter break removed · u restores it" });
   });
 }
 
@@ -521,7 +536,7 @@ export async function runFactConsistency(ctx: RendererCommandContext, scope: Fac
     try { return ctx.state().story?.id === story.id && ctx.api() === api; }
     catch { return false; }
   };
-  const focusedPartId = story.path.at(-1)?.id;
+  const focusedPartId = effectiveFocusedPartId(ctx.state(), story) ?? story.path.at(-1)?.id;
   if (focusedPartId === undefined || api.planFactConsistency === undefined || api.checkFactConsistency === undefined) {
     ctx.setState({ status: "Fact consistency is unavailable", error: null });
     return;

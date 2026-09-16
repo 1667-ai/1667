@@ -253,6 +253,10 @@ function renderFactSheet(fact: StoryFact | null, editor: FactEditorState, story:
     body.classList.add("fact-editor-body");
     body.dataset.preserve = "fact-editor-body";
     sheet.append(field("Body", body));
+    // A saved simple Fact (one story-wide text state) still needs a way to
+    // acquire its first anchored state or an End State; a brand-new,
+    // never-saved draft (`fact === null`) has no Fact id yet to add one to.
+    if (fact !== null) sheet.append(renderStatesFooter(fact, actions));
   } else {
     sheet.append(renderStatesSection(fact!, story, actions, focusedIndex));
   }
@@ -336,11 +340,18 @@ function renderStatesSection(fact: StoryFact, story: StoryPayload, actions: Rend
     list.append(renderStateRow(fact, state, index + 1, inForce, story, actions));
   });
   section.append(list);
+  section.append(renderStatesFooter(fact, actions));
+  return section;
+}
+
+/** The three one-click state-add links (§3), shared by the full STATES list
+ * and the simplified Body editor — a simple Fact needs the same way to
+ * acquire its first anchored state or End State. */
+function renderStatesFooter(fact: StoryFact, actions: RendererActions): HTMLElement {
   const anchorButton = button("quiet", "+ State anchored here", undefined, () => actions.addFactStateAnchored(fact));
   const wideButton = button("quiet", "+ Story-wide state", undefined, () => actions.addFactStateStoryWide(fact));
   const endButton = button("quiet", "+ End here", undefined, () => actions.addFactStateEnd(fact));
-  section.append(el("div", "fact-states-footer", anchorButton, wideButton, endButton));
-  return section;
+  return el("div", "fact-states-footer", anchorButton, wideButton, endButton);
 }
 
 function renderStateRow(fact: StoryFact, state: FactState, number: number, inForce: boolean, story: StoryPayload, actions: RendererActions): HTMLElement {
