@@ -383,6 +383,7 @@ export interface RendererActions {
   readonly setPaletteQuery: (value: string) => void;
   readonly closePopover: () => void;
   readonly toast: (text: string) => void;
+  readonly confirmDialog: (title: string, message: string) => Promise<boolean>;
   readonly saveCurrentEdit: () => void;
   readonly setDraft: (key: string, value: string | undefined) => void;
   readonly setAuthPromptValue: (value: string) => void;

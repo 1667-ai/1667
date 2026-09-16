@@ -148,22 +148,33 @@ function renderHeader(state: RendererState, actions: RendererActions): HTMLEleme
   return header;
 }
 
-function renderTurnUseMenu(actions: RendererActions, answer: string): HTMLElement {
+/** Stages `answer` as the Author's Note draft (review-fixes-2 #13: staged,
+ * not persisted — the writer still presses Save note to keep it). If an
+ * unsaved note draft is already sitting there, confirm before replacing it:
+ * closing the popover rebuilds the textarea, so the native undo history that
+ * would otherwise recover the writer's edits is gone (review-fixes-4 #5). */
+async function stageAsAuthorsNote(state: RendererState, actions: RendererActions, answer: string): Promise<void> {
+  const story = state.story;
+  const draft = state.drafts["authors-note"];
+  const saved = story?.authorsNote ?? "";
+  if (draft !== undefined && draft !== saved) {
+    const replace = await actions.confirmDialog("Replace the unsaved note?", "The Author's Note has unsaved text. Replace it with this answer?");
+    if (!replace) return;
+  }
+  actions.setDraft("authors-note", answer);
+  expandInspectorSection("authors-note");
+  document.querySelector<HTMLElement>('[data-inspector-section="authors-note"]')?.scrollIntoView({ block: "nearest" });
+  actions.closePopover();
+  actions.toast("Answer placed in the Author's Note · Save note keeps it");
+}
+
+function renderTurnUseMenu(state: RendererState, actions: RendererActions, answer: string): HTMLElement {
   const details = document.createElement("details");
   details.className = "aside-turn-use";
   details.append(
     el("summary", "", "Use…"),
     el("div", "aside-turn-use-menu",
-      actionButton("aside-use-note", "Use as author's note", () => {
-        // Stage it (review-fixes-2 #13) rather than persisting straight over
-        // whatever note is already saved: the writer still has to press Save
-        // note to keep it, exactly like typing the answer in by hand.
-        actions.setDraft("authors-note", answer);
-        expandInspectorSection("authors-note");
-        document.querySelector<HTMLElement>('[data-inspector-section="authors-note"]')?.scrollIntoView({ block: "nearest" });
-        actions.closePopover();
-        actions.toast("Answer placed in the Author's Note · Save note keeps it");
-      }),
+      actionButton("aside-use-note", "Use as author's note", () => void stageAsAuthorsNote(state, actions, answer)),
       actionButton("aside-use-insert", "Insert into story…", () => actions.writeManual(answer)),
       actionButton("aside-use-copy", "Copy", () => { void navigator.clipboard.writeText(answer).then(() => actions.toast("Answer copied")).catch(() => actions.toast("Copy failed")); })
     )
@@ -202,7 +213,7 @@ function renderTurns(state: RendererState, actions: RendererActions): HTMLElemen
     row.append(el("p", "aside-answer", turn.a));
     const controls = el("div", "aside-turn-controls");
     if (index === session.turns.length - 1) controls.append(actionButton("aside-retake", "Retake", () => actions.retakeAside(index)));
-    controls.append(renderTurnUseMenu(actions, turn.a));
+    controls.append(renderTurnUseMenu(state, actions, turn.a));
     row.append(controls);
     list.append(row);
   });

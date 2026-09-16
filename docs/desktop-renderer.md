@@ -204,7 +204,8 @@ of the rest; click the count to open Map at the focused part.
 The composer sits at the bottom of Write. At rest it shows one line: a
 placeholder direction hint, the mode buttons (**Continue**, **Direct**,
 **Write it myself**), and the primary button. Typing grows the field and
-shows a title naming the mode. `⇧↵` inserts a newline, `⌘↵` sends, `Escape`
+shows a title naming the mode. In Continue mode, `↵` sends an empty field.
+`⇧↵` always inserts a newline. Once you type text, `⌘↵` sends it. `Escape`
 clears focus. **Attach image** attaches a source image. **Save as my own
 line** saves the typed text as your own words, with no model call.
 

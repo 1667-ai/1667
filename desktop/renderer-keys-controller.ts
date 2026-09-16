@@ -165,7 +165,12 @@ export class RendererKeysController {
     // Only Write owns the manuscript editor; a part draft left behind after
     // Escape must not steal ⌘S from whatever editor is actually visible.
     if (state.tab === "write" && story !== null) {
-      const focusedId = effectiveFocusedPartId(state, story);
+      // A part's textarea can keep keyboard focus after the writer clicks
+      // another part's prose and back — that click only moves
+      // `focusedPartId`, it never blurs the still-open editor. ⌘S must save
+      // whichever editor the keyboard is actually in, not the focused part
+      // (review-fixes-4 #1).
+      const focusedId = this.focusedPartTextareaId() ?? effectiveFocusedPartId(state, story);
       const node = focusedId === null ? null : story.path.find((candidate) => candidate.id === focusedId) ?? null;
       if (node !== null) {
         const text = state.drafts[`part:${node.id}`];
@@ -180,6 +185,16 @@ export class RendererKeysController {
       return;
     }
     if (state.tab === "settings" && this.hooks.hasDirtySettings()) this.hooks.saveSettingsDraft();
+  }
+
+  /** The id in `article.dataset.preserve = "part-card:<id>"` when the
+   * keyboard focus sits inside that part's own `.part-text` editor, else
+   * `null`. */
+  private focusedPartTextareaId(): string | null {
+    const active = document.activeElement;
+    if (!(active instanceof HTMLElement) || !active.classList.contains("part-text")) return null;
+    const preserve = active.closest<HTMLElement>(".manuscript-part")?.dataset.preserve;
+    return preserve?.startsWith("part-card:") === true ? preserve.slice("part-card:".length) : null;
   }
 
   private eventTargetInsidePopover(event: KeyboardEvent): boolean {

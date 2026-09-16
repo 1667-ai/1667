@@ -89,6 +89,19 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
     if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
       event.preventDefault();
       submit.click();
+      return;
+    }
+    // The placeholder and the empty submit label both advertise "Empty ↵
+    // continues": unmodified Enter on an empty Continue composer must submit
+    // it, same as clicking the button (review-fixes-4 #6). Shift+Enter (a
+    // newline) and Enter with text typed (also a newline, sent with
+    // ⌘/Ctrl+Enter) keep the textarea's default behaviour.
+    if (
+      event.key === "Enter" && !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey && !event.isComposing
+      && state.composerMode === "continue" && prompt.value.trim().length === 0
+    ) {
+      event.preventDefault();
+      submit.click();
     }
   });
 

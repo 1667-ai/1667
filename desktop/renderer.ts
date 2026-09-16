@@ -132,7 +132,13 @@ class RendererApp {
     acknowledgeFactConsistencySeen: () => this.setState({ factConsistencySeen: true }),
     setSearch: (value) => { this.setState({ search: value }); void this.searchStories(value); },
     openSearchHit: (hit) => { void this.openSearchHit(hit); },
-    setComposerMode: (mode) => this.setState({ composerMode: mode }),
+    // A pending `w` target must not survive a switch to Continue or Direct
+    // (review-fixes-4 #4): those modes stream from the composer, and a later
+    // manual save must not silently branch off the old `w` target instead of
+    // appending at the current line end.
+    setComposerMode: (mode) => this.setState(
+      mode === "write" ? { composerMode: mode } : { composerMode: mode, composerWriteTarget: null }
+    ),
     setComposerWriteTarget: (target) => this.setState({ composerWriteTarget: target }),
     setDirections: (show) => this.setDirections(show),
     setTheme: (theme) => this.setTheme(theme),
@@ -148,6 +154,7 @@ class RendererApp {
     },
     closePopover: () => this.setState({ popover: null }),
     toast: (text) => this.setState({ status: text, error: null }),
+    confirmDialog: (title, message) => this.confirmDialog(title, message),
     saveCurrentEdit: () => this.keysController?.saveCurrentEdit(),
     setDraft: (key, value) => this.setDraft(key, value),
     setAuthPromptValue: (value) => this.setState({ authPromptValue: value }),
@@ -805,8 +812,15 @@ class RendererApp {
       return;
     }
     const leaf = story.path.at(-1);
-    if (leaf !== undefined && this.state.drafts[`part:${leaf.id}`] !== undefined
-      && this.state.drafts[`part:${leaf.id}`] !== leaf.text) {
+    // Continue/direct can target an earlier seam (`target.parentId`, set by
+    // `seamTarget` when the focused part is not the leaf); the dirty-draft
+    // guard must check that part's own draft, not the leaf's, or a
+    // manuscript that displays the edit still sends the provider the part's
+    // older saved text (review-fixes-4 #2).
+    const dirtyGuardNode = target !== undefined && target.parentId !== null
+      ? story.path.find((candidate) => candidate.id === target.parentId) ?? leaf
+      : leaf;
+    if (dirtyGuardNode !== undefined && this.hasDirtyPart(dirtyGuardNode)) {
       this.setState({ status: "Save the active part first", error: "The active part has unsaved text. Save it before generating so the provider appends to the text you can see." });
       return;
     }
@@ -1152,7 +1166,17 @@ class RendererApp {
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (clearComposer && this.state.drafts.composer === value) this.setDraft("composer", undefined);
-      if (this.state.composerWriteTarget !== null) this.setState({ composerWriteTarget: null });
+      // A manual append (no target) settles focus on the new leaf; a
+      // targeted write settles it on the new take it just created — both are
+      // the same node, `next.path.at(-1)`, so the next Continue or `w`
+      // builds on what was just written instead of the previous seam
+      // (review-fixes-4 #3).
+      const newLeafId = next.path.at(-1)?.id ?? null;
+      const focusSettlement: Partial<RendererState> = {
+        ...(this.state.composerWriteTarget !== null ? { composerWriteTarget: null } : {}),
+        ...(newLeafId === null ? {} : { focusedPartId: newLeafId })
+      };
+      if (Object.keys(focusSettlement).length > 0) this.setState(focusSettlement);
     });
   }
 
