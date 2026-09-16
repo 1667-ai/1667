@@ -169,6 +169,14 @@ export interface LineClipboard {
   readonly parts: number;
 }
 
+/** `w`'s target (review-fixes-2 #4): a human take saved as a sibling of the
+ * part that was focused when `w` ran, not a child of the leaf. `parentId` is
+ * that part's own `parentId` — the same parent the new sibling take needs. */
+export interface ComposerWriteTarget {
+  readonly partId: string;
+  readonly parentId: string | null;
+}
+
 /** A native textarea selection captured before a toolbar action takes focus. */
 export interface TextSelection {
   readonly start: number;
@@ -236,6 +244,9 @@ export interface RendererState {
   readonly stream: StoryStream | null;
   readonly stoppedGeneration: StoppedGenerationDraft | null;
   readonly composerMode: ComposerMode;
+  /** Set by `w` (review-fixes-2 #4); read once by the write-mode submit, then
+   * cleared. `null` means write-mode saves at the leaf, as it always did. */
+  readonly composerWriteTarget: ComposerWriteTarget | null;
   readonly lineClipboard: LineClipboard | null;
   readonly draftImages: readonly DraftImage[];
   readonly recoveryWarnings: readonly RendererRecoveryWarning[];
@@ -299,6 +310,7 @@ export const INITIAL_STATE: RendererState = {
   stream: null,
   stoppedGeneration: null,
   composerMode: "continue",
+  composerWriteTarget: null,
   lineClipboard: null,
   draftImages: [],
   recoveryWarnings: [],
@@ -358,6 +370,7 @@ export interface RendererActions {
   readonly setSearch: (value: string) => void;
   readonly openSearchHit: (hit: SearchHit) => void;
   readonly setComposerMode: (mode: ComposerMode) => void;
+  readonly setComposerWriteTarget: (target: ComposerWriteTarget | null) => void;
   readonly setDirections: (show: boolean) => void;
   readonly setTheme: (theme: DesktopTheme) => void;
   readonly setInspectorHidden: (hidden: boolean) => void;
@@ -386,11 +399,11 @@ export interface RendererActions {
   readonly unsealProject: () => void;
   readonly revealProject: () => void;
   readonly showProjects: (show: boolean) => void;
-  readonly continueStory: (mode: StreamMode, instruction: string) => void;
+  readonly continueStory: (mode: StreamMode, instruction: string, target?: { readonly parentId: string | null }) => void;
   readonly retakeLine: (node: StoryPathNode, options?: { readonly editDirection?: boolean }) => void;
   readonly rewriteLine: (node: StoryPathNode, selection?: TextSelection) => void;
   readonly summarizeLine: () => void;
-  readonly writeManual: (text: string) => void;
+  readonly writeManual: (text: string, parentId?: string | null) => void;
   readonly attachImage: (file: File) => void;
   readonly removeImage: (index: number) => void;
   readonly stopStream: () => void;
@@ -488,7 +501,7 @@ export function activeLeaf(story: StoryPayload): StoryPathNode | null {
 /** The part the inspector (D-03) is contextual to. Defaults to the active
  * leaf whenever the story loads, the path changes, or nothing was clicked
  * yet, so the field only needs to hold the writer's explicit choice. */
-export function effectiveFocusedPartId(state: RendererState, story: StoryPayload): string | null {
+export function effectiveFocusedPartId(state: Pick<RendererState, "focusedPartId">, story: StoryPayload): string | null {
   if (state.focusedPartId !== null && story.path.some((node) => node.id === state.focusedPartId)) {
     return state.focusedPartId;
   }

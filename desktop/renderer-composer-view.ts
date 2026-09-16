@@ -3,7 +3,7 @@
  * stopped-generation card that docks above it. */
 import { imageMediaTypeLabel } from "../shared/image-attachment.js";
 import { actionButton, bindDraftInput, el, resizeTextarea } from "./renderer-dom.js";
-import type { ComposerMode, RendererActions, RendererState } from "./renderer-model.js";
+import { effectiveFocusedPartId, type ComposerMode, type RendererActions, type RendererState } from "./renderer-model.js";
 
 const MODES: readonly { readonly mode: ComposerMode; readonly label: string }[] = [
   { mode: "continue", label: "Continue" },
@@ -11,9 +11,11 @@ const MODES: readonly { readonly mode: ComposerMode; readonly label: string }[] 
   { mode: "write", label: "Write it myself" }
 ];
 
-export function eyebrowFor(mode: ComposerMode): string {
+export function eyebrowFor(mode: ComposerMode, writeTargetPartNumber?: number): string {
   if (mode === "direct") return "DIRECT · A NEW TAKE FROM THIS DIRECTION";
-  if (mode === "write") return "WRITE · YOUR OWN WORDS";
+  if (mode === "write") {
+    return writeTargetPartNumber === undefined ? "WRITE · YOUR OWN WORDS" : `WRITE · A TAKE OF ¶ ${writeTargetPartNumber}`;
+  }
   return "CONTINUE · DIRECTION FOR THE NEXT PART";
 }
 
@@ -30,13 +32,32 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
   const blocked = state.stream !== null || state.stoppedGeneration !== null;
   composer.className = `composer${empty ? "" : " composer-typing"}${blocked ? " blocked" : ""}`;
 
+  const story = state.story;
+  const leaf = story?.path.at(-1) ?? null;
+  const focusedId = story === null ? null : effectiveFocusedPartId(state, story);
+  // Continue/direct target the focused part when it is not the leaf
+  // (review-fixes-2 #1); `w`'s own target (#4) is tracked separately in
+  // `state.composerWriteTarget`, since write mode never streams.
+  const continueTarget = story !== null && leaf !== null && focusedId !== null && focusedId !== leaf.id
+    ? { parentId: focusedId }
+    : undefined;
+  const writeTargetIndex = state.composerWriteTarget === null || story === null
+    ? -1
+    : story.path.findIndex((node) => node.id === state.composerWriteTarget!.partId);
+  const writeTargetPartNumber = writeTargetIndex === -1 ? undefined : writeTargetIndex + 1;
+
   if (state.stoppedGeneration !== null) composer.append(renderStoppedGeneration(state.stoppedGeneration, actions));
 
-  composer.append(el("p", "composer-eyebrow", blocked ? "writing… · esc stops" : eyebrowFor(state.composerMode)));
+  composer.append(el("p", "composer-eyebrow", blocked ? "writing… · esc stops" : eyebrowFor(state.composerMode, writeTargetPartNumber)));
 
   const modeGroup = el("div", "composer-mode");
   for (const entry of MODES) {
-    const button = actionButton(`composer-mode-${entry.mode}`, entry.label, () => actions.setComposerMode(entry.mode));
+    const button = actionButton(`composer-mode-${entry.mode}`, entry.label, () => {
+      // Clicking into Write directly (not via `w`) writes at the end, same
+      // as before this fix — only `w` itself sets a target.
+      if (entry.mode === "write") actions.setComposerWriteTarget(null);
+      actions.setComposerMode(entry.mode);
+    });
     button.classList.toggle("active", state.composerMode === entry.mode);
     button.disabled = blocked;
     modeGroup.append(button);
@@ -58,10 +79,10 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
   const submit = actionButton("composer-submit", submitLabel(state.composerMode, empty), () => {
     if (blocked) return;
     if (state.composerMode === "write") {
-      if (prompt.value.trim().length > 0) actions.writeManual(prompt.value);
+      if (prompt.value.trim().length > 0) actions.writeManual(prompt.value, state.composerWriteTarget?.parentId);
       return;
     }
-    actions.continueStory(state.composerMode === "direct" ? "direct" : "continue", prompt.value);
+    actions.continueStory(state.composerMode === "direct" ? "direct" : "continue", prompt.value, continueTarget);
   });
   submit.disabled = blocked;
   prompt.addEventListener("keydown", (event) => {

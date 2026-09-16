@@ -93,6 +93,10 @@ export async function saveFactEditor(ctx: RendererCommandContext): Promise<void>
   // has touched the editor since this request started.
   const stillEditingThisDraft = (): boolean =>
     ctx.state().story?.id === storyId && ctx.state().factEditor?.draft === draft;
+  // A slower save can also finish after the writer left this story entirely
+  // (a different project, or a switch mid-flight); adopting its payload then
+  // would silently restore the story this session left.
+  const stillOwnsStory = (): boolean => ctx.api() === api && ctx.state().story?.id === storyId;
   if (editor.factId === null) {
     const text = draft.body.trim();
     if (text.length === 0) {
@@ -110,8 +114,22 @@ export async function saveFactEditor(ctx: RendererCommandContext): Promise<void>
     };
     await ctx.run("Creating Fact", async () => {
       const next = await api.createFact(story.id, input);
+      if (!stillOwnsStory()) return;
       await ctx.replaceStory(next);
-      if (stillEditingThisDraft()) selectSaved(ctx, next, next.facts.at(-1)?.id);
+      const createdId = next.facts.at(-1)?.id;
+      if (stillEditingThisDraft()) {
+        selectSaved(ctx, next, createdId);
+      } else {
+        // The writer typed more before creation completed: keep that newer
+        // text, but still adopt the created id so the next Save patches
+        // instead of creating a duplicate Fact. Only when the editor is
+        // still drafting this same *new* Fact — not a different, already
+        // saved one the writer switched to meanwhile.
+        const currentEditor = ctx.state().factEditor;
+        if (createdId !== undefined && currentEditor !== null && currentEditor.factId === null) {
+          ctx.setState({ factEditor: { factId: createdId, draft: currentEditor.draft } });
+        }
+      }
       ctx.setState({ status: "Fact saved" });
     });
     return;
@@ -129,6 +147,7 @@ export async function saveFactEditor(ctx: RendererCommandContext): Promise<void>
   if (factBodyEditable(fact) && draft.body !== (factSingleStateText(fact) ?? "")) patch.text = draft.body;
   await ctx.run("Saving Fact", async () => {
     const next = await api.patchFact(story.id, fact.id, patch);
+    if (!stillOwnsStory()) return;
     await ctx.replaceStory(next);
     if (stillEditingThisDraft()) selectSaved(ctx, next, fact.id);
     ctx.setState({ status: "Fact saved" });

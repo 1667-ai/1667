@@ -133,6 +133,7 @@ class RendererApp {
     setSearch: (value) => { this.setState({ search: value }); void this.searchStories(value); },
     openSearchHit: (hit) => { void this.openSearchHit(hit); },
     setComposerMode: (mode) => this.setState({ composerMode: mode }),
+    setComposerWriteTarget: (target) => this.setState({ composerWriteTarget: target }),
     setDirections: (show) => this.setDirections(show),
     setTheme: (theme) => this.setTheme(theme),
     setInspectorHidden: (hidden) => this.setInspectorHidden(hidden),
@@ -174,11 +175,11 @@ class RendererApp {
     unsealProject: () => { void this.unsealProject(); },
     revealProject: () => { void this.revealProject(); },
     showProjects: (show) => this.setState({ showProjects: show }),
-    continueStory: (mode, instruction) => { void this.continueStory(mode, instruction); },
+    continueStory: (mode, instruction, target) => { void this.continueStory(mode, instruction, target); },
     retakeLine: (node, options) => { void this.retakeLine(node, options); },
     rewriteLine: (node, selection) => { void this.rewriteLine(node, selection); },
     summarizeLine: () => { void this.summarizeLine(); },
-    writeManual: (text) => { void this.writeManual(text); },
+    writeManual: (text, parentId) => { void this.writeManual(text, true, parentId); },
     attachImage: (file) => { void this.attachImage(file); },
     removeImage: (index) => this.removeImage(index),
     stopStream: () => this.stopStream(),
@@ -631,7 +632,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, mapCursorId: null, composerWriteTarget: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -807,8 +808,12 @@ class RendererApp {
     const submittedInstruction = instruction.trim();
     const initialComposerDraft = mode === "retake" ? undefined : this.state.drafts.composer;
     const draftImages = mode === "retake" ? [] : this.state.draftImages;
+    // `continue`/`direct` pass an explicit seam target when the focused part
+    // is not the leaf (review-fixes-2 #1); retake's own target is unrelated
+    // to the seam and never appends regardless (`mode !== "continue"`).
+    const fromSeam = target !== undefined && mode !== "retake";
     const append = shouldAppendRendererContinuation(
-      story, mode, submittedInstruction, draftImages.length > 0
+      story, mode, submittedInstruction, draftImages.length > 0, fromSeam
     );
     this.generationStartInFlight = true;
     let appendBaseHash: string | undefined;
@@ -988,7 +993,7 @@ class RendererApp {
     if (story !== null && this.state.draftImages.length > 0) {
       await this.releaseDraftImages(story.id, this.state.draftImages);
     }
-    this.setState({ drafts: {}, draftImages: [], ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+    this.setState({ drafts: {}, draftImages: [], factEditor: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
   }
 
   private resetSettingsEditor(): RendererState["settingsEditor"] {
@@ -1120,19 +1125,20 @@ class RendererApp {
     this.setState({ status: "Stopping…" });
   }
 
-  private async writeManual(text: string, clearComposer = true): Promise<void> {
+  private async writeManual(text: string, clearComposer = true, parentId?: string | null): Promise<void> {
     const api = this.requireApi();
     const story = this.requireStory();
     const value = text;
     if (value.trim().length === 0) return;
     await this.run("Saving line", async () => {
       const next = await api.createNode(story.id, {
-        parentId: story.path.at(-1)?.id ?? null,
+        parentId: parentId !== undefined ? parentId : story.path.at(-1)?.id ?? null,
         text: value
       });
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (clearComposer && this.state.drafts.composer === value) this.setDraft("composer", undefined);
+      if (this.state.composerWriteTarget !== null) this.setState({ composerWriteTarget: null });
     });
   }
 
@@ -1545,7 +1551,9 @@ class RendererApp {
     // without this having been cleared — `editingPartId` has no fallback
     // like `effectiveFocusedPartId`'s "the id is gone, use the leaf").
     const storyChanged = previousStory !== null && previousStory.id !== story.id;
-    this.setState({ story, ...(storyChanged ? { editingPartId: null } : {}) });
+    // A genuinely different story also invalidates the Facts draft (it names
+    // no Fact in the new story), the map cursor, and any pending `w` target.
+    this.setState({ story, ...(storyChanged ? { editingPartId: null, factEditor: null, mapCursorId: null, composerWriteTarget: null } : {}) });
     const stories = this.state.stories.map((summary) => summary.id === story.id ? {
       ...summary,
       title: story.title,

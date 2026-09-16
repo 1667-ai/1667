@@ -24,6 +24,26 @@ const COLD_MS = 21 * 24 * 60 * 60 * 1000;
 const MARGIN_X = 24;
 const MARGIN_Y = 24;
 
+/** The row a fork's branch at this position (0-based, in recency order)
+ * draws on: alternating below (even) and above (odd) the spine, one level
+ * further out every two branches, so every branch up to
+ * `MAX_BRANCHES_PER_FORK` — and the one more bar for its overflow — gets a
+ * distinct, non-overlapping row instead of three rows repeating (review
+ * finding 11). */
+function branchRowOffset(branchIndex: number): number {
+  const level = Math.floor(branchIndex / 2) + 1;
+  const direction = branchIndex % 2 === 0 ? 1 : -1;
+  return level * ROW_HEIGHT * direction;
+}
+
+// The worst case any fork draws is every branch up to the cap plus its own
+// overflow bar (index `MAX_BRANCHES_PER_FORK`); sizing the canvas from that
+// once, at module scope, keeps the margin correct without duplicating the
+// row math above.
+const WORST_CASE_ROW_OFFSETS = Array.from({ length: MAX_BRANCHES_PER_FORK + 1 }, (_, index) => branchRowOffset(index));
+const MAX_ROW_OFFSET_BELOW = Math.max(...WORST_CASE_ROW_OFFSETS.filter((offset) => offset > 0));
+const MAX_ROW_OFFSET_ABOVE = Math.abs(Math.min(...WORST_CASE_ROW_OFFSETS.filter((offset) => offset < 0)));
+
 export interface MapPoint {
   readonly x: number;
   readonly y: number;
@@ -209,7 +229,7 @@ export function computeMapLayout(
   const edges: MapLayoutEdge[] = [];
   const collapsedRuns: MapCollapsedRun[] = [];
   const chapterTicks: MapChapterTick[] = [];
-  const spineY = MARGIN_Y + ROW_HEIGHT * 2;
+  const spineY = MARGIN_Y + MAX_ROW_OFFSET_ABOVE;
 
   if (lo > 0) {
     const hidden = path.slice(0, lo);
@@ -255,7 +275,6 @@ export function computeMapLayout(
     chapterTicks.push({ id: chapter.id, x: xs[index - lo]!, title: chapter.title });
   }
 
-  let rowCursor = 0;
   for (let index = lo; index < hi; index += 1) {
     const branches = branchesByIndex.get(index);
     if (branches === undefined) continue;
@@ -263,10 +282,9 @@ export function computeMapLayout(
     const ordered = [...branches].sort((a, b) => Date.parse(b.lastTouched) - Date.parse(a.lastTouched));
     const shown = ordered.slice(0, MAX_BRANCHES_PER_FORK);
     const overflow = ordered.slice(MAX_BRANCHES_PER_FORK);
-    for (const branchRoot of shown) {
+    shown.forEach((branchRoot, branchIndex) => {
       const subtree = collectSubtree(childrenByParent, nodeStubById, branchRoot.id);
-      rowCursor = (rowCursor % 3) + 1;
-      const y = spineY + rowCursor * ROW_HEIGHT * (rowCursor % 2 === 0 ? -1 : 1);
+      const y = spineY + branchRowOffset(branchIndex);
       const x = parentX + 18;
       if (subtree.length <= 1) {
         const words = branchRoot.words;
@@ -290,10 +308,9 @@ export function computeMapLayout(
         collapsedRuns.push({ id: `run:${branchRoot.id}`, x, y, width: Math.min(120, 20 + subtree.length * 4), count: subtree.length, words: totalWords, tipNodeId: tip.id });
         edges.push({ id: `branch:${path[index]!.id}:${branchRoot.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, cold: false });
       }
-    }
+    });
     if (overflow.length > 0) {
-      rowCursor = (rowCursor % 3) + 1;
-      const y = spineY + rowCursor * ROW_HEIGHT * (rowCursor % 2 === 0 ? -1 : 1);
+      const y = spineY + branchRowOffset(shown.length);
       const x = parentX + 18;
       let count = 0;
       let words = 0;
@@ -313,7 +330,7 @@ export function computeMapLayout(
     ...collapsedRuns.map((run) => run.x + run.width)
   ].reduce((max, value) => Math.max(max, value), MARGIN_X);
   const width = rightmost + MARGIN_X;
-  const height = spineY + ROW_HEIGHT * 3 + MARGIN_Y;
+  const height = spineY + MAX_ROW_OFFSET_BELOW + MARGIN_Y;
 
   return {
     width,

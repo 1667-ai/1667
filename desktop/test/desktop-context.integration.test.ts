@@ -44,7 +44,7 @@ test("desktop next request matches the TUI plan with active settings, Facts, and
       "direct", "The visitor returns."
     ]] as const) {
       const projected = projectRendererContext({
-        story, settings, composerMode, drafts: { composer: direction }, draftImages: [], stream: null
+        story, settings, composerMode, drafts: { composer: direction }, draftImages: [], stream: null, focusedPartId: null
       });
       assert.ok(projected);
       const tui = nextRequestEstimate(story, {
@@ -77,7 +77,7 @@ test("desktop next request matches the TUI plan with active settings, Facts, and
       draftImages: ContextDraftImages
     ): void => {
       const projected = projectRendererContext({
-        story: candidate, settings, composerMode, drafts: { composer: direction }, draftImages, stream: null
+        story: candidate, settings, composerMode, drafts: { composer: direction }, draftImages, stream: null, focusedPartId: null
       });
       assert.ok(projected);
       const tui = nextRequestEstimate(candidate, {

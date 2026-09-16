@@ -113,6 +113,20 @@ test("a fork with many sibling takes caps its drawn branches and folds the rest"
   assert.equal(offPathNodes.length + overflowRuns[0]!.count, 19, "every hidden sibling is still counted");
 });
 
+test("a fork with 5 off-path siblings gets 5 distinct rows (review-fixes-2 finding 11)", () => {
+  // 6 children of p1: sib0 is the shown (on-path) take, sib1..sib5 are the
+  // 5 off-path branches whose rows must not collide (the old 3-row cycle
+  // put sib1 and sib4 at the exact same position).
+  const nodes: OrdinaryNodeStub[] = [stub("p1", null, 5, { childCount: 6 })];
+  for (let index = 0; index < 6; index += 1) nodes.push(stub(`sib${index}`, "p1", 2, { childCount: 0 }));
+  const fixture = story({ nodes, path: [pathNode("p1", null, 5), pathNode("sib0", "p1", 2)] });
+  const layout = computeMapLayout(fixture, "sib0");
+  const offPathNodes = layout.nodes.filter((node) => !node.onPath);
+  assert.equal(offPathNodes.length, 5, "sib1..sib5 are the off-path branches");
+  const ys = new Set(offPathNodes.map((node) => node.y));
+  assert.equal(ys.size, 5, `expected 5 distinct y positions, got ${ys.size}`);
+});
+
 test("two root takes both appear in the layout (review finding 12)", () => {
   const p1 = pathNode("p1", null, 5);
   const fixture = story({

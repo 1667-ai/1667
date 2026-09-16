@@ -124,10 +124,17 @@ export function scalar(config: ScalarConfig): HTMLElement {
   stepDown.classList.add("scalar-step", "scalar-step-down");
   stepDown.setAttribute("aria-label", "Decrease");
   stepDown.disabled = disabled;
+  // A stable, control-specific `data-preserve` key (not the generic
+  // `.control-button` class fallback `render()` uses for an unkeyed button)
+  // so a focused chevron or handle survives the re-render its own arrow
+  // press causes, landing back on itself rather than the first same-class
+  // control anywhere on the page.
+  stepDown.dataset.preserve = `scalar:${config.id}:down`;
   const stepUp = button("quiet", "›", undefined, () => step_(1, false));
   stepUp.classList.add("scalar-step", "scalar-step-up");
   stepUp.setAttribute("aria-label", "Increase");
   stepUp.disabled = disabled;
+  stepUp.dataset.preserve = `scalar:${config.id}:up`;
   for (const [control, direction] of [[stepDown, -1], [stepUp, 1]] as const) {
     control.addEventListener("keydown", (event) => {
       if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
@@ -140,6 +147,7 @@ export function scalar(config: ScalarConfig): HTMLElement {
   const fill = el("div", "scalar-track-fill");
   const tick = el("div", "scalar-track-tick");
   const handle = el("div", "scalar-track-handle");
+  handle.dataset.preserve = `scalar:${config.id}:handle`;
   handle.setAttribute("role", "slider");
   handle.tabIndex = disabled ? -1 : 0;
   handle.setAttribute("aria-valuemin", String(min));

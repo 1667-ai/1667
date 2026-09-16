@@ -7,6 +7,7 @@
 import type { AsidePresenceAnchorResponse } from "../shared/aside-transport.js";
 import type { AsideAnchorView, AsideSessionAnchor } from "../tui/src/aside-surface.js";
 import { actionButton, bindDraftInput, el } from "./renderer-dom.js";
+import { expandInspectorSection } from "./renderer-inspector-view.js";
 import {
   asideHopEntries,
   asideHopStripLayout,
@@ -153,7 +154,16 @@ function renderTurnUseMenu(actions: RendererActions, answer: string): HTMLElemen
   details.append(
     el("summary", "", "Use…"),
     el("div", "aside-turn-use-menu",
-      actionButton("aside-use-note", "Use as author's note", () => actions.setAuthorsNote(answer, undefined)),
+      actionButton("aside-use-note", "Use as author's note", () => {
+        // Stage it (review-fixes-2 #13) rather than persisting straight over
+        // whatever note is already saved: the writer still has to press Save
+        // note to keep it, exactly like typing the answer in by hand.
+        actions.setDraft("authors-note", answer);
+        expandInspectorSection("authors-note");
+        document.querySelector<HTMLElement>('[data-inspector-section="authors-note"]')?.scrollIntoView({ block: "nearest" });
+        actions.closePopover();
+        actions.toast("Answer placed in the Author's Note · Save note keeps it");
+      }),
       actionButton("aside-use-insert", "Insert into story…", () => actions.writeManual(answer)),
       actionButton("aside-use-copy", "Copy", () => { void navigator.clipboard.writeText(answer).then(() => actions.toast("Answer copied")).catch(() => actions.toast("Copy failed")); })
     )

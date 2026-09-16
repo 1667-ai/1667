@@ -196,6 +196,7 @@ function renderFactsSheetPane(story: StoryPayload, state: RendererState, actions
 function renderFactSheet(fact: StoryFact | null, editor: FactEditorState, story: StoryPayload, actions: RendererActions, focusedIndex: number): HTMLElement {
   const sheet = el("section", "fact-sheet");
   const draft = editor.draft;
+  const dirty = factEditorDirty(fact, draft);
   const tokens = fact === null ? 0 : estimateTokens(factSingleStateText(fact) ?? fact.states.map((s) => (isFactEndState(s) ? "" : s.text)).join(" "));
   sheet.append(el("div", "sheet-head",
     el("span", "eyebrow", "Edit fact"),
@@ -256,13 +257,12 @@ function renderFactSheet(fact: StoryFact | null, editor: FactEditorState, story:
     // A saved simple Fact (one story-wide text state) still needs a way to
     // acquire its first anchored state or an End State; a brand-new,
     // never-saved draft (`fact === null`) has no Fact id yet to add one to.
-    if (fact !== null) sheet.append(renderStatesFooter(fact, actions));
+    if (fact !== null) sheet.append(renderStatesFooter(fact, actions, dirty));
   } else {
-    sheet.append(renderStatesSection(fact!, story, actions, focusedIndex));
+    sheet.append(renderStatesSection(fact!, story, actions, focusedIndex, dirty));
   }
 
   const changes = fact === null ? [] : describeFactChanges(fact, draft);
-  const dirty = factEditorDirty(fact, draft);
   if (dirty) {
     const save = button("primary", "Save fact", "⌘S", () => actions.saveFactEditor());
     save.classList.add("fact-editor-save");
@@ -328,7 +328,7 @@ function renderFactKeysField(draft: FactDraft, actions: RendererActions): HTMLEl
   return wrapper;
 }
 
-function renderStatesSection(fact: StoryFact, story: StoryPayload, actions: RendererActions, focusedIndex: number): HTMLElement {
+function renderStatesSection(fact: StoryFact, story: StoryPayload, actions: RendererActions, focusedIndex: number, dirty: boolean): HTMLElement {
   const ordered = orderedFactStates(fact, story.path);
   const resolution = focusedIndex < 0 ? null : resolveFactState(fact, story.path.slice(0, focusedIndex + 1));
   const section = el("div", "fact-states-section");
@@ -340,17 +340,20 @@ function renderStatesSection(fact: StoryFact, story: StoryPayload, actions: Rend
     list.append(renderStateRow(fact, state, index + 1, inForce, story, actions));
   });
   section.append(list);
-  section.append(renderStatesFooter(fact, actions));
+  section.append(renderStatesFooter(fact, actions, dirty));
   return section;
 }
 
 /** The three one-click state-add links (§3), shared by the full STATES list
  * and the simplified Body editor — a simple Fact needs the same way to
- * acquire its first anchored state or End State. */
-function renderStatesFooter(fact: StoryFact, actions: RendererActions): HTMLElement {
-  const anchorButton = button("quiet", "+ State anchored here", undefined, () => actions.addFactStateAnchored(fact));
-  const wideButton = button("quiet", "+ Story-wide state", undefined, () => actions.addFactStateStoryWide(fact));
-  const endButton = button("quiet", "+ End here", undefined, () => actions.addFactStateEnd(fact));
+ * acquire its first anchored state or End State. While the editor is dirty
+ * they are disabled: adding a state re-fetches the Fact from the server,
+ * which would drop an unsaved edit sitting only in the draft. */
+function renderStatesFooter(fact: StoryFact, actions: RendererActions, dirty: boolean): HTMLElement {
+  const reason = dirty ? "Save or revert this Fact first" : undefined;
+  const anchorButton = button("quiet", "+ State anchored here", undefined, () => actions.addFactStateAnchored(fact), reason);
+  const wideButton = button("quiet", "+ Story-wide state", undefined, () => actions.addFactStateStoryWide(fact), reason);
+  const endButton = button("quiet", "+ End here", undefined, () => actions.addFactStateEnd(fact), reason);
   return el("div", "fact-states-footer", anchorButton, wideButton, endButton);
 }
 

@@ -50,6 +50,11 @@ function renderSettingsNav(active: SettingsSectionId, props: SettingsEditorProps
     item.type = "button";
     item.className = `settings-section-item${id === active ? " active" : ""}`;
     item.dataset.settingsSection = id;
+    // A stable key `render()` can find again after `onSelect` rebuilds this
+    // nav (review-fixes-2 #14): without it, the generic same-class fallback
+    // always resolves to the first item (Routes) instead of the one that
+    // had focus.
+    item.dataset.preserve = `settings-section:${id}`;
     item.setAttribute("role", "option");
     item.setAttribute("aria-selected", String(id === active));
     item.append(document.createTextNode(SECTION_LABELS[id]));
@@ -65,7 +70,6 @@ function renderSettingsNav(active: SettingsSectionId, props: SettingsEditorProps
     const index = SETTINGS_SECTION_IDS.indexOf(active);
     const nextIndex = event.key === "ArrowDown" ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
     onSelect(SETTINGS_SECTION_IDS[nextIndex]!);
-    items[nextIndex]!.focus();
   });
   const pendingCount = describeSettingsChanges(props.activeDocument, props.draft).length;
   nav.append(el("p", "settings-revision-summary",

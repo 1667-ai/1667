@@ -126,6 +126,18 @@ function focusedPathIndex(ctx: DesktopCommandContext): number {
   return ctx.story.path.findIndex((node) => node.id === ctx.focused!.id);
 }
 
+/** Continuing (Space) or a direct take from the composer targets the
+ * focused part when it is not the leaf (review-fixes-2 #1), mirroring the
+ * TUI's `continuationIntent` "from a seam": the new take is a child of the
+ * focused part, not an extension of whatever the leaf currently is.
+ * `undefined` at the leaf keeps today's append-at-the-leaf behaviour. */
+function seamTarget(ctx: DesktopCommandContext): { readonly parentId: string } | undefined {
+  const leaf = ctx.story?.path.at(-1);
+  return ctx.focused !== null && leaf !== undefined && ctx.focused.id !== leaf.id
+    ? { parentId: ctx.focused.id }
+    : undefined;
+}
+
 function switchSiblingTake(ctx: DesktopCommandContext, direction: -1 | 1): void {
   if (ctx.focused === null || ctx.siblings.length < 2) return;
   const index = ctx.siblings.findIndex((node) => node.id === ctx.focused!.id);
@@ -153,7 +165,12 @@ function scrollWorkspace(amount: number): void {
 function mapCursorNode(ctx: DesktopCommandContext): StoryPayload["nodes"][number] | null {
   const story = ctx.story;
   if (story === null) return null;
-  const id = ctx.state.mapCursorId ?? effectiveFocusedPartId(ctx.state, story);
+  // A cursor id can outlive the story it pointed into (review-fixes-2 #12):
+  // treat one that names no node here the same as no cursor at all, rather
+  // than going quietly dead.
+  const cursorId = ctx.state.mapCursorId;
+  const validCursorId = cursorId !== null && story.nodes.some((node) => node.id === cursorId) ? cursorId : null;
+  const id = validCursorId ?? effectiveFocusedPartId(ctx.state, story);
   return id === null ? null : story.nodes.find((node) => node.id === id) ?? null;
 }
 
@@ -280,7 +297,7 @@ const TAKE_COMMANDS: readonly DesktopCommand[] = [
     id: "take.continue", group: "Take", label: "Continue this part", binding: "navContinue",
     available: (ctx) => hasStory(ctx) && ctx.state.stream === null && ctx.state.stoppedGeneration === null,
     handles: { mode: "NAV", action: "continue" },
-    run: (ctx) => ctx.actions.continueStory("continue", ctx.state.drafts.composer ?? "")
+    run: (ctx) => ctx.actions.continueStory("continue", ctx.state.drafts.composer ?? "", seamTarget(ctx))
   },
   {
     id: "take.compose", group: "Take", label: "Focus the composer", binding: "navComposeEnter",
@@ -300,7 +317,14 @@ const TAKE_COMMANDS: readonly DesktopCommand[] = [
   {
     id: "take.write", group: "Take", label: "Write a take myself", binding: "navWrite",
     available: hasStory, handles: { mode: "NAV", action: "write" },
-    run: (ctx) => ctx.focusComposer("write")
+    run: (ctx) => {
+      // A sibling take of the focused part (review-fixes-2 #4), mirroring
+      // the TUI's `w` — never a child of whatever the leaf happens to be.
+      if (ctx.focused !== null) {
+        ctx.actions.setComposerWriteTarget({ partId: ctx.focused.id, parentId: ctx.focused.parentId });
+      }
+      ctx.focusComposer("write");
+    }
   },
   {
     id: "take.edit", group: "Take", label: "Edit this part", binding: "navEdit",
@@ -359,24 +383,30 @@ const TAKE_COMMANDS: readonly DesktopCommand[] = [
     id: "take.toggle-thought", group: "Take", label: "Show this part's thought", binding: "navToggleThought",
     available: hasFocus, handles: { mode: "NAV", action: "toggle-thought" },
     run: (ctx) => {
-      if (ctx.focused!.reasoning === true) ctx.actions.inspect("reasoning", ctx.focused!);
-      else ctx.toast(`No thought on ¶ ${focusedPathIndex(ctx) + 1}`);
+      if (ctx.focused!.reasoning === true) {
+        ctx.actions.inspect("reasoning", ctx.focused!);
+        ctx.actions.setTab("inspect");
+      } else ctx.toast(`No thought on ¶ ${focusedPathIndex(ctx) + 1}`);
     }
   },
   {
     id: "take.open-probs", group: "Take", label: "Show token alternatives", binding: "navOpenProbs",
     available: hasFocus, handles: { mode: "NAV", action: "open-probs" },
     run: (ctx) => {
-      if (ctx.focused!.tokenProbabilities === true) ctx.actions.inspect("probabilities", ctx.focused!);
-      else ctx.toast(`No token alternatives on ¶ ${focusedPathIndex(ctx) + 1}`);
+      if (ctx.focused!.tokenProbabilities === true) {
+        ctx.actions.inspect("probabilities", ctx.focused!);
+        ctx.actions.setTab("inspect");
+      } else ctx.toast(`No token alternatives on ¶ ${focusedPathIndex(ctx) + 1}`);
     }
   },
   {
     id: "take.open-records", group: "Take", label: "Show generation records", binding: "navOpenRecords",
     available: hasFocus, handles: { mode: "NAV", action: "open-records" },
     run: (ctx) => {
-      if ((ctx.focused!.generationRecordCount ?? 0) > 0) ctx.actions.inspect("records", ctx.focused!);
-      else ctx.toast(`No generation records on ¶ ${focusedPathIndex(ctx) + 1}`);
+      if ((ctx.focused!.generationRecordCount ?? 0) > 0) {
+        ctx.actions.inspect("records", ctx.focused!);
+        ctx.actions.setTab("inspect");
+      } else ctx.toast(`No generation records on ¶ ${focusedPathIndex(ctx) + 1}`);
     }
   },
   {

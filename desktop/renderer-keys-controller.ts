@@ -81,6 +81,12 @@ export class RendererKeysController {
       this.goToCurrentAsideHopTake();
       return;
     }
+    // A popover owns the keyboard while it is open: only its own supported
+    // keys (Aside's `g`, above; the palette's own field-focused keys, blocked
+    // by `fieldHasFocus()` already) act. Every manuscript/Map key below must
+    // wait for the popover to close, so `r`/`w`/etc. behind the keys sheet or
+    // the Aside popover never reach the underlying destination.
+    if (this.hooks.state().popover !== null) return;
     // Enter/Space already activate a focused button or link (a Library story
     // row, a rail icon); let that native click through instead of resolving
     // `compose`/`continue` out from under it.
@@ -121,7 +127,14 @@ export class RendererKeysController {
       return;
     }
     if (fieldHasFocus()) {
-      (document.activeElement as HTMLElement | null)?.blur();
+      const active = document.activeElement as HTMLElement | null;
+      // Escaping the composer itself also drops a pending `w` target — the
+      // writer backed out, so the next write must not silently still target
+      // whatever part `w` last recorded.
+      if (active?.classList.contains("composer-input") && state.composerWriteTarget !== null) {
+        this.hooks.actions().setComposerWriteTarget(null);
+      }
+      active?.blur();
       return;
     }
     if (state.tab === "map") this.hooks.setTab("write");

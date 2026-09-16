@@ -120,7 +120,9 @@ These keys work with no field focused:
 - `g` and `G` jump to the first and the last part.
 - `r` retakes the focused part with its saved direction.
 - `R` retakes the focused part with a new direction.
-- `w` starts a take that you write yourself.
+- `w` starts a take, for the focused part, that you write yourself. The new
+  take joins the focused part's other takes. It does not add a part after
+  the last part.
 - `e` edits the focused part.
 - `a` opens Aside. `n` opens the Author's Note.
 - `y` copies the focused part. `Y` copies the whole story line.
@@ -204,6 +206,11 @@ shows a title naming the mode. `⇧↵` inserts a newline, `⌘↵` sends, `Esca
 clears focus. **Attach image** attaches a source image. **Save as my own
 line** saves the typed text as your own words, with no model call.
 
+**Continue** and **Direct** target the focused part. When the focused part
+is the last part, they add text after it, the same as before. When the
+focused part is an earlier part, they start a new take there instead. They
+never add text after the last part in that case.
+
 Use the Aside **History** control to select a story position or **Unanchored**
 history. Then select a conversation with **Session**. **New session** starts
 at the current story position. A selected historical conversation keeps its
@@ -232,12 +239,13 @@ Below the hop strip, each turn shows its question, its thinking (when the
 answer has any, folded under a **thinking** disclosure), and its answer. A
 question in progress, or one you just stopped, shows its answer live in the
 same place, above the saved turns. **Retake** asks the last question again.
-**Use…** opens three actions: **Use as author's note** replaces the story's
-Author's Note with the answer, **Insert into story…** saves the answer as
-your own next take, and **Copy** copies the answer text. The question field
-at the bottom asks with **Ask ⌘↵**. Aside
-answers never write to the story on their own; every write goes through
-**Use…** or **Insert into story…**.
+**Use…** opens three actions: **Use as author's note** puts the answer in the
+Author's Note field and opens that field in the inspector. It does not save
+the field. Save the note yourself to keep it; the story's saved Author's Note
+stays the same until you do. **Insert into story…** saves the answer as your
+own next take. **Copy** copies the answer text. The question field at the
+bottom asks with **Ask ⌘↵**. Aside answers never write to the story on their
+own; every write goes through **Use…** or **Insert into story…**.
 
 ### Facts
 

@@ -9,7 +9,7 @@ import { renderPromptPlan, type ChatMessage } from "../shared/prompt-plan.js";
 import { estimateTokens } from "../shared/tokens.js";
 import { isChapterSummaryNodeStub, type StoryPayload } from "../shared/types.js";
 import { resolveContinueRequestDirection } from "../shared/writing-prompt-runtime.js";
-import type { RendererState, StreamMode } from "./renderer-model.js";
+import { effectiveFocusedPartId, type RendererState, type StreamMode } from "./renderer-model.js";
 
 export interface RendererContext {
   readonly messages: readonly ChatMessage[];
@@ -24,17 +24,22 @@ export interface RendererContext {
 }
 
 type ContextInput = Pick<RendererState,
-  "story" | "settings" | "composerMode" | "drafts" | "draftImages" | "stream">;
+  "story" | "settings" | "composerMode" | "drafts" | "draftImages" | "stream" | "focusedPartId">;
 
-/** Match the Host's effective append target before building a continuation. */
+/** Match the Host's effective append target before building a continuation.
+ * `fromSeam` mirrors the TUI's `continuationIntent`: continuing from a part
+ * other than the leaf is always a new branch under that part, never an
+ * append onto the leaf's own text. */
 export function shouldAppendRendererContinuation(
   story: Pick<StoryPayload, "path" | "chapterBreaks">,
   mode: StreamMode,
   instruction: string,
-  hasDraftImages: boolean
+  hasDraftImages: boolean,
+  fromSeam: boolean
 ): boolean {
   const leaf = story.path.at(-1);
   return mode === "continue"
+    && !fromSeam
     && leaf !== undefined
     && instruction.trim().length === 0
     && leaf.role !== "summary"
@@ -48,24 +53,31 @@ export function projectRendererContext(input: ContextInput): RendererContext | n
   if (story === null || settings === null) return null;
   const active = settings.effectiveProse;
   const requestedInstruction = (input.drafts.composer ?? "").trim();
+  const leaf = story.path.at(-1);
+  const focusedId = effectiveFocusedPartId(input, story);
+  const fromSeam = leaf !== undefined && focusedId !== null && focusedId !== leaf.id;
   const append = shouldAppendRendererContinuation(
     // "write" never streams, so it never appends; treat it like "direct" for
     // this projection, which only distinguishes "continue" from everything else.
-    story, input.composerMode === "write" ? "direct" : input.composerMode, requestedInstruction, input.draftImages.length > 0
+    story, input.composerMode === "write" ? "direct" : input.composerMode, requestedInstruction, input.draftImages.length > 0, fromSeam
   );
   const instruction = resolveContinueRequestDirection(
     requestedInstruction, settings.activeWriting, append
   );
   const nodes = story.nodes.filter(isChapterSummaryNodeStub);
+  // At a seam, the context (and the request itself) ends at the focused
+  // part, matching `continuationIntent`'s `contextParts`.
+  const focusedIndex = fromSeam ? story.path.findIndex((node) => node.id === focusedId) : -1;
+  const contextParts = fromSeam && focusedIndex >= 0 ? story.path.slice(0, focusedIndex + 1) : story.path;
   const selected = activeBudgetedFacts(story, {
-    contextParts: story.path, chapterBreaks: story.chapterBreaks, nodes, instruction
+    contextParts, chapterBreaks: story.chapterBreaks, nodes, instruction
   });
   const images = input.draftImages.map((image) => image.attachment);
   const build = (facts: string | null) => continuationPlan(
     resolveAuthorBrief(story.authorBrief, active.systemPrompt), facts,
     story.authorsNote === undefined ? null
       : { text: story.authorsNote, depth: resolveAuthorsNoteDepth(story.authorsNoteDepth) },
-    story.path, instruction, append, supportsAssistantPrefill(active), null,
+    contextParts, instruction, append, supportsAssistantPrefill(active), null,
     story.chapterBreaks, nodes, images,
     settings.effectiveProseContinuationPromptLayout ?? "compatibility"
   );
@@ -111,7 +123,7 @@ export class RendererContextController {
 
   notify(input: ContextInput, api: StoryApi | null): void {
     const identity = [input.story, input.settings, input.composerMode,
-      input.drafts.composer ?? "", input.draftImages, input.stream !== null, api];
+      input.drafts.composer ?? "", input.draftImages, input.stream !== null, input.focusedPartId, api];
     if (identity.every((value, index) => value === this.previous[index])) return;
     this.previous = identity;
     this.cancel();

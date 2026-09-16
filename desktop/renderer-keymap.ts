@@ -106,11 +106,14 @@ export function fieldHasFocus(): boolean {
 
 /** True when the focused element already gives `Enter`/`Space` a browser
  * meaning of its own: activating it (a Library story row, a rail icon, a
- * palette row). `preventDefault()` on the keydown that the TUI keymap would
- * otherwise send for `compose`/`continue` also cancels that native click, so
- * the keymap must not resolve either key while a button or link has focus. */
+ * palette row) or, for `<summary>`, toggling its `<details>` (the request
+ * context and Aside "Use…" disclosures). `preventDefault()` on the keydown
+ * that the TUI keymap would otherwise send for `compose`/`continue` also
+ * cancels that native behaviour, so the keymap must not resolve either key
+ * while one of these has focus. */
 export function activatesOnEnterOrSpace(): boolean {
   const active = document.activeElement;
   return active instanceof HTMLElement
-    && (active instanceof HTMLButtonElement || active instanceof HTMLAnchorElement || active.getAttribute("role") === "button");
+    && (active instanceof HTMLButtonElement || active instanceof HTMLAnchorElement
+      || active.tagName === "SUMMARY" || active.getAttribute("role") === "button");
 }
