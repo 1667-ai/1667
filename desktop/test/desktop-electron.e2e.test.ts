@@ -404,37 +404,36 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await page.waitForSelector(".new-fact", { timeout: 15_000 });
     assert.equal(await page.locator(".fact-card").count(), 2);
     const selectedFact = page.locator(".fact-card").first();
-    assert.equal((await selectedFact.locator(".fact-tag").innerText()).toLowerCase(), "no tag");
-    await selectedFact.locator(".fact-states summary").click();
-    assert.match(await selectedFact.locator(".fact-state-meta").first().innerText(), /after /iu);
-    await selectedFact.locator(".fact-state-edit").click();
+    assert.match((await selectedFact.locator(".fact-tag").innerText()).toLowerCase(), /no tag/u);
+    await selectedFact.locator(".fact-row-select").click();
+    await page.waitForSelector(".fact-sheet .fact-state-row", { timeout: 15_000 });
+    assert.match(await page.locator(".fact-sheet .fact-state-meta").first().innerText(), /anchored after/iu);
+    await page.locator(".fact-sheet .fact-state-edit").first().click();
     await page.waitForSelector(".modal-fields", { timeout: 15_000 });
     await page.fill("[data-dialog-field=text]", "");
     await page.selectOption("[data-dialog-field=scope]", "Story-wide");
     await page.selectOption("[data-dialog-field=ends]", "Yes");
     await page.click(".modal-submit");
-    await page.waitForFunction(() => [...document.querySelectorAll(".fact-state-copy strong")].some((element) => element.textContent === "End State"), { timeout: 15_000 });
-    assert.equal(await selectedFact.locator(".fact-state-edit").count(), 1, "End states must remain editable");
-    await selectedFact.locator(".fact-state-edit").click();
+    await page.waitForFunction(() => [...document.querySelectorAll(".fact-state-copy strong")].some((element) => element.textContent?.includes("End State") === true), { timeout: 15_000 });
+    assert.equal(await page.locator(".fact-sheet .fact-state-edit").count(), 1, "End states must remain editable");
+    await page.locator(".fact-sheet .fact-state-edit").first().click();
     await page.waitForSelector(".modal-fields", { timeout: 15_000 });
     await page.fill("[data-dialog-field=text]", "Reanchored prose");
     await page.selectOption("[data-dialog-field=scope]", "After active part");
     await page.selectOption("[data-dialog-field=ends]", "No");
     await page.click(".modal-submit");
     await page.waitForFunction(() => [...document.querySelectorAll(".fact-state-copy strong")].some((element) => element.textContent === "Reanchored prose"), { timeout: 15_000 });
-    assert.match(await selectedFact.locator(".fact-state-meta").first().innerText(), /after /iu);
+    assert.match(await page.locator(".fact-sheet .fact-state-meta").first().innerText(), /anchored after/iu);
 
     await page.click(".new-fact");
-    await page.fill(".modal-input", "Compass");
-    await page.click(".modal-submit");
-    await page.fill(".modal-input", "A north point for the manuscript.");
-    await page.click(".modal-submit");
+    await page.waitForSelector("[data-preserve=\"fact-editor-name\"]", { timeout: 15_000 });
+    await page.fill("[data-preserve=\"fact-editor-name\"]", "Compass");
+    await page.fill("[data-preserve=\"fact-editor-body\"]", "A north point for the manuscript.");
+    await page.click(".fact-editor-save");
     await page.waitForFunction(() => document.querySelectorAll(".fact-card").length >= 3, { timeout: 15_000 });
-    await page.locator(".fact-edit").last().click();
-    await page.waitForSelector(".modal-fields", { timeout: 15_000 });
-    await page.fill("[data-dialog-field=name]", "North star");
-    await page.fill("[data-dialog-field=tag]", "place");
-    await page.click(".modal-submit");
+    await page.fill("[data-preserve=\"fact-editor-name\"]", "North star");
+    await page.fill("[data-preserve=\"fact-editor-tag\"]", "place");
+    await page.click(".fact-editor-save");
     await page.waitForFunction(
       () => [...document.querySelectorAll(".fact-card h3")].at(-1)?.textContent?.includes("North star") === true,
       { timeout: 15_000 }

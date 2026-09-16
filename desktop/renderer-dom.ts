@@ -45,3 +45,16 @@ export function resizeTextarea(text: HTMLTextAreaElement): void {
   text.style.height = "auto";
   text.style.height = `${Math.max(88, text.scrollHeight)}px`;
 }
+
+/** The eyebrow + serif title + description heading every list-style
+ * destination (Map, Inspect, Facts, Chapters) opens with, with an optional
+ * control (usually a `.panel-heading-actions` group) at the right. */
+export function panelHeading(title: string, description: string, control?: HTMLElement): HTMLElement {
+  const heading = el("div", "panel-heading", el("div", "panel-heading-copy", el("span", "eyebrow", "Workspace"), el("h2", "", title), el("p", "", description)));
+  if (control !== undefined) heading.append(control);
+  return heading;
+}
+
+export function metricRow(label: string, value: string): HTMLElement {
+  return el("div", "metric-row", el("span", "", label), el("strong", "", value));
+}

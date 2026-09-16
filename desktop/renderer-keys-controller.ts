@@ -16,6 +16,8 @@ export interface RendererKeysHooks {
   readonly saveDirtyPart: (node: StoryPathNode, text: string) => void;
   readonly hasDirtySettings: () => boolean;
   readonly saveSettingsDraft: () => void;
+  readonly hasDirtyFactEditor: () => boolean;
+  readonly saveFactEditorDraft: () => void;
 }
 
 const DESTINATION_TABS: readonly RendererTab[] = ["library", "write", "facts", "chapters", "map", "inspect"];
@@ -113,9 +115,10 @@ export class RendererKeysController {
   }
 
   /** ⌘S: save the focused part's edit when its textarea is dirty, else the
-   * settings draft when on Settings, else nothing. Public so the palette's
-   * "Save the current edit" command (chord display only — it does not run
-   * through the keymap dispatch) can call the same logic. */
+   * Facts sheet's draft when on Facts, else the settings draft when on
+   * Settings, else nothing. Public so the palette's "Save the current edit"
+   * command (chord display only — it does not run through the keymap
+   * dispatch) can call the same logic. */
   public saveCurrentEdit(): void {
     const state = this.hooks.state();
     const story = state.story;
@@ -129,6 +132,10 @@ export class RendererKeysController {
           return;
         }
       }
+    }
+    if (state.tab === "facts" && this.hooks.hasDirtyFactEditor()) {
+      this.hooks.saveFactEditorDraft();
+      return;
     }
     if (state.tab === "settings" && this.hooks.hasDirtySettings()) this.hooks.saveSettingsDraft();
   }

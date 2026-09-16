@@ -6,7 +6,6 @@ import {
   type FactInput,
   type FactPatch,
   type FactStatePatch,
-  type FactStateInput,
   type StoryFact,
   type StoryPathNode,
   type StoryPayload,
@@ -329,27 +328,6 @@ export async function moveFact(ctx: RendererCommandContext, factId: string, dire
   await ctx.run("Reordering Facts", async () => { await ctx.replaceStory(await api.reorderFact(story.id, factId, index + direction)); });
 }
 
-export async function addFactState(ctx: RendererCommandContext, fact: StoryFact): Promise<void> {
-  const api = ctx.api();
-  const story = ctx.story();
-  if (api.createFactState === undefined) {
-    ctx.setState({ status: "Fact state editing is unavailable", error: null });
-    return;
-  }
-  const value = (await ctx.textDialog("Fact state text", "", "Type END for an end state."))?.trim();
-  if (value === undefined || value.length === 0) return;
-  const anchorChoice = await ctx.choiceDialog("Fact state scope", ["Story-wide", "After active part"], "Story-wide");
-  if (anchorChoice === null) return;
-  const anchorPartId = anchorChoice === "After active part" ? story.path.at(-1)?.id : undefined;
-  const input: FactStateInput = value.toUpperCase() === "END"
-    ? { ends: true, ...(anchorPartId === undefined ? {} : { anchorPartId }) }
-    : { text: value, ...(anchorPartId === undefined ? {} : { anchorPartId }) };
-  await ctx.run("Adding Fact state", async () => {
-    await ctx.replaceStory(await api.createFactState!(story.id, fact.id, input));
-    ctx.setState({ status: "Fact state added" });
-  });
-}
-
 export async function editFactState(ctx: RendererCommandContext, fact: StoryFact, state: FactState): Promise<void> {
   const api = ctx.api();
   const story = ctx.story();
@@ -429,10 +407,12 @@ export async function deleteFactState(ctx: RendererCommandContext, fact: StoryFa
   });
 }
 
-export async function createChapter(ctx: RendererCommandContext): Promise<void> {
+export async function createChapter(ctx: RendererCommandContext, parentPartId?: string): Promise<void> {
   const api = ctx.api();
   const story = ctx.story();
-  const parent = story.path.at(-1);
+  const parent = parentPartId === undefined
+    ? story.path.at(-1)
+    : story.path.find((node) => node.id === parentPartId);
   if (parent === undefined) return;
   const title = (await ctx.textDialog("Chapter title", "Untitled chapter"))?.trim();
   if (title === undefined) return;
@@ -560,7 +540,7 @@ export async function runFactConsistency(ctx: RendererCommandContext, scope: Fac
     const result = await api.checkFactConsistency({ ...input, planToken: plan.planToken });
     if (!isCurrent()) return;
     await ctx.replaceStory(result.payload);
-    ctx.setState({ factConsistency: result.run, factConsistencyBusy: false, factConsistencySeen: false, status: "Fact check complete" });
+    ctx.setState({ factConsistency: result.run, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], status: "Fact check complete" });
   } catch (error) {
     if (!isCurrent()) return;
     ctx.setState({ factConsistencyBusy: false, status: "Fact check failed", error: error instanceof Error ? error.message : String(error) });
@@ -576,7 +556,7 @@ export async function showFactConsistency(ctx: RendererCommandContext): Promise<
   }
   await ctx.run("Loading Fact findings", async () => {
     const run = await api.getFactConsistencyRun!(story.id);
-    if (ctx.state().story?.id === story.id && ctx.api() === api) ctx.setState({ factConsistency: run });
+    if (ctx.state().story?.id === story.id && ctx.api() === api) ctx.setState({ factConsistency: run, factConsistencyDismissed: [] });
   });
 }
 

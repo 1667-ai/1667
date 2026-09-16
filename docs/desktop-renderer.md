@@ -195,12 +195,65 @@ history. Then select a conversation with **Session**. **New session** starts
 at the current story position. A selected historical conversation keeps its
 original position when you change lines.
 
+### Facts
+
+The Facts destination (`⌘`/`Ctrl` plus `3`) shows the Facts for the active
+story line and lets you edit one Fact at a time.
+
+The list pane on the left has a scope row: **all**, **in force**, **ended**,
+and **unscoped**. Click a scope to show only the Facts in that group. Type
+in the filter field to search by name, tag, or text. The budget line shows
+how many tokens the Facts in force at the focused part use. Set the Facts
+budget in Settings › Story tools.
+
+Each row shows the Fact name, its tag, and its activation. Click **+ New**
+to start a new Fact in the sheet. Click a row to open that Fact in the
+sheet. Use the up and down arrows on a row to reorder Facts.
+
+The sheet on the right shows the selected Fact's fields: Name, Tag,
+Activation, Priority, Keys, and Fact cap. A Fact with one story-wide state
+shows a Body field. A Fact with more than one state, an anchored state, or
+an End State shows a States list instead. Each state shows its text, its
+anchor, and **edit** and **delete** links. Use the three links under the
+list to add a state: anchored at the focused part, story-wide, or an End
+State at the focused part.
+
+A pending bar appears when your draft differs from the saved Fact. It
+names each change. Click **Save fact** (`⌘S`) to save your changes, or
+**Revert** to discard them. Click **Delete fact…** to delete the Fact.
+
+The Fact check card runs a consistency check against the Facts in force.
+Click **Check chapter** to check the focused chapter, or **Check line** to
+check the whole story line. The check reads the story and reports
+contradictions; it does not change a Fact or a part. Findings show above
+the sheet. Each finding names the Fact, quotes the contradicting text, and
+offers **Open ¶** to focus the part on Write, **Open fact** to open the
+Fact in the sheet, and **Dismiss** to remove the finding from view.
+
+### Chapters
+
+The Chapters destination (`⌘`/`Ctrl` plus `4`) shows the active story line
+as a ruler and a table of chapters.
+
+Click **+ Break at ¶ n** to add a chapter break after the focused part.
+Click **Restore removed** after you remove a break to bring it back.
+
+The ruler draws each part as a segment. The width of a segment shows the
+part's word count. A triangle marks the focused part. A darker segment
+shows a chapter with a current summary. The renderer has no call to move a
+break, so you cannot drag a break in this version. Click a segment to
+focus that part on Write.
+
+The table below lists each chapter with its part range, word count, and
+summary state. Click a row to focus the chapter's first part on Write. Use
+**Rename** to change a chapter's title. Use **Summarize** to create or
+replace its summary; the button is disabled while a part in the chapter is
+generating. Use **Edit summary** to change a saved summary by hand. Use
+**Remove** to delete a break; the destination keeps the removed break so
+you can restore it.
+
 The other destinations cover these TUI surfaces:
 
-- Facts (`⌘`/`Ctrl` plus `3`): Fact order, Fact metadata, Fact deletion, Fact creation,
-  Fact state summaries, Fact consistency checks, and the story Facts budget.
-- Chapters (`⌘`/`Ctrl` plus `4`): chapter names, chapter creation, chapter removal and
-  restore, summaries, and summary edits.
 - Map (`⌘`/`Ctrl` plus `5`): branch tree navigation and anchored Fact state links.
 - Inspect (`⌘`/`Ctrl` plus `6`): request context, thought, token alternatives, and
   Generation Record reads.

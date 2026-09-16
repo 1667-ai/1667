@@ -7,7 +7,7 @@ import {
   type DraftImageReference,
   type SourceImageMediaType
 } from "../shared/image-attachment.js";
-import type { StoryPathNode, StoryPayload } from "../shared/types.js";
+import type { StoryFact, StoryPathNode, StoryPayload } from "../shared/types.js";
 import type { SearchHit } from "../shared/story-search.js";
 import { pathTo, subtreeCount } from "../shared/story-tree.js";
 import { rememberedLeafId } from "../shared/story-model.js";
@@ -37,7 +37,6 @@ import { RendererShellController } from "./renderer-shell-controller.js";
 import { RendererKeysController } from "./renderer-keys-controller.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
 import {
-  addFactState,
   createChapter,
   createFact,
   deleteFact,
@@ -65,6 +64,16 @@ import {
   takeFromCut,
   copyLine
 } from "./renderer-story-commands.js";
+import {
+  addFactStateAt,
+  dismissFinding,
+  revertFactEditor,
+  saveFactEditor,
+  selectFact,
+  setFactDraft,
+  startNewFactDraft
+} from "./renderer-facts-commands.js";
+import { factEditorDirty } from "./renderer-facts-model.js";
 import { manageTags } from "./renderer-tag-commands.js";
 import {
   askAside,
@@ -199,14 +208,23 @@ class RendererApp {
     setFactsBudget: (budget) => { void this.setFactsBudget(budget); },
     runFactConsistency: (scope) => { void this.runFactConsistency(scope); },
     showFactConsistency: () => { void this.showFactConsistency(); },
+    dismissFinding: (key) => dismissFinding(this.commandContext(), key),
     createFact: (node, selection) => { void this.createFact(node, selection); },
     editFact: (fact) => { void this.editFact(fact.id); },
     deleteFact: (fact) => { void this.deleteFact(fact.id); },
     moveFact: (fact, direction) => { void this.moveFact(fact.id, direction); },
-    addFactState: (fact) => { void this.addFactState(fact); },
     editFactState: (fact, state) => { void this.editFactState(fact, state); },
     deleteFactState: (fact, state) => { void this.deleteFactState(fact, state); },
-    createChapter: () => { void this.createChapter(); },
+    addFactStateAnchored: (fact) => { void this.addFactStateAt(fact, "anchored"); },
+    addFactStateStoryWide: (fact) => { void this.addFactStateAt(fact, "story-wide"); },
+    addFactStateEnd: (fact) => { void this.addFactStateAt(fact, "end"); },
+    setFactsScope: (scope) => this.setState({ factsScope: scope }),
+    setFactsFilter: (value) => this.setState({ factsFilter: value }),
+    selectFact: (id) => selectFact(this.commandContext(), id),
+    setFactDraft: (patch) => setFactDraft(this.commandContext(), patch),
+    saveFactEditor: () => this.saveFactEditorDraft(),
+    revertFactEditor: () => revertFactEditor(this.commandContext()),
+    createChapter: (partId) => { void this.createChapter(partId); },
     renameChapter: (chapter) => { void this.renameChapter(chapter.id, chapter.title); },
     removeChapter: (chapter) => { void this.removeChapter(chapter.id, chapter.title); },
     summarizeChapter: (chapter) => { void this.summarizeChapter(chapter.id, chapter.title); },
@@ -304,7 +322,9 @@ class RendererApp {
       closeDialog: () => this.resolveDialog(null),
       saveDirtyPart: (node, text) => { void this.editNode(node, text); },
       hasDirtySettings: () => this.hasDirtySettings(),
-      saveSettingsDraft: () => { void this.settingsController.save(); }
+      saveSettingsDraft: () => { void this.settingsController.save(); },
+      hasDirtyFactEditor: () => this.hasDirtyFactEditor(),
+      saveFactEditorDraft: () => this.saveFactEditorDraft()
     });
     this.keysController.start();
     document.addEventListener("compositionstart", () => {
@@ -605,7 +625,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, focusedPartId: null, editingPartId: null, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -1364,6 +1384,10 @@ class RendererApp {
   }
 
   private async createFact(node?: StoryPathNode, selection?: TextSelection): Promise<void> {
+    if (node === undefined && selection === undefined) {
+      startNewFactDraft(this.commandContext());
+      return;
+    }
     await createFact(this.commandContext(), node, selection);
   }
 
@@ -1380,10 +1404,6 @@ class RendererApp {
     await moveFact(this.commandContext(), factId, direction);
   }
 
-  private async addFactState(fact: Parameters<RendererActions["addFactState"]>[0]): Promise<void> {
-    await addFactState(this.commandContext(), fact);
-  }
-
   private async editFactState(
     fact: Parameters<RendererActions["editFactState"]>[0],
     state: Parameters<RendererActions["editFactState"]>[1]
@@ -1398,8 +1418,24 @@ class RendererApp {
     await deleteFactState(this.commandContext(), fact, state);
   }
 
-  private async createChapter(): Promise<void> {
-    await createChapter(this.commandContext());
+  private async addFactStateAt(fact: StoryFact, mode: "anchored" | "story-wide" | "end"): Promise<void> {
+    await addFactStateAt(this.commandContext(), fact, mode);
+  }
+
+  private hasDirtyFactEditor(): boolean {
+    const editor = this.state.factEditor;
+    const story = this.state.story;
+    if (editor === null || story === null) return false;
+    const fact = editor.factId === null ? null : story.facts.find((candidate) => candidate.id === editor.factId) ?? null;
+    return factEditorDirty(fact, editor.draft);
+  }
+
+  private saveFactEditorDraft(): void {
+    void saveFactEditor(this.commandContext());
+  }
+
+  private async createChapter(partId?: string): Promise<void> {
+    await createChapter(this.commandContext(), partId);
   }
 
   private async renameChapter(id: string, current: string): Promise<void> {

@@ -11,7 +11,7 @@ import { closeDesktopApp, goToLibrary, openSettingsSection } from "./electron-te
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
 // Phase 4a (scratchpad/spec/04-controls-settings-facts-chapters.md, §5) —
-// scenarios 1-3. Scenarios 4-5 (Facts, Chapters) belong to phase 4b.
+// scenarios 1-3. Scenarios 4-5 (Facts, Chapters) below are phase 4b.
 
 test("Electron controls: no range, checkbox, or switch anywhere in the renderer DOM", async () => {
   const app = await launch();
@@ -94,6 +94,96 @@ test("Electron controls: a Desktop theme swatch sets the theme and its own type"
     await page.waitForSelector(".part-prose", { timeout: 15_000 });
     const fontFamily = await page.evaluate(() => getComputedStyle(document.querySelector(".part-prose")!).fontFamily);
     assert.match(fontFamily, /Georgia/u);
+  } finally {
+    await teardown(app);
+  }
+});
+
+// Scenario 4: the Facts sheet creates a Fact inline, edits a pending change,
+// reverts it, and the consistency check never touches a Fact.
+test("Electron controls: Facts creates a Fact in the sheet, names a pending change, and the check never edits a Fact", async () => {
+  const app = await launch();
+  try {
+    const page = app.page;
+    await createStory(page, "Facts sheet proof");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    await page.locator(".composer-input").fill("The lighthouse keeper counted the ships every dusk.");
+    await page.locator(".composer-manual").click();
+    await page.waitForSelector(".part-prose", { timeout: 15_000 });
+
+    await page.locator(".tab-facts").click();
+    await page.waitForSelector(".new-fact", { timeout: 15_000 });
+    await page.click(".new-fact");
+    await page.waitForSelector("[data-preserve=\"fact-editor-name\"]", { timeout: 15_000 });
+    await page.fill("[data-preserve=\"fact-editor-name\"]", "Keeper");
+    await page.fill("[data-preserve=\"fact-editor-body\"]", "The keeper has kept the light for forty years.");
+    await page.click(".fact-editor-save");
+    await page.waitForFunction(
+      () => [...document.querySelectorAll(".fact-card h3")].some((element) => element.textContent === "Keeper"),
+      undefined, { timeout: 15_000 }
+    );
+    assert.equal(await page.locator(".fact-card").count(), 1);
+
+    await page.locator(".fact-row-select").first().click();
+    await page.waitForSelector(".fact-priority", { timeout: 15_000 });
+    await page.locator(".fact-priority .segmented-option", { hasText: "High" }).click();
+    await page.waitForSelector(".fact-pending-bar", { timeout: 15_000 });
+    const pendingText = await page.locator(".fact-pending-summary").innerText();
+    assert.match(pendingText, /priority normal → high/u);
+
+    await page.click(".fact-editor-revert");
+    await page.waitForFunction(() => document.querySelector(".fact-pending-bar") === null, undefined, { timeout: 15_000 });
+
+    await page.click(".facts-check-line");
+    await page.waitForSelector(".modal-card", { timeout: 15_000 });
+    await page.click(".modal-submit");
+    await page.waitForSelector(".fact-findings", { timeout: 30_000 });
+    assert.equal(await page.locator(".fact-card").count(), 1, "the check must not create or delete a Fact");
+    assert.equal(await page.locator(".fact-card h3").innerText(), "Keeper", "the check must not edit a Fact");
+  } finally {
+    await teardown(app);
+  }
+});
+
+// Scenario 5: "+ Break at ¶ 2" after focusing part 2 creates a chapter; the
+// ruler shows two chapter labels and a caret under ¶ 2; Remove then Restore
+// removed brings the break back.
+test("Electron controls: Chapters breaks at the focused part, then removes and restores it", async () => {
+  const app = await launch();
+  try {
+    const page = app.page;
+    await createStory(page, "Chapters ruler proof");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    await page.locator(".composer-input").fill("The first paragraph opens the story.");
+    await page.locator(".composer-manual").click();
+    await page.waitForSelector(".part-prose", { timeout: 15_000 });
+    await page.locator(".composer-input").fill("The second paragraph turns the story.");
+    await page.locator(".composer-manual").click();
+    await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length >= 2, undefined, { timeout: 15_000 });
+
+    await page.locator(".manuscript-part").nth(1).locator(".part-prose").click();
+    await page.waitForFunction(() => document.querySelector(".manuscript-part.focused") !== null, undefined, { timeout: 15_000 });
+
+    await page.locator(".tab-chapters").click();
+    await page.waitForSelector(".new-chapter", { timeout: 15_000 });
+    assert.equal(await page.locator(".new-chapter").innerText(), "+ Break at ¶ 2");
+    await page.click(".new-chapter");
+    await page.waitForSelector(".modal-card", { timeout: 15_000 });
+    await page.click(".modal-submit");
+    await page.waitForFunction(() => document.querySelectorAll(".chapter-card").length >= 2, undefined, { timeout: 15_000 });
+    assert.equal(await page.locator(".chapter-ruler-mark").count(), 2, "the ruler names both chapters");
+    assert.equal(await page.locator(".chapter-ruler-part.focused").count(), 1, "the ruler marks the focused ¶ with a caret");
+
+    await page.locator(".chapter-card").nth(1).locator(".chapter-remove").click();
+    await page.waitForSelector(".modal-card", { timeout: 15_000 });
+    await page.click(".modal-submit");
+    await page.waitForFunction(() => document.querySelectorAll(".chapter-card").length === 1, undefined, { timeout: 15_000 });
+
+    await page.waitForSelector(".restore-chapter", { timeout: 15_000 });
+    await page.click(".restore-chapter");
+    await page.waitForFunction(() => document.querySelectorAll(".chapter-card").length === 2, undefined, { timeout: 15_000 });
   } finally {
     await teardown(app);
   }

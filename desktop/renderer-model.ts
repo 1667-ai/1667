@@ -14,6 +14,7 @@ import type { AsideAnchor } from "../shared/aside-session.js";
 import type { SettingsView } from "../shared/settings-v2-view.js";
 import type { DiscoveredModelV2 } from "../shared/settings-v2-types.js";
 import type { FactConsistencyRun } from "../shared/fact-consistency-contract.js";
+import type { FactDraft, FactEditorState, FactsListScope } from "./renderer-facts-model.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import type { ProviderRecoveryContext } from "../shared/provider-recovery.js";
 import type { SearchHit } from "../shared/story-search.js";
@@ -227,6 +228,13 @@ export interface RendererState {
   readonly factConsistency: FactConsistencyRun | null;
   readonly factConsistencyBusy: boolean;
   readonly factConsistencySeen: boolean;
+  /** Keys of findings the writer dismissed from view this run (§3); never
+   * sent anywhere — a finding is machine output, not story data. */
+  readonly factConsistencyDismissed: readonly string[];
+  /** The Facts sheet's inline draft (2a); `null` shows the D-29 empty state. */
+  readonly factEditor: FactEditorState | null;
+  readonly factsScope: FactsListScope;
+  readonly factsFilter: string;
   readonly focusedPartId: string | null;
   /** The one part currently showing `textarea.part-text` in place of its
    * `.part-prose` (D-09). At most one part edits at a time. */
@@ -280,6 +288,10 @@ export const INITIAL_STATE: RendererState = {
   factConsistency: null,
   factConsistencyBusy: false,
   factConsistencySeen: false,
+  factConsistencyDismissed: [],
+  factEditor: null,
+  factsScope: "all",
+  factsFilter: "",
   focusedPartId: null,
   editingPartId: null,
   chapterUndo: null,
@@ -387,14 +399,23 @@ export interface RendererActions {
   readonly setFactsBudget: (budget: number | null) => void;
   readonly runFactConsistency: (scope: "chapter" | "story-line") => void;
   readonly showFactConsistency: () => void;
+  readonly dismissFinding: (key: string) => void;
   readonly createFact: (node?: StoryPathNode, selection?: TextSelection) => void;
   readonly editFact: (fact: StoryFact) => void;
   readonly deleteFact: (fact: StoryFact) => void;
   readonly moveFact: (fact: StoryFact, direction: -1 | 1) => void;
-  readonly addFactState: (fact: StoryFact) => void;
   readonly editFactState: (fact: StoryFact, state: FactState) => void;
   readonly deleteFactState: (fact: StoryFact, state: FactState) => void;
-  readonly createChapter: () => void;
+  readonly addFactStateAnchored: (fact: StoryFact) => void;
+  readonly addFactStateStoryWide: (fact: StoryFact) => void;
+  readonly addFactStateEnd: (fact: StoryFact) => void;
+  readonly setFactsScope: (scope: FactsListScope) => void;
+  readonly setFactsFilter: (value: string) => void;
+  readonly selectFact: (id: string | null) => void;
+  readonly setFactDraft: (patch: Partial<FactDraft>) => void;
+  readonly saveFactEditor: () => void;
+  readonly revertFactEditor: () => void;
+  readonly createChapter: (partId?: string) => void;
   readonly renameChapter: (chapter: ChapterBreak) => void;
   readonly removeChapter: (chapter: ChapterBreak) => void;
   readonly summarizeChapter: (chapter: ChapterBreak) => void;

@@ -1,22 +1,21 @@
-import type { StoryFact, StoryPathNode, StoryPayload } from "../shared/types.js";
-import { isFactEndState, type FactState } from "../shared/fact-state.js";
+import type { StoryPayload } from "../shared/types.js";
 import { estimateTokens } from "../shared/tokens.js";
 import {
-  activeLeaf,
   factLabel,
-  storyChapters,
   type RendererActions,
   type RendererState
 } from "./renderer-model.js";
 import { renderLauncher } from "./renderer-launcher-view.js";
 import { renderSettingsDestination } from "./renderer-settings-sections.js";
-import { actionButton, el } from "./renderer-dom.js";
+import { actionButton, el, metricRow, panelHeading } from "./renderer-dom.js";
 import { renderTitlebar, renderRail, renderFeedbackStack } from "./renderer-shell-view.js";
 import { renderLibraryDestination } from "./renderer-library-view.js";
 import { renderInspector } from "./renderer-inspector-view.js";
 import { renderKeysSheet } from "./renderer-keys-view.js";
 import { renderPalette } from "./renderer-palette-view.js";
 import { renderWriting, renderPartMenu } from "./renderer-manuscript-view.js";
+import { renderFacts } from "./renderer-facts-view.js";
+import { renderChapters } from "./renderer-chapters-view.js";
 
 export function renderApp(root: HTMLElement, state: RendererState, actions: RendererActions): void {
   document.documentElement.dataset.desktopTheme = state.theme;
@@ -202,113 +201,6 @@ function renderRecoveryWarnings(state: RendererState, actions: RendererActions):
   return card;
 }
 
-function renderFacts(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
-  if (!state.factConsistencySeen) queueMicrotask(() => actions.acknowledgeFactConsistencySeen());
-  const panel = el("div", "panel");
-  const factControls = el("div", "panel-heading-actions",
-    actionButton("new-fact", "+ New Fact", actions.createFact),
-    actionButton("facts-check-line", state.factConsistencyBusy ? "Checking…" : "Check line", () => actions.runFactConsistency("story-line")),
-    actionButton("facts-check-chapter", state.factConsistencyBusy ? "Checking…" : "Check chapter", () => actions.runFactConsistency("chapter")),
-    state.factConsistency === null ? "" : actionButton("facts-show-findings", "Show findings", actions.showFactConsistency)
-  );
-  (factControls.querySelectorAll("button") as NodeListOf<HTMLButtonElement>).forEach((button) => { button.disabled = state.factConsistencyBusy; });
-  panel.append(panelHeading("Story Facts", "Durable story memory travels with the active line.", factControls));
-  const list = el("div", "fact-list");
-  if (story.facts.length === 0) list.append(el("p", "empty-copy", "No Facts yet. Add one for a person, place, promise, or rule."));
-  story.facts.forEach((fact, index) => list.append(renderFact(fact, index, story.facts.length, actions)));
-  panel.append(list, el("div", "panel-note", `Facts budget: ${story.factsBudgetTokens === undefined ? "open" : `${story.factsBudgetTokens.toLocaleString()} tokens`}. Set it in Settings › Story tools.`));
-  if (state.factConsistency !== null) panel.append(renderFactConsistency(state.factConsistency, story));
-  return panel;
-}
-
-function renderFactConsistency(run: import("../shared/fact-consistency-contract.js").FactConsistencyRun, story: StoryPayload): HTMLElement {
-  const findings = run.parts.flatMap((part) => part.findings.map((finding) => ({ part, finding })));
-  const card = el("section", "consistency-card");
-  card.append(el("div", "consistency-heading", el("span", "eyebrow", "Fact check"), el("strong", "", `${run.scope} · ${new Date(run.checkedAt).toLocaleString()}`)));
-  if (findings.length === 0) {
-    card.append(el("p", "empty-copy", "No contradictions found in the checked line."));
-    return card;
-  }
-  const list = el("div", "consistency-findings");
-  for (const { part, finding } of findings) {
-    const fact = story.facts.find((candidate) => candidate.id === finding.fact_id);
-    list.append(el("article", "consistency-finding",
-      el("strong", "", fact?.name ?? "Fact"),
-      el("p", "", finding.statement),
-      el("blockquote", "", finding.quote),
-      el("span", "fact-state-meta", `part ${part.partId.slice(0, 8)}`)
-    ));
-  }
-  card.append(list);
-  return card;
-}
-
-function renderFact(fact: StoryFact, index: number, count: number, actions: RendererActions): HTMLElement {
-  const item = el("article", "fact-card");
-  item.dataset.preserve = `fact-card:${fact.id}`;
-  const state = fact.states[0];
-  const body = state !== undefined && "text" in state ? state.text : "End State";
-  const head = el("div", "fact-head", el("span", "fact-index", String(index + 1).padStart(2, "0")), el("h3", "", factLabel(fact)), el("span", "fact-tag", fact.tag?.trim() || "no tag"));
-  const controls = el("div", "fact-controls");
-  controls.append(
-    actionButton("fact-up", "↑", () => actions.moveFact(fact, -1), "Move Fact earlier"),
-    actionButton("fact-down", "↓", () => actions.moveFact(fact, 1), "Move Fact later"),
-    actionButton("fact-edit", "Edit", () => actions.editFact(fact)),
-    actionButton("fact-delete", "Delete", () => actions.deleteFact(fact))
-  );
-  (controls.querySelector(".fact-up") as HTMLButtonElement).disabled = index === 0;
-  (controls.querySelector(".fact-down") as HTMLButtonElement).disabled = index === count - 1;
-  const stateDetails = document.createElement("details");
-  stateDetails.className = "fact-states";
-  stateDetails.dataset.preserve = `fact:states:${fact.id}`;
-  const stateSummary = document.createElement("summary");
-  stateSummary.textContent = `${fact.states.length} state${fact.states.length === 1 ? "" : "s"}`;
-  stateDetails.append(stateSummary);
-  for (const factState of fact.states) {
-    const stateRow = el("div", "fact-state-row");
-    stateRow.dataset.preserve = `fact-state:${fact.id}:${factState.id}`;
-    const stateText = isTextFactState(factState) ? factState.text : "End State";
-    const anchor = factState.anchorPartId === undefined ? "story-wide" : `after ${factState.anchorPartId.slice(0, 8)}`;
-    stateRow.append(el("div", "fact-state-copy", el("strong", "", stateText.slice(0, 160)), el("span", "fact-state-meta", anchor)));
-    const stateControls = el("div", "fact-state-controls");
-    stateControls.append(actionButton("fact-state-edit", "Edit", () => actions.editFactState(fact, factState)));
-    stateControls.append(actionButton("fact-state-delete", "Delete", () => actions.deleteFactState(fact, factState)));
-    stateRow.append(stateControls);
-    stateDetails.append(stateRow);
-  }
-  stateDetails.append(actionButton("fact-state-add", "+ Add state", () => actions.addFactState(fact)));
-  const metadata = [
-    fact.activation,
-    fact.priority === undefined || fact.priority === "normal" ? "normal priority" : `${fact.priority} priority`,
-    fact.keys.length === 0 ? "no keys" : `${fact.keys.length} key${fact.keys.length === 1 ? "" : "s"}`,
-    fact.budgetTokens === undefined ? "no Fact cap" : `${fact.budgetTokens.toLocaleString()} token cap`,
-    `${fact.states.length} state${fact.states.length === 1 ? "" : "s"}`
-  ];
-  item.append(head, el("p", "fact-body", body), el("div", "fact-meta", metadata.join(" · ")), stateDetails, controls);
-  return item;
-}
-
-function renderChapters(story: StoryPayload, state: RendererState, actions: RendererActions): HTMLElement {
-  const panel = el("div", "panel");
-  const controls = el("div", "panel-heading-actions", actionButton("new-chapter", "+ New chapter", actions.createChapter), state.chapterUndo === null ? "" : actionButton("restore-chapter", "Restore removed", actions.restoreChapter));
-  panel.append(panelHeading("Chapters", "Name the turns in the manuscript and keep summaries near their breaks.", controls));
-  const list = el("div", "chapter-list");
-  const chapters = storyChapters(story);
-  for (const [index, chapter] of chapters.entries()) {
-    const openingBreak = index === 0 ? null : chapters[index - 1]?.closedBy ?? null;
-    const summary = chapter.summary?.text === undefined ? undefined : { id: chapter.summary.id, text: chapter.summary.text };
-    list.append(renderChapter(
-      { id: openingBreak?.id ?? "", parentPartId: openingBreak?.parentPartId ?? "", title: chapter.title || (index === 0 ? "Opening chapter" : "Untitled chapter"), createdAt: openingBreak?.createdAt ?? story.createdAt },
-      index === 0,
-      actions,
-      summary,
-      chapter.closedBy?.id
-    ));
-  }
-  panel.append(list);
-  return panel;
-}
-
 function renderMap(story: StoryPayload, actions: RendererActions): HTMLElement {
   const panel = el("div", "panel map-panel");
   panel.append(panelHeading("Branch map", "Every take stays visible. Focus a leaf to return to the manuscript."));
@@ -349,21 +241,6 @@ function renderMap(story: StoryPayload, actions: RendererActions): HTMLElement {
   }
   panel.append(lens);
   return panel;
-}
-
-function renderChapter(chapter: { id: string; parentPartId: string; title: string; createdAt: string }, opening: boolean, actions: RendererActions, summary?: Pick<StoryPathNode, "id" | "text">, summaryBreakId?: string): HTMLElement {
-  const item = el("article", "chapter-card");
-  item.dataset.preserve = `chapter:${chapter.id || "opening"}`;
-  const copy = el("div", "chapter-card-copy", el("h3", "", chapter.title), el("p", "", opening ? "The story opening" : "Break in the active line"));
-  if (summary !== undefined) copy.append(el("p", "chapter-summary-preview", summary.text.slice(0, 180) || "Empty summary"));
-  item.append(el("span", "chapter-index", opening ? "01" : "•"), copy);
-  const controls = el("div", "chapter-controls");
-  controls.append(actionButton("chapter-rename", "Rename", () => actions.renameChapter(chapter)));
-  if (summaryBreakId !== undefined) controls.append(actionButton("chapter-summarize", "Summarize", () => actions.summarizeChapter({ ...chapter, id: summaryBreakId })));
-  if (!opening) controls.append(actionButton("chapter-remove", "Remove", () => actions.removeChapter(chapter)));
-  if (summary !== undefined) controls.append(actionButton("chapter-summary-edit", "Edit summary", () => actions.editChapterSummary(chapter, summary)));
-  item.append(controls);
-  return item;
 }
 
 function renderSettings(state: RendererState, actions: RendererActions): HTMLElement {
@@ -421,20 +298,6 @@ function renderInspect(story: StoryPayload, state: RendererState, actions: Rende
     panel.append(result);
   }
   return panel;
-}
-
-function panelHeading(title: string, description: string, control?: HTMLElement): HTMLElement {
-  const heading = el("div", "panel-heading", el("div", "panel-heading-copy", el("span", "eyebrow", "Workspace"), el("h2", "", title), el("p", "", description)));
-  if (control !== undefined) heading.append(control);
-  return heading;
-}
-
-function metricRow(label: string, value: string): HTMLElement {
-  return el("div", "metric-row", el("span", "", label), el("strong", "", value));
-}
-
-function isTextFactState(state: FactState): state is Extract<FactState, { text: string }> {
-  return !isFactEndState(state);
 }
 
 async function importProfile(actions: RendererActions): Promise<void> {

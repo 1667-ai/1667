@@ -776,6 +776,70 @@ option { background: var(--paper); color: var(--ink); }
 .toggle-on { border-right: 0; }
 .toggle-option.active { background: var(--bar); color: var(--on-bar); }
 
+/* Facts destination (⌘3, 2a): a 420px scoped list beside the editor sheet. */
+.facts-destination { display: flex; align-items: flex-start; gap: 26px; }
+.facts-list { flex: 0 0 420px; min-width: 0; display: flex; flex-direction: column; gap: 12px; }
+.facts-filter { padding: 8px 10px; border: var(--hairline); background: var(--paper); color: var(--ink); }
+.facts-budget-meter { display: grid; gap: 4px; }
+.fact-card.fact-row { padding: 0; overflow: hidden; }
+.fact-card.fact-row.selected { border-left: 2px solid var(--amber); background: var(--paper); }
+.fact-card.fact-row.dim { opacity: .5; }
+.fact-row-select { display: block; width: 100%; padding: 13px 15px; border: 0; background: transparent; color: inherit; text-align: left; font: inherit; }
+.fact-row-select:hover { background: color-mix(in srgb, var(--amber) 8%, transparent); }
+.fact-row .fact-meta { margin-left: 0; }
+.fact-row .fact-controls { margin-top: 0; padding: 0 11px 11px; }
+.fact-check { margin-top: 2px; padding: 14px 15px; border: var(--hairline); background: var(--paper); }
+.fact-check-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: 10px 0 8px; }
+
+.facts-sheet { flex: 1; min-width: 0; display: grid; gap: 18px; align-content: start; }
+.fact-sheet-empty { padding: 40px 0; }
+.fact-sheet { padding: 22px 26px; border: var(--hairline); background: var(--paper); }
+.sheet-head { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; }
+.sheet-saved { color: var(--muted); font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
+.fact-sheet-title { margin: 4px 0 18px; font: 600 26px/1.1 var(--serif); color: var(--graphite); }
+.fact-sheet-fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px 20px; margin-bottom: 18px; }
+.fact-keys-field { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; padding: 8px; border: var(--hairline); background: var(--paper); }
+.fact-key-chip { cursor: pointer; }
+.fact-key-chip:hover { border-color: var(--ember); color: var(--ember); }
+.fact-key-input { flex: 1 1 80px; min-width: 60px; border: 0; background: transparent; color: var(--ink); font: 11px var(--mono); outline: none; }
+.fact-states-section { margin-bottom: 18px; }
+.fact-states-list { display: grid; gap: 8px; margin-top: 8px; }
+.fact-state-row.in-force { border-left: 2px solid var(--amber); background: var(--amber-wash); }
+.fact-state-number { flex: 0 0 auto; color: var(--amber-dark); font: 11px var(--mono); }
+.fact-states-footer { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+.fact-pending-bar { margin-top: 12px; padding: 12px 14px; border: var(--hairline); border-left: 2px solid var(--amber); background: var(--paper); }
+.fact-pending-summary { margin: 0 0 8px; color: var(--amber-dark); font: 11px/1.5 var(--mono); }
+.fact-sheet-footer { margin-top: 18px; }
+
+.fact-findings { padding: 16px; border: 1px solid var(--amber); background: var(--amber-wash); }
+.fact-findings-summary { margin: 4px 0 0; color: var(--muted); font-size: 11px; }
+.finding { margin-top: 10px; padding: 12px; border-left: 2px solid var(--amber-dark); background: var(--paper); }
+.finding-head { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; }
+.finding-head strong { color: var(--amber-dark); font: 600 14px var(--serif); }
+.finding-position { color: var(--muted); font: 10px var(--mono); }
+.finding-statement { margin: 6px 0; font-size: 13px; line-height: 1.45; }
+.finding-quote { margin: 8px 0; color: var(--muted); font: italic 13px/1.4 var(--serif); }
+.finding-quote mark { background: var(--amber-wash); color: var(--ink); }
+.finding-controls { display: flex; gap: 4px; }
+
+/* Chapters destination (⌘4, 2b): the line as a ruler, then a table. */
+.chapter-ruler { margin: 20px 0 24px; }
+.chapter-ruler-track { display: flex; align-items: stretch; height: 26px; background: var(--paper-deep); }
+.chapter-ruler-empty { flex: 1; margin: 0; padding: 0; text-align: center; line-height: 26px; }
+.chapter-ruler-part { position: relative; border: 0; border-right: 1px solid color-mix(in srgb, var(--ivory) 50%, transparent); background: color-mix(in srgb, var(--amber) 45%, transparent); padding: 0; cursor: pointer; }
+.chapter-ruler-part.chapter-end { border-right: 2px solid var(--graphite); }
+.chapter-ruler-part.summarized { background: color-mix(in srgb, var(--amber-dark) 60%, transparent); }
+.chapter-ruler-part:last-child { border-right: 0; }
+.chapter-ruler-part:hover { background: color-mix(in srgb, var(--amber) 65%, transparent); }
+.chapter-ruler-part.focused { background: var(--amber); }
+.chapter-ruler-caret { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); color: var(--amber-dark); font-size: 11px; line-height: 1; }
+.chapter-ruler-marks { display: flex; margin-top: 6px; }
+.chapter-ruler-mark { flex: 1 1 0; min-width: 10ch; overflow: hidden; color: var(--muted); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.chapter-ruler-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--faint); font: 10px var(--mono); }
+.chapter-card-title-row { display: flex; align-items: center; gap: 10px; }
+.chapter-card .chapter-card-meta { margin: 4px 0 0; font: 10px var(--mono); color: var(--muted); }
+.badge { padding: 2px 7px; background: var(--paper-deep); color: var(--muted); font: 9px var(--mono); letter-spacing: .04em; text-transform: uppercase; }
+
 @media (max-width: 1180px) {
   .app-shell { grid-template-columns: 56px minmax(600px, 1fr) 280px; }
   .app-shell.inspector-hidden { grid-template-columns: 56px minmax(600px, 1fr); }
@@ -801,6 +865,8 @@ option { background: var(--paper); color: var(--ink); }
   }
   .settings-editor { grid-template-columns: 1fr; }
   .settings-sections { grid-auto-flow: column; overflow-x: auto; }
+  .facts-destination { flex-direction: column; }
+  .facts-list { flex: 1 1 auto; width: 100%; }
 }
 
 @media (max-width: 680px) {
