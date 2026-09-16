@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.0-beta.2",
+    date: "2026-09-16",
+    body: "- **The desktop app uses the TUI keys.** When no field has focus, the same\n  letters, arrows, and punctuation do the same work as in the TUI. Press `?`\n  to see the list. Press `⌘K` or `Ctrl+K` to open the command palette.\n- **The desktop app has a new layout.** A narrow rail opens the Library,\n  Write, Facts, Chapters, Map, Inspect, and Settings. A panel on the right\n  shows the takes, Facts, Aside, and context for the focused story part.\n- **Story parts show as prose.** Click a part to focus it. Double-click it or\n  press `e` to edit it. A toolbar above the part shows Retake, Rewrite,\n  Direct, and Tag.\n- **Every desktop theme has its own colors and type.** Dark themes no longer\n  show light-gray panels and fields.\n- **Settings shows one section at a time.** A bar names each change before\n  you apply the revision. Numbers use steppers, and on or off settings use\n  two-word toggles.\n- **Facts open in an editor beside the list.** The list shows which Facts\n  apply at the focused part. Fact check findings open the part or the Fact\n  and change neither.\n- **Chapters show the story line to scale.** A new chapter break goes after\n  the focused part.\n- **The Map draws your story line as a straight spine.** Other lines branch\n  from it. A strip above the composer switches between tagged lines.\n- **Aside opens in a larger panel.** Press `!` to see every message from the\n  current session."
+  },
+  {
     version: "0.11.0-beta.1",
     date: "2026-09-15",
     body: "- **1667 has a desktop app.** Open a project and use the writing tools,\n  Facts, chapters, Aside, and Settings on macOS, Windows, or Linux.\n- **Desktop updates support stable and beta channels.** Select a channel in\n  the desktop app to check for its next update. Mac updates use a download\n  link and manual installation.\n- **The Mac download has no Apple identity signature or notarization.**\n  macOS can require **Open Anyway** in **System Settings > Privacy & Security**\n  before the first start.\n- **The TUI keeps your draft after a revision conflict.** It loads the stored\n  story before you retry the edit."
