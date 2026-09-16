@@ -267,7 +267,13 @@ test("Electron review fixes 2: Use as author's note stages the answer instead of
     await page.locator(".story-row").filter({ hasText: "Author note stage proof" }).click();
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
     await page.click(".modal-submit");
-    await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Author note stage proof", undefined, { timeout: 15_000 });
+    // The title already matched before the discard, so wait for the reload
+    // itself: the field shows the persisted note once the story is loaded again.
+    await page.waitForFunction(
+      () => (document.querySelector('[data-preserve="authors-note"]') as HTMLTextAreaElement | null)?.value === "keep me",
+      undefined,
+      { timeout: 15_000 }
+    ).catch(() => undefined);
     assert.equal(await page.locator('[data-preserve="authors-note"]').inputValue(), "keep me", "the saved note must be unchanged until Save note runs");
   } finally {
     await teardown(app);

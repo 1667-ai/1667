@@ -36,7 +36,10 @@ test("Electron settings toggles thoughts, persists profiles, and discards pendin
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     await page.fill(".modal-input", "Settings proof");
     await page.click(".modal-submit");
-    await page.waitForSelector(".story-title", { timeout: 30_000 });
+    // A fresh project already shows a starter story's title, so wait for this
+    // story's own title and for creation to land on Write.
+    await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Settings proof"
+      && document.querySelector(".tab-content.write") !== null, undefined, { timeout: 30_000 });
     await page.click(".tab-settings");
     await page.waitForSelector(".settings-editor", { timeout: 15_000 });
     await openSettingsSection(page, "output");

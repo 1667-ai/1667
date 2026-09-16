@@ -87,6 +87,17 @@ async function test960Geometry(app: ElectronApplication, page: Page): Promise<vo
   assert.ok(workspace!.width >= 600, `the prose column must stay >= 600px wide at 960px (was ${workspace!.width})`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);
   assert.ok(!overflow, "nothing must horizontal-scroll at 960px");
+  // On Windows the 960px window minimum includes the frame, so the page is
+  // narrower than 960px. It must still fit without a horizontal scrollbar.
+  await app.evaluate(({ BrowserWindow }) => {
+    const window = BrowserWindow.getAllWindows()[0];
+    window?.setMinimumSize(900, 600);
+    window?.setContentSize(944, 640);
+  });
+  await page.waitForFunction(() => document.documentElement.clientWidth <= 944, undefined, { timeout: 5_000 });
+  const narrowOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
+  assert.ok(!narrowOverflow, "nothing must horizontal-scroll when the page is narrower than the 960px window");
+  await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setMinimumSize(960, 640));
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1440, 900));
   await page.waitForTimeout(150);
 }

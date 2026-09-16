@@ -187,9 +187,11 @@
 
 * { box-sizing: border-box; }
 
+/* No body min-width: the window minimum (960) counts the frame on Windows,
+   so the page can be a little narrower and must still fit without a
+   horizontal scrollbar. */
 body {
   margin: 0;
-  min-width: 960px;
   min-height: 100vh;
   background: var(--ivory);
 }

@@ -34,7 +34,10 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
     await page.fill(".modal-input", "Vault proof");
     await page.click(".modal-submit");
-    await page.waitForSelector(".story-title", { timeout: 30_000 });
+    // A fresh project already shows a starter story's title, so wait for this
+    // story's own title and for creation to land on Write.
+    await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Vault proof"
+      && document.querySelector(".tab-content.write") !== null, undefined, { timeout: 30_000 });
 
     await goToLibrary(page);
     await page.click(".project-seal");

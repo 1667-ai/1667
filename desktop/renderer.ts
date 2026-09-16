@@ -659,6 +659,10 @@ class RendererApp {
     await this.discardDrafts();
     const requestSequence = ++this.createStorySequence;
     const originLoadStorySequence = this.loadStorySequence;
+    // Land on Write only when the writer stayed where creation started; a
+    // writer who moved to another destination while the story was created
+    // keeps that destination.
+    const originTab = this.state.tab;
     const originStory = this.state.story;
     const originDrafts = JSON.stringify(this.state.drafts);
     const originImageLeases = this.state.draftImages.map((image) => image.leaseId);
@@ -693,7 +697,7 @@ class RendererApp {
         && this.state.story?.id === story.id;
       await this.replaceStory(story);
       if (!isCurrentStory()) return;
-      this.setState({ aside: emptyAsideState(), tab: "write", focusedPartId: null });
+      this.setState({ aside: emptyAsideState(), tab: this.state.tab === originTab ? "write" : this.state.tab, focusedPartId: null });
       await this.loadAside(story);
       if (!isCurrentStory()) return;
       await this.refresh();
