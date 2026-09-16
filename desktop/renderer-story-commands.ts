@@ -12,6 +12,7 @@ import {
   type TagStatus
 } from "../shared/types.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
+import { reconcileFactEditorBody } from "./renderer-facts-commands.js";
 import { effectiveFocusedPartId, type TextSelection } from "./renderer-model.js";
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import type { FactConsistencyScope } from "../shared/fact-consistency-contract.js";
@@ -392,6 +393,7 @@ export async function editFactState(ctx: RendererCommandContext, fact: StoryFact
   if (!anchorChanged && !valueChanged) return;
   await ctx.run("Editing Fact state", async () => {
     await ctx.replaceStory(await api.patchFactState!(story.id, fact.id, state.id, patch));
+    reconcileFactEditorBody(ctx, fact.id);
     ctx.setState({ status: "Fact state updated" });
   });
 }
@@ -403,6 +405,7 @@ export async function deleteFactState(ctx: RendererCommandContext, fact: StoryFa
   if (!await ctx.confirmDialog("Delete Fact state", "Delete this Fact state?")) return;
   await ctx.run("Deleting Fact state", async () => {
     await ctx.replaceStory(await api.deleteFactState!(story.id, fact.id, state.id));
+    reconcileFactEditorBody(ctx, fact.id);
     ctx.setState({ status: "Fact state deleted" });
   });
 }

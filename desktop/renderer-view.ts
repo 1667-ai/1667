@@ -3,7 +3,7 @@ import { estimateTokens } from "../shared/tokens.js";
 import type { RendererActions, RendererState } from "./renderer-model.js";
 import { renderLauncher } from "./renderer-launcher-view.js";
 import { renderSettingsDestination } from "./renderer-settings-sections.js";
-import { actionButton, el, metricRow, panelHeading } from "./renderer-dom.js";
+import { actionButton, el, focusPopoverCard, metricRow, panelHeading } from "./renderer-dom.js";
 import { renderTitlebar, renderRail, renderFeedbackStack } from "./renderer-shell-view.js";
 import { renderLibraryDestination } from "./renderer-library-view.js";
 import { renderInspector } from "./renderer-inspector-view.js";
@@ -35,14 +35,29 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
     renderWorkspace(state, actions),
     ...(state.inspectorHidden ? [] : [renderInspector(state, actions)])
   );
-  if (state.popover?.kind === "keys") shell.append(renderKeysSheet(actions));
+  if (state.popover?.kind === "keys") {
+    const sheet = renderKeysSheet(actions);
+    shell.append(sheet);
+    if (!hadPopover) focusPopoverCard(sheet);
+  }
   if (state.popover?.kind === "palette") shell.append(renderPalette(state, actions, !hadPopover));
   if (state.popover?.kind === "part-menu") {
     const menu = renderPartMenu(state, actions, state.popover.partId);
-    if (menu !== null) shell.append(menu);
+    if (menu !== null) {
+      shell.append(menu);
+      if (!hadPopover) focusPopoverCard(menu);
+    }
   }
-  if (state.popover?.kind === "aside") shell.append(renderAsidePopover(state, actions));
-  if (state.popover?.kind === "log") shell.append(renderLogPopover(state, actions));
+  if (state.popover?.kind === "aside") {
+    const aside = renderAsidePopover(state, actions);
+    shell.append(aside);
+    if (!hadPopover) focusPopoverCard(aside);
+  }
+  if (state.popover?.kind === "log") {
+    const log = renderLogPopover(state, actions);
+    shell.append(log);
+    if (!hadPopover) focusPopoverCard(log);
+  }
   const dialog = renderDialog(state, actions, !hadDialog);
   if (dialog !== null) shell.append(dialog);
   root.replaceChildren(shell);

@@ -175,6 +175,8 @@ focuses the composer in Direct mode. **Tag** (`t`) names the story line
 through this part. The **···** button opens more actions: Take from cut,
 Fact from selection, New Fact here, Copy line below, Paste below, Write from
 here, Summary take, Prune unused takes, Remove tag, Inspect, and Delete part.
+Write from here moves focus to that part, so your next Continue, Direct, or
+`w` builds on it.
 
 When a part has more than one take, the gutter shows `‹ take j/k ›` and a
 take gauge: dots for up to 12 takes, a positional track beyond that. Click a
@@ -209,7 +211,9 @@ line** saves the typed text as your own words, with no model call.
 **Continue** and **Direct** target the focused part. When the focused part
 is the last part, they add text after it, the same as before. When the
 focused part is an earlier part, they start a new take there instead. They
-never add text after the last part in that case.
+never add text after the last part in that case. When they start a new take,
+focus moves to it, so your next Continue, Direct, or `w` builds on that new
+take instead of starting another one from the same earlier part.
 
 Use the Aside **History** control to select a story position or **Unanchored**
 history. Then select a conversation with **Session**. **New session** starts

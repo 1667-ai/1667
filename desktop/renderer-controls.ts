@@ -116,8 +116,7 @@ export function scalar(config: ScalarConfig): HTMLElement {
   const step_ = (direction: 1 | -1, big: boolean): void => {
     if (disabled) return;
     const amount = step * (big ? 10 : 1);
-    const next = clamp(currentNumeric() + direction * amount, min, max);
-    input.value = format(roundToStep(next, step));
+    input.value = format(steppedScalarValue(currentNumeric(), direction * amount, min, max, step));
     config.onChange(input.value);
   };
   const stepDown = button("quiet", "‹", undefined, () => step_(-1, false));
@@ -227,6 +226,15 @@ function roundToStep(value: number, step: number): number {
   const rounded = Math.round(value / step) * step;
   // Kill float noise (0.1 + 0.2 stepping) without inventing a display precision policy.
   return Math.round(rounded * 1e6) / 1e6;
+}
+
+/** One chevron/keyboard step: round to the step size, *then* clamp to the
+ * bounds, matching the drag path (`applyPointer`) below — rounding after an
+ * earlier clamp can walk back out of range (min 1, step 100: decreasing 100
+ * clamps to 1, then rounds to 0). Exported for the unit test
+ * (review-fixes-3 #12). */
+export function steppedScalarValue(current: number, delta: number, min: number, max: number, step: number): number {
+  return clamp(roundToStep(current + delta, step), min, max);
 }
 
 /** No numeric value survives garbage text, so an unparseable typed value

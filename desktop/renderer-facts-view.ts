@@ -321,8 +321,12 @@ function renderFactKeysField(draft: FactDraft, actions: RendererActions): HTMLEl
     event.preventDefault();
     const value = input.value.trim();
     if (value.length === 0) return;
-    if (!draft.keys.includes(value)) actions.setFactDraft({ keys: [...draft.keys, value] });
+    // Clear before the state update: `setFactDraft` rebuilds the sheet
+    // synchronously, and `render()`'s generic focus-preservation copies this
+    // input's *current* value onto its replacement, so clearing after the
+    // update would only touch the detached original (review-fixes-3 #10).
     input.value = "";
+    if (!draft.keys.includes(value)) actions.setFactDraft({ keys: [...draft.keys, value] });
   });
   wrapper.append(input);
   return wrapper;

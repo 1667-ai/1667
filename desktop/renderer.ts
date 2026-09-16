@@ -788,6 +788,11 @@ class RendererApp {
   ): Promise<void> {
     const api = this.requireApi();
     const story = this.requireStory();
+    // Advancing focus to the landed take (below) must not clobber a focus
+    // move the writer made *during* the stream (review-fixes-3 #6) — compare
+    // against this snapshot from before the request started, not whatever
+    // `state.focusedPartId` is by the time the response lands.
+    const focusedPartIdAtStart = this.state.focusedPartId;
     if (this.state.stream !== null || this.generationStartInFlight) return;
     if (this.state.stoppedGeneration !== null) {
       const summary = this.state.stoppedGeneration.mode === "summary";
@@ -881,7 +886,16 @@ class RendererApp {
         && initialComposerDraft.trim() === submittedInstruction) this.setDraft("composer", undefined);
       const submittedImageLeases = new Set(draftImages.map((image) => image.leaseId));
       const remainingImages = this.state.draftImages.filter((image) => !submittedImageLeases.has(image.leaseId));
-      this.setState({ stream: null, stoppedGeneration: null, draftImages: remainingImages, status: result.droppedFacts.length === 0 ? "Saved" : `${result.droppedFacts.length} Fact${result.droppedFacts.length === 1 ? "" : "s"} dropped to fit context` });
+      // Continue/direct advance focus to the take that just landed — the
+      // TUI's own settlement rule — so the next Space or `w` targets it
+      // instead of re-using this same seam (review-fixes-3 #6). Retake
+      // already keeps focus on the part it retook. Skipped when the writer
+      // moved focus while this streamed.
+      const newLeafId = result.payload.path.at(-1)?.id ?? null;
+      const focusSettlement = mode !== "retake" && newLeafId !== null && this.state.focusedPartId === focusedPartIdAtStart
+        ? { focusedPartId: newLeafId }
+        : {};
+      this.setState({ stream: null, stoppedGeneration: null, draftImages: remainingImages, status: result.droppedFacts.length === 0 ? "Saved" : `${result.droppedFacts.length} Fact${result.droppedFacts.length === 1 ? "" : "s"} dropped to fit context`, ...focusSettlement });
     } catch (error) {
       const current = this.currentStream();
       if (current === null || current.id !== streamId) return;
@@ -1261,6 +1275,10 @@ class RendererApp {
       const next = await api.switchLine(story.id, node.id, { stopAtNode: true });
       for (const key of drafts) this.setDraft(key, undefined);
       await this.replaceStory(next);
+      // "Write from here" (review-fixes-3 #7) must move focus to the part it
+      // just switched to, matching `switchToNode`'s own take-switch — without
+      // it the next continuation still branches from wherever focus was.
+      this.setState({ focusedPartId: node.id });
     });
   }
 

@@ -93,7 +93,7 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
   });
 
   const manual = actionButton("composer-manual", "Save as my own line", () => {
-    if (!blocked && prompt.value.trim().length > 0) actions.writeManual(prompt.value);
+    if (!blocked && prompt.value.trim().length > 0) actions.writeManual(prompt.value, state.composerWriteTarget?.parentId);
   });
   manual.disabled = blocked;
 

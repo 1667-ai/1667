@@ -673,7 +673,7 @@ option { background: var(--paper); color: var(--ink); }
 .recovery-row { display: grid; grid-template-columns: 1fr auto; gap: 8px 12px; align-items: center; padding: 9px 10px; border-left: 2px solid var(--amber); background: var(--paper); }
 .recovery-row strong { font: 13px var(--serif); }
 .recovery-row p { grid-column: 1 / -1; }
-.modal-backdrop { position: fixed; z-index: 10; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay); }
+.modal-backdrop { position: fixed; z-index: 13; inset: 0; display: grid; place-items: center; padding: 24px; background: var(--overlay); }
 .modal-card { width: min(420px, 100%); padding: 22px; border: var(--hairline-strong); background: var(--paper); box-shadow: var(--shadow-lg); }
 .modal-form-card { width: min(560px, 100%); }
 .modal-copy h2 { margin: 7px 0 8px; color: var(--graphite); font: 600 28px/1.1 var(--serif); }

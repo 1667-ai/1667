@@ -86,7 +86,16 @@ export class RendererKeysController {
     // by `fieldHasFocus()` already) act. Every manuscript/Map key below must
     // wait for the popover to close, so `r`/`w`/etc. behind the keys sheet or
     // the Aside popover never reach the underlying destination.
-    if (this.hooks.state().popover !== null) return;
+    if (this.hooks.state().popover !== null) {
+      // Opening a popover moves focus into it, but if focus is ever left
+      // behind on a background control (review-fixes-3 #4), Enter/Space
+      // still natively activate it — that native activation runs whether or
+      // not our own dispatch below does, so it must be stopped here too.
+      if ((event.key === "Enter" || event.key === " ") && !this.eventTargetInsidePopover(event)) {
+        event.preventDefault();
+      }
+      return;
+    }
     // Enter/Space already activate a focused button or link (a Library story
     // row, a rail icon); let that native click through instead of resolving
     // `compose`/`continue` out from under it.
@@ -128,13 +137,18 @@ export class RendererKeysController {
     }
     if (fieldHasFocus()) {
       const active = document.activeElement as HTMLElement | null;
+      // Blur before clearing the target: clearing it synchronously rebuilds
+      // the composer and `render()`'s generic focus-preservation refocuses
+      // whatever now sits at the same preserved key, so blurring the
+      // (about-to-be-detached) original afterward would do nothing
+      // (review-fixes-3 #9). Blurring first leaves no focused element for
+      // that preservation to find.
+      const isComposerWithTarget = active?.classList.contains("composer-input") && state.composerWriteTarget !== null;
+      active?.blur();
       // Escaping the composer itself also drops a pending `w` target — the
       // writer backed out, so the next write must not silently still target
       // whatever part `w` last recorded.
-      if (active?.classList.contains("composer-input") && state.composerWriteTarget !== null) {
-        this.hooks.actions().setComposerWriteTarget(null);
-      }
-      active?.blur();
+      if (isComposerWithTarget) this.hooks.actions().setComposerWriteTarget(null);
       return;
     }
     if (state.tab === "map") this.hooks.setTab("write");
@@ -166,6 +180,11 @@ export class RendererKeysController {
       return;
     }
     if (state.tab === "settings" && this.hooks.hasDirtySettings()) this.hooks.saveSettingsDraft();
+  }
+
+  private eventTargetInsidePopover(event: KeyboardEvent): boolean {
+    const popover = document.querySelector<HTMLElement>(".popover");
+    return popover !== null && event.target instanceof Node && popover.contains(event.target);
   }
 
   private goToCurrentAsideHopTake(): void {

@@ -27,10 +27,15 @@ export interface FactDraft {
 }
 
 /** `factId: null` means the sheet is drafting a Fact that does not exist on
- * the story yet (the list's `+ New`); saving switches it to the created id. */
+ * the story yet (the list's `+ New`); saving switches it to the created id.
+ * `session` identifies which editor instance this is — it changes on
+ * `startNewFactDraft`, `selectFact`, and `revertFactEditor`, but not while
+ * typing, so an in-flight create's response can tell whether it is still
+ * landing in the draft that requested it (review-fixes-3 #1). */
 export interface FactEditorState {
   readonly factId: string | null;
   readonly draft: FactDraft;
+  readonly session: number;
 }
 
 export function blankFactDraft(): FactDraft {

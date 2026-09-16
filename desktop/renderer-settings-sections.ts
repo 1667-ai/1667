@@ -69,7 +69,16 @@ function renderSettingsNav(active: SettingsSectionId, props: SettingsEditorProps
     event.preventDefault();
     const index = SETTINGS_SECTION_IDS.indexOf(active);
     const nextIndex = event.key === "ArrowDown" ? (index + 1) % items.length : (index - 1 + items.length) % items.length;
-    onSelect(SETTINGS_SECTION_IDS[nextIndex]!);
+    const next = SETTINGS_SECTION_IDS[nextIndex]!;
+    onSelect(next);
+    // `onSelect` rebuilds this nav with a *different* item now stable-keyed
+    // (review-fixes-2 #14), so `render()`'s generic focus-preservation finds
+    // the old item again by that same key and refocuses it — move focus to
+    // the newly active item once that render has settled (review-fixes-3
+    // #11).
+    queueMicrotask(() => {
+      document.querySelector<HTMLElement>(`.settings-sections [data-settings-section="${next}"]`)?.focus();
+    });
   });
   const pendingCount = describeSettingsChanges(props.activeDocument, props.draft).length;
   nav.append(el("p", "settings-revision-summary",

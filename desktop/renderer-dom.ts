@@ -22,6 +22,21 @@ export function el<K extends keyof HTMLElementTagNameMap>(
   return element;
 }
 
+/** Focuses a popover's own card right after it first mounts (D-05):
+ * `.popover-card` gets `tabindex="-1"` so it is programmatically focusable
+ * without joining the Tab order, mirroring the palette's own `focusInitial`
+ * pattern for its input. Queued as a microtask so it wins over `render()`'s
+ * generic focus-preservation, which runs synchronously just afterward and
+ * would otherwise refocus whatever manuscript control the popover now covers
+ * (review-fixes-3 #4). Call only when the popover just opened (not on every
+ * re-render while it is already open) — the caller already tracks that. */
+export function focusPopoverCard(popover: HTMLElement): void {
+  const card = popover.querySelector<HTMLElement>(".popover-card");
+  if (card === null) return;
+  card.tabIndex = -1;
+  queueMicrotask(() => card.focus());
+}
+
 export function actionButton(className: string, label: string, action: () => void, title?: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
