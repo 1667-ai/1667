@@ -175,6 +175,16 @@ const DESKTOP_COMMANDS: readonly DesktopCommand[] = [
     run: (ctx) => ctx.actions.openKeys()
   },
   {
+    id: "desktop.open-log", group: "Desktop", label: "Log", binding: "navOpenLog",
+    available: always, handles: { mode: "NAV", action: "open-log" },
+    run: (ctx) => ctx.actions.openLog()
+  },
+  {
+    id: "map.open-log", group: "Desktop", label: "Log", binding: "mapOpenLog", hideFromPalette: true,
+    available: always, handles: { mode: "MAP", action: "open-log" },
+    run: (ctx) => ctx.actions.openLog()
+  },
+  {
     id: "desktop.toggle-directions", group: "Desktop", label: "Toggle directions", binding: "navToggleInstructions",
     available: hasStory, handles: { mode: "NAV", action: "toggle-instructions" },
     run: (ctx) => ctx.actions.setDirections(!ctx.state.showDirections)

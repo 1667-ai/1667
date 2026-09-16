@@ -6,6 +6,7 @@
 import type { StoryPathNode } from "../shared/types.js";
 import { buildDesktopCommandContext, commandForAction } from "./renderer-commands.js";
 import { activatesOnEnterOrSpace, fieldHasFocus, resolveDesktopBinding } from "./renderer-keymap.js";
+import { currentAsideHopTakeId } from "./renderer-aside-popover-view.js";
 import { effectiveFocusedPartId, type RendererActions, type RendererState, type RendererTab } from "./renderer-model.js";
 
 export interface RendererKeysHooks {
@@ -68,6 +69,14 @@ export class RendererKeysController {
     // Letters (and the TUI's other plain/chord keys) act only when no field
     // owns the keyboard — typing must reach the field instead.
     if (fieldHasFocus()) return;
+    // The aside popover's own `g` ("go to this take") shadows NAV's `g`
+    // ("jump to the first part") while it is open — the popover is not a
+    // destination, so the keymap dispatch below never sees it otherwise.
+    if (this.hooks.state().popover?.kind === "aside" && event.key.toLowerCase() === "g" && !event.shiftKey && !event.altKey) {
+      event.preventDefault();
+      this.goToCurrentAsideHopTake();
+      return;
+    }
     // Enter/Space already activate a focused button or link (a Library story
     // row, a rail icon); let that native click through instead of resolving
     // `compose`/`continue` out from under it.
@@ -138,5 +147,15 @@ export class RendererKeysController {
       return;
     }
     if (state.tab === "settings" && this.hooks.hasDirtySettings()) this.hooks.saveSettingsDraft();
+  }
+
+  private goToCurrentAsideHopTake(): void {
+    const actions = this.hooks.actions();
+    const takeId = currentAsideHopTakeId(this.hooks.state().aside);
+    if (takeId === null) {
+      actions.toast("No take for this session");
+      return;
+    }
+    actions.switchNode(takeId);
   }
 }

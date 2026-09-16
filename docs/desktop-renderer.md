@@ -5,6 +5,9 @@ read_when:
   - changing desktop/renderer-view.ts
   - changing desktop/renderer-manuscript-view.ts
   - changing desktop/renderer-composer-view.ts
+  - changing desktop/renderer-map-view.ts or renderer-map-layout.ts
+  - changing desktop/renderer-braid-view.ts
+  - changing desktop/renderer-aside-popover-view.ts or renderer-aside-hop.ts
   - adding a desktop Renderer integration test
 ---
 
@@ -125,6 +128,7 @@ These keys work with no field focused:
 - `p` toggles directions. `F` toggles the inspector.
 - `o`, `f`, `c`, `m`, and `,` open Library, Facts, Chapters, Map, and
   Settings.
+- `!` opens the log.
 
 Press `⌘`/`Ctrl` plus `K`, or the titlebar chip, to open the command palette.
 Type to filter the list. Use the arrow keys to move through it, `Enter` to
@@ -183,6 +187,16 @@ offers Save or Discard. A stopped summary take can only be discarded.
 Provider generation IDs remain attached to saved text. If the Host can no
 longer save a stopped rewrite, use **Copy text** before you discard it.
 
+A braid strip can show above the composer. It draws one ribbon for your
+current story line and one ribbon for each tagged story line that shares
+your line up to the focused part. Your ribbon is straight and amber; a
+tagged line's ribbon is amber-soft. A ribbon's width shows its word count.
+Click a tagged ribbon to switch to that story line. The strip stays hidden
+when no other tagged line passes through the focused part. When more than
+four lines pass through the focused part, the strip shows your line, the
+three nearest tagged lines by where they forked from your line, and a count
+of the rest; click the count to open Map at the focused part.
+
 The composer sits at the bottom of Write. At rest it shows one line: a
 placeholder direction hint, the mode buttons (**Continue**, **Direct**,
 **Write it myself**), and the primary button. Typing grows the field and
@@ -193,7 +207,35 @@ line** saves the typed text as your own words, with no model call.
 Use the Aside **History** control to select a story position or **Unanchored**
 history. Then select a conversation with **Session**. **New session** starts
 at the current story position. A selected historical conversation keeps its
-original position when you change lines.
+original position when you change lines. Click the **⇱** button on the Aside
+section's header to pop Aside out into its own window (see "Aside popover"
+below). `Escape` docks it back into the inspector.
+
+### Aside popover
+
+The Aside popover shows the same Aside state as the inspector section, at
+full width. It opens from the inspector's **⇱** button and closes with
+`Escape`, which returns you to the inspector.
+
+The header names the focused part, the shown take, the session number, and
+the session title. **History** selects a story position or unanchored
+history, the same as the inspector's control. **New session** starts a
+session at the current story position. **⇲ dock** closes the popover.
+
+The hop strip lists every position with a saved Aside session. The current
+position shows inside brackets, for example `[ ¶ 12 · t2 ×2 ]`. Click another
+entry to jump to its position. Hidden entries at either end show as a count,
+for example `‹3 …`. Press `g`, with no field focused, to switch the story to
+the take of the position the hop strip currently shows.
+
+Below the hop strip, each turn shows its question, its thinking (when the
+answer has any, folded under a **thinking** disclosure), and its answer.
+**Retake** asks the last question again. **Use…** opens three actions: **Use
+as author's note** replaces the story's Author's Note with the answer, **Insert
+into story…** saves the answer as your own next take, and **Copy** copies the
+answer text. The question field at the bottom asks with **Ask ⌘↵**. Aside
+answers never write to the story on their own; every write goes through
+**Use…** or **Insert into story…**.
 
 ### Facts
 
@@ -252,12 +294,43 @@ generating. Use **Edit summary** to change a saved summary by hand. Use
 **Remove** to delete a break; the destination keeps the removed break so
 you can restore it.
 
-The other destinations cover these TUI surfaces:
+### Map
 
-- Map (`⌘`/`Ctrl` plus `5`): branch tree navigation and anchored Fact state links.
-- Inspect (`⌘`/`Ctrl` plus `6`): request context, thought, token alternatives, and
-  Generation Record reads.
-- Settings (`⌘`/`Ctrl` plus `,`): see "Settings" below.
+The Map destination (`⌘`/`Ctrl` plus `5`) draws the story as a stemma. Your
+story line runs as a straight, 3px amber spine, one circle per part. A
+circle's size shows the part's word count. A ring around a circle marks the
+shown take at a fork with more than one take. A diamond marks a summary
+part.
+
+Every other take leaves the spine on a curved, amber-soft line. A take with
+no words and no further takes shows small and faint, with a `✕` label. A
+take untouched for more than three weeks shows faint. A run of takes with
+one take each collapses to one bar; click the bar to focus its newest take.
+A fork with many sibling takes shows the eight most recently touched takes
+and folds the rest into one bar.
+
+The map draws at most 120 circles and bars at once. When the story has more
+parts than fit, it shows a window of parts around the focused part and folds
+the parts outside the window into one bar at each end.
+
+Click a circle to focus that take. `Escape` returns to Write at the same
+part. Below the map, an accessible list repeats every drawn circle and bar
+as a button, and a Fact lens list repeats every anchored Fact State as a
+button.
+
+### Log
+
+The log (`!`) lists every status message and error this session, newest
+first. It has no filter and no clear button — it is a plain record of what
+the app told you. `Escape` closes it.
+
+### Inspect
+
+Inspect (`⌘`/`Ctrl` plus `6`) shows the same sections as the inspector, as a
+full destination: request context, thought, token alternatives, and
+Generation Record reads.
+
+Settings (`⌘`/`Ctrl` plus `,`): see "Settings" below.
 
 ### Settings
 
@@ -331,3 +404,13 @@ registry against the TUI's own reference, with no Electron window.
 `desktop/test/desktop-manuscript.e2e.test.ts` checks focus versus edit mode,
 the hover toolbar and its `···` menu, the take gauge, and the composer
 states.
+`desktop/test/desktop-map.e2e.test.ts` checks the stemma, a click on an
+off-path take, the `Escape` return to Write, and the braid strip.
+`desktop/test/desktop-map-layout.test.ts` checks the stemma layout — the
+budget, the collapsed runs, and a timing run for 2,000 parts — with no
+Electron window.
+`desktop/test/desktop-aside-popover.e2e.test.ts` checks the popped-out Aside
+window, its hop strip, and the log.
+`desktop/test/desktop-aside-hop-layout.test.ts` checks the popover's hop
+strip against the hop-strip layout function directly, with no Electron
+window.

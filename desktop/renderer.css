@@ -307,6 +307,9 @@ button:disabled { cursor: default; opacity: .46; }
 }
 .inspector-section { border-bottom: var(--hairline); }
 button.inspector-section-header { display: flex; width: 100%; justify-content: space-between; padding: 12px 0; border: 0; background: transparent; text-align: left; }
+.inspector-section-header-row { display: flex; align-items: center; gap: 6px; }
+.inspector-section-header-row .inspector-section-header { flex: 1; min-width: 0; }
+.inspector-section-header-row .aside-popout { flex: none; padding: 4px 7px; border-color: transparent; color: var(--muted); font-size: 11px; }
 .inspector-section-count { color: var(--muted); font: 10px var(--mono); }
 .inspector-section-body { padding-bottom: 14px; }
 .take-row { width: 100%; gap: 8px; padding: 6px 4px; border: 0; background: transparent; color: var(--ink); text-align: left; font: 11px var(--sans); }
@@ -455,6 +458,17 @@ option { background: var(--paper); color: var(--ink); }
 .composer-footer .button { padding: 6px 8px; font-size: 10px; }
 .composer-submit { border-color: var(--amber); background: var(--amber); color: var(--on-amber); font-weight: 600; }
 .composer-images, .part-images { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin-top: 8px; }
+/* Braid strip D-36: one ribbon per line through the focused part, above the
+   composer. Width comes from `.braid-ribbon-fill`'s inline `style.width`. */
+.braid-strip { display: flex; align-items: flex-end; gap: 10px; width: 838px; max-width: 100%; height: 60px; margin: 8px auto 0; padding: 6px 16px 0; overflow-x: auto; border-bottom: var(--hairline); }
+.braid-ribbon { display: flex; flex-direction: column; align-items: flex-start; flex: none; gap: 4px; width: 84px; padding: 0; border: 0; background: transparent; color: var(--muted); text-align: left; }
+.braid-ribbon:disabled { cursor: default; }
+.braid-ribbon-bar { display: block; width: 84px; height: 8px; background: var(--paper-deep); }
+.braid-ribbon-fill { display: block; height: 100%; background: var(--amber-soft); }
+.braid-ribbon-current .braid-ribbon-fill { background: var(--amber); }
+.braid-ribbon-label { max-width: 84px; overflow: hidden; font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.braid-ribbon-current .braid-ribbon-label { color: var(--amber-dark); }
+.braid-more { color: var(--muted); font: 10px var(--mono); }
 .image-chip { border: var(--hairline); background: var(--paper-deep); color: var(--ink-soft); padding: 4px 7px; font-size: 10px; letter-spacing: .04em; }
 .stopped-generation { position: relative; z-index: 3; }
 .part-menu-list { display: grid; gap: 2px; min-width: 220px; }
@@ -585,14 +599,31 @@ option { background: var(--paper); color: var(--ink); }
 .theme-swatch-name { color: var(--graphite); font: 10px var(--mono); letter-spacing: .06em; text-transform: uppercase; }
 .theme-swatch-sample { margin: 0; font: 15px/1.4 var(--serif); }
 .inspect-card { display: flex; align-items: center; gap: 15px; }
-.map-tree { display: grid; gap: 4px; }
-.map-node { display: flex; align-items: center; gap: 9px; margin-left: calc(var(--map-depth, 0) * 22px); padding: 9px 10px; border-left: 2px solid var(--line); background: var(--paper); }
-.map-node.active { border-left-color: var(--amber); background: var(--amber-wash); }
-.map-node-marker { color: var(--amber-dark); font-size: 10px; }
-.map-node-copy { display: grid; flex: 1; min-width: 0; gap: 3px; }
-.map-node-copy strong { overflow: hidden; font: 15px/1.25 var(--serif); text-overflow: ellipsis; white-space: nowrap; }
-.map-node-meta { color: var(--muted); font: 9px var(--mono); }
-.map-node .button, .map-fact-anchor { padding: 4px 7px; border-color: transparent; color: var(--muted); font-size: 10px; }
+/* Map (⌘5) D-30…D-32: an SVG stemma plus the two accessible fallbacks
+   (`.map-list` of `.map-focus` buttons, and the Fact lens) it always keeps
+   beside it — see `renderer-map-view.ts`. */
+.map-stage { overflow-x: auto; padding: 12px 0; border-bottom: var(--hairline); }
+.stemma { display: block; }
+.map-edge { fill: none; stroke: var(--amber-soft); stroke-width: 2; }
+.map-edge.on-path { stroke: var(--amber); stroke-width: 3; }
+.map-edge.cold { stroke: var(--faint); }
+.map-chapter-tick { stroke: var(--amber-dark); stroke-width: 2; }
+.map-collapsed-run { fill: var(--paper-deep); stroke: var(--line-strong); cursor: pointer; }
+.map-collapsed-run:hover { fill: var(--amber-wash); }
+.map-node { fill: var(--amber-soft); stroke: none; cursor: pointer; }
+.map-node.on-path { fill: var(--amber); }
+.map-node.cold { fill: var(--faint); }
+.map-node.dead-end { fill: var(--faint); }
+.map-node.summary { fill: var(--amber-dark); }
+.map-node:hover { fill: var(--amber-dark); }
+.map-node-ring { fill: none; stroke: var(--graphite); stroke-width: 1.5; pointer-events: none; }
+.map-cursor { fill: none; stroke: var(--amber-dark); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; }
+.map-dead-end-mark { fill: var(--ivory); font: 8px var(--mono); pointer-events: none; }
+.map-window-note { margin: 8px 0; color: var(--muted); font: 10px var(--mono); }
+.map-list { display: grid; gap: 4px; margin: 14px 0; padding: 0; list-style: none; }
+.map-list-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; background: var(--paper); }
+.map-list-label { overflow: hidden; color: var(--muted); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.map-fact-anchor { padding: 4px 7px; border-color: transparent; color: var(--muted); font-size: 10px; }
 .map-fact-lens { margin-top: 20px; padding-top: 16px; border-top: var(--hairline); }
 .panel-subheading { display: flex; justify-content: space-between; align-items: baseline; gap: 10px; margin-bottom: 10px; }
 .panel-subheading strong { color: var(--muted); font: 10px var(--mono); }
@@ -683,6 +714,37 @@ option { background: var(--paper); color: var(--ink); }
 .palette-label { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .palette-label mark { background: transparent; color: var(--amber-dark); font-weight: 600; }
 .palette-key { flex: none; color: var(--muted); font: 11px var(--mono); }
+/* Aside popover 2e (D-05, D-27): the inspector's Aside section popped out,
+   the hop strip at full width, then turns, then the question row. */
+.aside-popover .popover-card { width: min(560px, 100%); }
+.aside-popover-header { display: grid; gap: 10px; padding-bottom: 12px; border-bottom: var(--hairline); }
+.aside-popover-title-row { display: flex; align-items: baseline; gap: 10px; }
+.aside-popover-meta { margin: 0; color: var(--muted); font: 12px var(--mono); }
+.aside-popover-actions { display: flex; align-items: center; gap: 10px; }
+.aside-anchor-label { display: flex; align-items: center; gap: 6px; color: var(--muted); font: 10px var(--mono); text-transform: uppercase; }
+.hop-strip { display: flex; flex-wrap: wrap; align-items: center; gap: 2px; padding: 8px 0; color: var(--muted); font: 11px var(--mono); }
+.hop-strip-chrome { color: var(--faint); white-space: pre; }
+.hop-strip-entry { padding: 2px 4px; border: 0; background: transparent; color: var(--muted); font: 11px var(--mono); white-space: pre; }
+.hop-strip-entry:hover { color: var(--amber-dark); }
+.hop-strip-entry.current { color: var(--amber-dark); font-weight: 600; }
+.aside-popover-question { display: grid; gap: 8px; margin-top: 10px; }
+.aside-popover-footer-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.aside-popover-hint { color: var(--faint); font: 10px var(--mono); }
+.hint-row { margin: 10px 0 0; overflow: hidden; color: var(--muted); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
+.aside-turn-use { position: relative; }
+.aside-turn-use > summary { list-style: none; padding: 4px 7px; color: var(--muted); font: 10px var(--mono); cursor: pointer; }
+.aside-turn-use > summary::-webkit-details-marker { display: none; }
+.aside-turn-use-menu { position: absolute; z-index: 1; display: grid; gap: 2px; min-width: 170px; padding: 6px; border: var(--hairline-strong); background: var(--paper); box-shadow: var(--shadow-md); }
+.aside-turn-use-menu .button { justify-content: flex-start; border-color: transparent; text-align: left; }
+.aside-turn-thoughts { margin: 6px 0; padding: 8px 10px; background: var(--paper-deep); font: 11px/1.5 var(--sans); font-style: italic; }
+.aside-turn-thoughts > summary { color: var(--muted); font-style: normal; cursor: pointer; }
+/* Log D-44 (`!`): every notice this session gave, newest first, mono. */
+.log-card { width: min(520px, 100%); }
+.log-list { display: grid; gap: 2px; max-height: 60vh; overflow-y: auto; }
+.log-row { display: grid; grid-template-columns: auto 1fr; gap: 12px; padding: 5px 4px; border-bottom: var(--hairline); font: 11px var(--mono); }
+.log-row-time { color: var(--faint); }
+.log-row-text { overflow-wrap: anywhere; color: var(--ink); }
+.log-row-error .log-row-text { color: var(--ember); }
 
 .welcome { max-width: 560px; margin: 15vh auto; text-align: center; }
 .welcome h1 { margin: 11px 0; color: var(--graphite); font: 600 46px/1.05 var(--serif); }

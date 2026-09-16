@@ -64,8 +64,14 @@ test("every command id is unique", () => {
   assert.equal(new Set(ids).size, ids.length);
 });
 
-test("the quit, typewriter, and log bindings stay unbound on the desktop", () => {
-  for (const id of ["navQuit", "navTypewriter", "navOpenLog", "mapOpenLog"] as const) {
+test("the quit and typewriter bindings stay unbound on the desktop", () => {
+  for (const id of ["navQuit", "navTypewriter"] as const) {
     assert.ok(!registryHasBinding(REFERENCE_BINDINGS[id]), `"${id}" must stay out of the desktop registry`);
+  }
+});
+
+test("the log binding (phase 5) is wired for both NAV and MAP", () => {
+  for (const id of ["navOpenLog", "mapOpenLog"] as const) {
+    assert.ok(registryHasBinding(REFERENCE_BINDINGS[id]), `"${id}" should now be in the desktop registry`);
   }
 });

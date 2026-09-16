@@ -1,10 +1,6 @@
 import type { StoryPayload } from "../shared/types.js";
 import { estimateTokens } from "../shared/tokens.js";
-import {
-  factLabel,
-  type RendererActions,
-  type RendererState
-} from "./renderer-model.js";
+import type { RendererActions, RendererState } from "./renderer-model.js";
 import { renderLauncher } from "./renderer-launcher-view.js";
 import { renderSettingsDestination } from "./renderer-settings-sections.js";
 import { actionButton, el, metricRow, panelHeading } from "./renderer-dom.js";
@@ -16,6 +12,9 @@ import { renderPalette } from "./renderer-palette-view.js";
 import { renderWriting, renderPartMenu } from "./renderer-manuscript-view.js";
 import { renderFacts } from "./renderer-facts-view.js";
 import { renderChapters } from "./renderer-chapters-view.js";
+import { renderMap } from "./renderer-map-view.js";
+import { renderAsidePopover } from "./renderer-aside-popover-view.js";
+import { renderLogPopover } from "./renderer-log-view.js";
 
 export function renderApp(root: HTMLElement, state: RendererState, actions: RendererActions): void {
   document.documentElement.dataset.desktopTheme = state.theme;
@@ -42,6 +41,8 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
     const menu = renderPartMenu(state, actions, state.popover.partId);
     if (menu !== null) shell.append(menu);
   }
+  if (state.popover?.kind === "aside") shell.append(renderAsidePopover(state, actions));
+  if (state.popover?.kind === "log") shell.append(renderLogPopover(state, actions));
   const dialog = renderDialog(state, actions, !hadDialog);
   if (dialog !== null) shell.append(dialog);
   root.replaceChildren(shell);
@@ -179,7 +180,7 @@ function renderWorkspace(state: RendererState, actions: RendererActions): HTMLEl
     if (state.tab === "write") content.append(renderWriting(story, state, actions));
     if (state.tab === "facts") content.append(renderFacts(story, state, actions));
     if (state.tab === "chapters") content.append(renderChapters(story, state, actions));
-    if (state.tab === "map") content.append(renderMap(story, actions));
+    if (state.tab === "map") content.append(renderMap(story, state, actions));
     if (state.tab === "inspect") content.append(renderInspect(story, state, actions));
   }
   main.append(content, renderFeedbackStack(state));
@@ -199,48 +200,6 @@ function renderRecoveryWarnings(state: RendererState, actions: RendererActions):
   }
   card.append(list);
   return card;
-}
-
-function renderMap(story: StoryPayload, actions: RendererActions): HTMLElement {
-  const panel = el("div", "panel map-panel");
-  panel.append(panelHeading("Branch map", "Every take stays visible. Focus a leaf to return to the manuscript."));
-  const children = new Map<string | null, typeof story.nodes>();
-  for (const node of story.nodes) {
-    const siblings = children.get(node.parentId) ?? [];
-    siblings.push(node);
-    children.set(node.parentId, siblings);
-  }
-  const activeIds = new Set(story.path.map((node) => node.id));
-  const seen = new Set<string>();
-  const tree = el("div", "map-tree");
-  const appendNode = (node: (typeof story.nodes)[number], depth: number): void => {
-    if (seen.has(node.id)) return;
-    seen.add(node.id);
-    const row = el("div", `map-node ${activeIds.has(node.id) ? "active" : ""}`);
-    row.style.setProperty("--map-depth", String(depth));
-    const focus = actionButton("map-focus", activeIds.has(node.id) ? "current" : "focus", () => actions.switchNode(node.id));
-    focus.dataset.preserve = `map:${node.id}`;
-    row.append(el("span", "map-node-marker", activeIds.has(node.id) ? "◆" : "◇"), el("span", "map-node-copy", el("strong", "", node.preview || "Untitled part"), el("span", "map-node-meta", `${node.words.toLocaleString()} words · ${node.childCount} take${node.childCount === 1 ? "" : "s"}`)), focus);
-    tree.append(row);
-    for (const child of children.get(node.id) ?? []) appendNode(child, depth + 1);
-  };
-  for (const root of children.get(null) ?? []) appendNode(root, 0);
-  if (tree.childElementCount === 0) tree.append(el("p", "empty-copy", "The map is empty until the first line is written."));
-  panel.append(tree);
-  const anchors = story.facts.flatMap((fact) => fact.states.filter((state) => state.anchorPartId !== undefined).map((state) => ({ fact, state })));
-  const lens = el("section", "map-fact-lens");
-  lens.append(el("div", "panel-subheading", el("span", "eyebrow", "Fact lens"), el("strong", "", `${anchors.length} anchored state${anchors.length === 1 ? "" : "s"}`)));
-  if (anchors.length === 0) lens.append(el("p", "empty-copy", "Anchored Fact states appear here."));
-  for (const { fact, state } of anchors) {
-    const anchor = state.anchorPartId;
-    if (anchor === undefined) continue;
-    const node = story.nodes.find((candidate) => candidate.id === anchor);
-    const button = actionButton("map-fact-anchor", `${factLabel(fact)} · ${node?.preview ?? anchor.slice(0, 8)}`, () => actions.switchNode(anchor));
-    button.dataset.preserve = `map-fact:${fact.id}:${anchor}`;
-    lens.append(button);
-  }
-  panel.append(lens);
-  return panel;
 }
 
 function renderSettings(state: RendererState, actions: RendererActions): HTMLElement {

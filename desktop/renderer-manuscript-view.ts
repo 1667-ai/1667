@@ -20,6 +20,7 @@ import {
   type TextSelection
 } from "./renderer-model.js";
 import { renderComposer } from "./renderer-composer-view.js";
+import { renderBraid } from "./renderer-braid-view.js";
 
 /** A selection captured on a toolbar or menu verb's `mousedown`, before the
  * click could steal focus (and the browser selection with it) away from the
@@ -45,7 +46,8 @@ export function renderWriting(story: StoryPayload, state: RendererState, actions
   });
   if (story.path.length === 0) manuscript.append(el("div", "empty-manuscript", "The page is blank. Start with a direction or write the first line yourself."));
   if (state.stream !== null) manuscript.append(renderStream(state.stream, actions));
-  writing.append(manuscript, renderComposer(state, actions));
+  const braid = renderBraid(story, state, actions);
+  writing.append(manuscript, ...(braid === null ? [] : [braid]), renderComposer(state, actions));
   return writing;
 }
 

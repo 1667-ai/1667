@@ -50,13 +50,25 @@ export function expandInspectorSection(key: string): void {
   header.setAttribute("aria-expanded", "true");
 }
 
-function inspectorSection(key: string, label: string, count: number, content: readonly HTMLElement[]): HTMLElement {
+function inspectorSection(
+  key: string,
+  label: string,
+  count: number,
+  content: readonly HTMLElement[],
+  headerActions: readonly HTMLElement[] = []
+): HTMLElement {
   const section = el("section", "inspector-section");
   section.dataset.inspectorSection = key;
   const header = document.createElement("button");
   header.type = "button";
   header.className = "eyebrow inspector-section-header";
   header.append(document.createTextNode(label), el("span", "inspector-section-count", String(count)));
+  const headerRow = headerActions.length === 0
+    ? header
+    : el("div", "inspector-section-header-row", header, ...headerActions.map((action) => {
+      action.addEventListener("click", (event) => event.stopPropagation());
+      return action;
+    }));
   const body = el("div", "inspector-section-body", ...content);
   const applyCollapsed = (): void => {
     const collapsed = collapsedSections.has(key);
@@ -69,7 +81,7 @@ function inspectorSection(key: string, label: string, count: number, content: re
     persistCollapsedSections(collapsedSections);
     applyCollapsed();
   });
-  section.append(header, body);
+  section.append(headerRow, body);
   return section;
 }
 
@@ -150,7 +162,8 @@ function renderAsideSection(state: RendererState, actions: RendererActions): HTM
   } else if (state.aside.answer.length > 0) {
     content.push(el("p", "aside-answer", state.aside.answer));
   }
-  return inspectorSection("aside", "Aside", count, content);
+  const popout = actionButton("aside-popout", "⇱", actions.openAsidePopover, "Pop out Aside");
+  return inspectorSection("aside", "Aside", count, content, [popout]);
 }
 
 function renderAsideSessions(state: RendererState, actions: RendererActions): HTMLElement {

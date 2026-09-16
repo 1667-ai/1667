@@ -25,6 +25,7 @@ import {
   type RendererTab,
   type RendererRecoveryWarning,
   type DesktopTheme,
+  type LogEntry,
   type StreamMode,
   type TextSelection
 } from "./renderer-model.js";
@@ -138,6 +139,8 @@ class RendererApp {
     openKeys: () => this.setState({ popover: { kind: "keys" } }),
     openPalette: (group) => this.setState({ popover: { kind: "palette", query: "", group: group ?? null } }),
     openPartMenu: (partId) => this.setState({ popover: { kind: "part-menu", partId } }),
+    openAsidePopover: () => this.setState({ popover: { kind: "aside" } }),
+    openLog: () => this.setState({ popover: { kind: "log" } }),
     setPaletteQuery: (value) => {
       if (this.state.popover?.kind === "palette") this.setState({ popover: { ...this.state.popover, query: value } });
     },
@@ -1598,6 +1601,17 @@ class RendererApp {
     this.setState({ drafts });
   }
 
+  /** D-44 log entries this update adds, oldest first. A `setState` call that
+   * sets both fields (a failure's `status`/`error` pair) logs both — the log
+   * is "every notice", not a single deduplicated line. */
+  private logEntriesFor(update: Partial<RendererState>): LogEntry[] {
+    const entries: LogEntry[] = [];
+    const at = new Date().toISOString();
+    if (typeof update.error === "string" && update.error.length > 0) entries.push({ at, text: update.error, kind: "error" });
+    if (typeof update.status === "string" && update.status.length > 0) entries.push({ at, text: update.status, kind: "status" });
+    return entries;
+  }
+
   private setState(update: Partial<RendererState>): void {
     const previousStream = this.state.stream;
     const nextStream = update.stream;
@@ -1618,7 +1632,12 @@ class RendererApp {
       && nextAside.sessions === this.state.aside.sessions;
     const draftOnly = Object.keys(update).length > 0 && Object.keys(update).every((key) => key === "drafts");
     const searchOnly = Object.keys(update).length > 0 && Object.keys(update).every((key) => key === "search");
-    this.state = { ...this.state, ...update };
+    const logAdditions = this.logEntriesFor(update);
+    this.state = {
+      ...this.state,
+      ...update,
+      ...(logAdditions.length === 0 ? {} : { log: [...this.state.log, ...logAdditions].slice(-200) })
+    };
     if (this.compositionActive) {
       this.compositionRenderPending = true;
     } else if (streamOnly) this.updateStreamDom(nextStream);

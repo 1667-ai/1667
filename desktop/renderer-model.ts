@@ -45,7 +45,9 @@ export type DesktopCommandGroup = "Story" | "Take" | "Facts" | "Chapters" | "Map
 export type DesktopPopover =
   | { readonly kind: "keys" }
   | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null }
-  | { readonly kind: "part-menu"; readonly partId: string };
+  | { readonly kind: "part-menu"; readonly partId: string }
+  | { readonly kind: "aside" }
+  | { readonly kind: "log" };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -141,6 +143,16 @@ export interface AsideState {
   readonly anchor: AsideAnchor | null;
   readonly bucket: "current" | "historical" | "unanchored";
   readonly v2: boolean;
+}
+
+/** One line of the log (D-44, `!`): every notice the app gave this session,
+ * newest last in storage (the popover reverses it). Appended once, inside
+ * `setState` itself, whenever an update sets a non-empty `status` or
+ * `error` — never from a command's own call site. */
+export interface LogEntry {
+  readonly at: string;
+  readonly text: string;
+  readonly kind: "status" | "error";
 }
 
 export interface LineClipboard {
@@ -268,6 +280,9 @@ export interface RendererState {
   /** Which Settings 2c left-nav sheet is showing. Not persisted; a fresh
    * launch always opens on Routes. */
   readonly settingsSection: SettingsSectionId;
+  /** D-44: every notice this session gave, oldest first, capped to the last
+   * 200. See `LogEntry`. */
+  readonly log: readonly LogEntry[];
 }
 
 export const INITIAL_STATE: RendererState = {
@@ -320,7 +335,8 @@ export const INITIAL_STATE: RendererState = {
   inspectorHidden: savedDesktopInspectorHidden(),
   mapCursorId: null,
   popover: null,
-  settingsSection: "routes"
+  settingsSection: "routes",
+  log: []
 };
 
 export interface RendererActions {
@@ -342,6 +358,8 @@ export interface RendererActions {
   readonly openKeys: () => void;
   readonly openPalette: (group?: DesktopCommandGroup) => void;
   readonly openPartMenu: (partId: string) => void;
+  readonly openAsidePopover: () => void;
+  readonly openLog: () => void;
   readonly setPaletteQuery: (value: string) => void;
   readonly closePopover: () => void;
   readonly toast: (text: string) => void;
