@@ -155,3 +155,32 @@ test("Electron review fixes 4: empty Enter continues; Shift+Enter still inserts 
     await teardown(app);
   }
 });
+
+// Review round 5: an open dialog owns the keyboard even when a click on its
+// copy or padding leaves focus on the page. A manuscript key must not run
+// behind it, and a key that opens its own dialog must not cancel this one.
+test("Electron review fixes 4: manuscript keys wait while a dialog is open", { timeout: 180_000 }, async () => {
+  const launched = await launch();
+  const { page } = launched;
+  try {
+    await createStory(page, "Dialog keyboard");
+    await saveManualPart(page, "The only part.");
+    await focusPart(page, 0);
+    await goToLibrary(page);
+    await page.locator(".rename-story").click();
+    const dialog = page.locator('.modal-card[aria-label="Rename story"]');
+    await dialog.waitFor({ state: "visible" });
+    await dialog.locator(".modal-input").fill("A title in progress");
+    await dialog.locator("h2").click();
+    await page.waitForFunction(() => document.activeElement === document.body);
+    await page.keyboard.press("Shift+D");
+    await page.keyboard.press("r");
+    await page.waitForTimeout(400);
+    assert.equal(await page.locator('.modal-card[aria-label="Rename story"]').count(), 1, "the rename dialog must stay open");
+    assert.equal(await page.locator('.modal-card[aria-label="Delete part"]').count(), 0, "D must not open a second dialog");
+    assert.equal(await dialog.locator(".modal-input").inputValue(), "A title in progress");
+    assert.equal(await page.locator(".stream-card").count(), 0, "r must not start a take behind the dialog");
+  } finally {
+    await teardown(launched);
+  }
+});

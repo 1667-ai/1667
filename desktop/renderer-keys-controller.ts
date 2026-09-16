@@ -73,6 +73,15 @@ export class RendererKeysController {
     // Letters (and the TUI's other plain/chord keys) act only when no field
     // owns the keyboard — typing must reach the field instead.
     if (fieldHasFocus()) return;
+    // An open dialog owns the keyboard even when a click on its copy leaves
+    // focus on the page. A manuscript key must not run behind it, and a key
+    // that opens its own dialog would cancel this one and drop its text.
+    if (this.hooks.state().dialog !== null) {
+      if ((event.key === "Enter" || event.key === " ") && !(event.target instanceof Node && document.querySelector(".modal-card")?.contains(event.target) === true)) {
+        event.preventDefault();
+      }
+      return;
+    }
     // The aside popover's own `g` ("go to this take") shadows NAV's `g`
     // ("jump to the first part") while it is open — the popover is not a
     // destination, so the keymap dispatch below never sees it otherwise.
