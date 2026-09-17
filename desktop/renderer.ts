@@ -1163,6 +1163,7 @@ class RendererApp {
     const story = this.requireStory();
     const value = text;
     if (value.trim().length === 0) return;
+    const focusAtStart = this.state.focusedPartId;
     await this.run("Saving line", async () => {
       const next = await api.createNode(story.id, {
         parentId: parentId !== undefined ? parentId : story.path.at(-1)?.id ?? null,
@@ -1175,11 +1176,13 @@ class RendererApp {
       // targeted write settles it on the new take it just created — both are
       // the same node, `next.path.at(-1)`, so the next Continue or `w`
       // builds on what was just written instead of the previous seam
-      // (review-fixes-4 #3).
+      // (review-fixes-4 #3). A part the writer clicked while the line saved
+      // keeps focus, as after a generated take.
       const newLeafId = next.path.at(-1)?.id ?? null;
+      const focusMoved = this.state.focusedPartId !== focusAtStart;
       const focusSettlement: Partial<RendererState> = {
         ...(this.state.composerWriteTarget !== null ? { composerWriteTarget: null } : {}),
-        ...(newLeafId === null ? {} : { focusedPartId: newLeafId })
+        ...(newLeafId === null || focusMoved ? {} : { focusedPartId: newLeafId })
       };
       if (Object.keys(focusSettlement).length > 0) this.setState(focusSettlement);
     });
