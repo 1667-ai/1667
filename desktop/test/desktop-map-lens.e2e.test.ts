@@ -5,7 +5,7 @@ import path from "node:path";
 import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
-import { _electron as electron } from "playwright";
+import { _electron as electron, type Page } from "playwright";
 import { closeDesktopApp, createStory, retakeSecondPart, saveManualPart, switchTakeGaugeDot } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
@@ -60,8 +60,7 @@ test("Electron Map: the fisheye lens opens a hovered run and collapses it again"
       const rect = circle.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
-    await page.mouse.move(forkBox.x, forkBox.y);
-    await page.waitForSelector("rect.map-lens", { timeout: 15_000 });
+    await hoverUntilLens(page, forkBox);
 
     const opened = await page.evaluate(() => ({
       runs: document.querySelectorAll(".map-collapsed-run").length,
@@ -84,12 +83,32 @@ test("Electron Map: the fisheye lens opens a hovered run and collapses it again"
 
     // Hover again and click the opened branch root — it should focus that
     // take (the retake, "take 2 of 2" at ¶ 2).
-    await page.mouse.move(forkBox.x, forkBox.y);
-    await page.waitForSelector("rect.map-lens", { timeout: 15_000 });
-    await page.locator("circle.map-node.off-path").first().click();
+    // A full re-render closes the hover lens until the pointer moves again,
+    // which would hide the opened node before the click lands; retry.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      await hoverUntilLens(page, forkBox);
+      const clicked = await page.locator("circle.map-node.off-path").first().click({ timeout: 3_000 }).then(() => true, () => false);
+      if (clicked) break;
+    }
     await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("take 2 of 2") === true, undefined, { timeout: 15_000 });
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });
   }
 });
+
+/** Hover `point` until the lens is open with the run expanded. A full
+ * re-render closes a hover lens until the next pointer move, so nudge the
+ * pointer and check again instead of waiting on one move. */
+async function hoverUntilLens(page: Page, point: { readonly x: number; readonly y: number }): Promise<void> {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
+    await page.mouse.move(point.x + (attempt % 2), point.y);
+    const open = await page.waitForFunction(
+      () => document.querySelector("rect.map-lens") !== null && document.querySelectorAll("circle.map-node.off-path").length > 0,
+      undefined,
+      { timeout: 3_000 }
+    ).then(() => true, () => false);
+    if (open) return;
+  }
+  throw new Error("The map lens did not open under the pointer.");
+}

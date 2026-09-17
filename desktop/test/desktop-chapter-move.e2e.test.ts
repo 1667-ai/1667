@@ -37,11 +37,22 @@ test("Electron Chapters: the break handle drags, undoes with u, and steps with t
 
     // 1. Drag the handle from the boundary after ¶ 2 to the boundary after
     // ¶ 3. No summary exists yet, so the move needs no confirmation.
-    const boxes = await handleAndCellBoxes(page);
-    await page.mouse.move(boxes.handle.left + boxes.handle.width / 2, boxes.handle.top + boxes.handle.height / 2);
-    await page.mouse.down();
-    await page.mouse.move(boxes.cells[2]!.right, boxes.handle.top + boxes.handle.height / 2, { steps: 8 });
-    await page.mouse.up();
+    // A full re-render that lands mid-drag (a slow runner finishing the
+    // break's own refresh) detaches the handle and swallows the gesture;
+    // measure again and retry when nothing moved.
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const boxes = await handleAndCellBoxes(page);
+      await page.mouse.move(boxes.handle.left + boxes.handle.width / 2, boxes.handle.top + boxes.handle.height / 2);
+      await page.mouse.down();
+      await page.mouse.move(boxes.cells[2]!.right, boxes.handle.top + boxes.handle.height / 2, { steps: 8 });
+      await page.mouse.up();
+      const moved = await page.waitForFunction(
+        () => document.querySelector(".toast")?.textContent?.includes("Break moved to ¶ 3") === true,
+        undefined,
+        { timeout: 5_000 }
+      ).then(() => true, () => false);
+      if (moved) break;
+    }
 
     await page.waitForFunction(
       () => document.querySelector(".toast")?.textContent?.includes("Break moved to ¶ 3") === true,

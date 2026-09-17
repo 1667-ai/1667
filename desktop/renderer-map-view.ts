@@ -52,11 +52,9 @@ function layoutFor(story: StoryPayload, focusedId: string | null, centerPartId: 
   return layout;
 }
 
-/** D-34: which spine index the pointer has pinned the lens to, kept at
- * module scope (like `scrollMemo` below) so a full re-render triggered while
- * the pointer sits over the stage — some unrelated state change — does not
- * drop the lens; only a real `pointerleave`, or entering Map fresh, clears
- * it. `null` means the pointer is not currently driving the lens. */
+/** D-34: which spine index the pointer has pinned the lens to on the
+ * current stage. `renderMap` clears it, and so does `pointerleave`. `null`
+ * means the pointer is not currently driving the lens. */
 let hoverLens: { readonly storyId: string; readonly index: number } | null = null;
 
 /** The nearest on-path spine node to `pointerX` (stage-local, SVG user
@@ -386,14 +384,18 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
   // a stale hover lens (the pointer left without ever crossing `.map-stage`
   // again, for instance a tab switch) does not reappear somewhere new.
   const enteringMap = document.querySelector(".map-stage") === null;
-  if (enteringMap) hoverLens = null;
+  // A full render builds a new stage that has not seen the pointer enter, so
+  // it would never get the `pointerleave` that closes a carried-over lens.
+  // Start without a hover lens; the next `pointermove` over the new stage
+  // opens it again.
+  hoverLens = null;
   const focusedId = effectiveFocusedPartId(state, story);
   const centerId = state.mapCenterPartId ?? focusedId;
 
-  // D-34: the pointer drives the lens whenever it is over the stage; only
-  // when it is not does the map cursor (keyboard navigation) drive it.
-  const activeHoverIndex = hoverLens !== null && hoverLens.storyId === story.id ? hoverLens.index : null;
-  const lensIndex = activeHoverIndex !== null ? activeHoverIndex : lensIndexForCursor(story, state.mapCursorId);
+  // D-34: a render starts with the map cursor's lens (keyboard navigation);
+  // the pointer handlers below take the lens over while the pointer moves
+  // over the stage.
+  const lensIndex = lensIndexForCursor(story, state.mapCursorId);
 
   const layout = layoutFor(story, focusedId, state.mapCenterPartId, lensIndex);
   // Tracks whichever layout is currently drawn in `stage` — the pointer
