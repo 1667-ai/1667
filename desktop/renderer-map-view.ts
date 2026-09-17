@@ -15,7 +15,7 @@
  * resyncs the minimap rectangle), because a full re-render on every
  * `pointermove` would be far too much work.
  *
- * Reduced scope: no regen clouds, no ⌥-click compare (see
+ * Reduced scope: no regen clouds (see
  * `05-map-braid-aside.md` §0). */
 import type { NodeStub, StoryPathNode, StoryPayload } from "../shared/types.js";
 import { actionButton, el, panelHeading } from "./renderer-dom.js";
@@ -431,7 +431,8 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
   stage.addEventListener("pointerleave", () => {
     if (hoverLens === null || hoverLens.storyId !== story.id) return;
     hoverLens = null;
-    const newLayout = layoutFor(story, focusedId, state.mapCenterPartId, null);
+    // Give the lens back to the map cursor, if it holds one.
+    const newLayout = layoutFor(story, focusedId, state.mapCenterPartId, lensIndexForCursor(story, state.mapCursorId));
     const svg = stage.querySelector<SVGSVGElement>("svg.stemma");
     if (svg !== null) svg.replaceWith(renderStemma(state, newLayout, actions));
     layoutRef = newLayout;

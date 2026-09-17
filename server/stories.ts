@@ -939,7 +939,6 @@ export class StoryStore {
       const index = indexTree(story);
       if (nodeById(index, nodeId) === null) throw new HttpError(404, `Take not found: ${nodeId}`);
       const ancestry = pathTo(index, nodeId);
-      await hydrateStoryNodes(story, ancestry.map((node) => node.id));
       const currentIds = new Set(activePath(index).map((node) => node.id));
       let forkIndex = -1;
       for (let position = ancestry.length - 1; position >= 0; position -= 1) {
@@ -950,6 +949,9 @@ export class StoryStore {
       }
       const afterFork = ancestry.slice(forkIndex + 1);
       const parts = afterFork.length > MAX_TAKE_LINE_PARTS ? afterFork.slice(-MAX_TAKE_LINE_PARTS) : afterFork;
+      // Read text only for the parts this result returns, not the whole
+      // abandoned line before them.
+      await hydrateStoryNodes(story, parts.map((node) => node.id));
       return {
         forkIndex,
         parts: parts.map(toStoryPathNode),
