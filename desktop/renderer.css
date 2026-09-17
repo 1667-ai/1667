@@ -628,6 +628,9 @@ option { background: var(--paper); color: var(--ink); }
 .map-node:hover { fill: var(--amber-dark); }
 .map-node-ring { fill: none; stroke: var(--graphite); stroke-width: 1.5; pointer-events: none; }
 .map-cursor { fill: none; stroke: var(--amber-dark); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; }
+/* D-34: the fisheye lens wash. Under the nodes (drawn first in the SVG) and
+   never a click/hover target of its own. */
+.map-lens { fill: var(--amber-wash); stroke: var(--amber-dark); stroke-width: 1; stroke-dasharray: 5 4; pointer-events: none; }
 .map-dead-end-mark { fill: var(--ivory); font: 8px var(--mono); pointer-events: none; }
 .map-window-note { margin: 8px 0; color: var(--muted); font: 10px var(--mono); }
 /* D-35: the minimap strip. `.map-minimap-viewport` is an absolutely

@@ -104,6 +104,31 @@ export async function openSettingsSection(page: Page, section: string): Promise<
   await page.waitForSelector(sheet, { timeout: 15_000 });
 }
 
+/** Retakes ¶2 (the manuscript's 2nd part, 0-based index 1), waiting for the
+ * new take to finish streaming. Used by every Map e2e test that needs a fork
+ * with 2 takes at ¶2 — after this, the new take is the current (on-path)
+ * one. */
+export async function retakeSecondPart(page: Page): Promise<void> {
+  const second = page.locator(".manuscript-part").nth(1);
+  await second.locator(".part-prose").click();
+  await page.waitForFunction(() => document.querySelectorAll(".manuscript-part")[1]?.classList.contains("focused") === true, undefined, { timeout: 15_000 });
+  await second.locator(".part-retake").click();
+  await page.waitForSelector(".stream-card", { timeout: 30_000 });
+  await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
+}
+
+/** Clicks the `dotIndex`-th take-gauge dot on the focused part and waits for
+ * its take count to read `expectTakeCount` (for example `"take 1/2"`). */
+export async function switchTakeGaugeDot(page: Page, dotIndex: number, expectTakeCount: string): Promise<void> {
+  const retaken = page.locator(".manuscript-part.focused");
+  await retaken.locator(".take-gauge-dot").nth(dotIndex).click();
+  await page.waitForFunction(
+    (expected) => document.querySelector(".manuscript-part.focused .part-take-count")?.textContent?.includes(expected) === true,
+    expectTakeCount,
+    { timeout: 15_000 }
+  );
+}
+
 /** Let the native dirty-window prompt choose Discard during test teardown. */
 export async function closeDesktopApp(app: ElectronApplication): Promise<void> {
   for (const page of app.windows()) {

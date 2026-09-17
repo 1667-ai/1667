@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, createStory, retakeSecondPart, saveManualPart, switchTakeGaugeDot } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -68,31 +68,6 @@ test("Electron Map: the stemma, an off-path focus, and the braid strip", { timeo
   }
 });
 
-async function createStory(page: Page, title: string): Promise<void> {
-  await goToLibrary(page);
-  await page.locator(".new-story-button").click();
-  await page.waitForSelector(".modal-card", { timeout: 15_000 });
-  await page.locator(".modal-input").fill(title);
-  await page.locator(".modal-submit").click();
-  await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 15_000 });
-}
-
-async function saveManualPart(page: Page, text: string): Promise<void> {
-  const before = await page.locator(".manuscript-part").count();
-  await page.locator(".composer-input").fill(text);
-  await page.locator(".composer-manual").click();
-  await page.waitForFunction((expected) => document.querySelectorAll(".manuscript-part").length === expected, before + 1, { timeout: 15_000 });
-}
-
-async function retakeSecondPart(page: Page): Promise<void> {
-  const second = page.locator(".manuscript-part").nth(1);
-  await second.locator(".part-prose").click();
-  await page.waitForFunction(() => document.querySelectorAll(".manuscript-part")[1]?.classList.contains("focused") === true, undefined, { timeout: 15_000 });
-  await second.locator(".part-retake").click();
-  await page.waitForSelector(".stream-card", { timeout: 30_000 });
-  await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
-}
-
 async function tagFocusedPart(page: Page, name: string): Promise<void> {
   await page.locator(".manuscript-part.focused .part-tag").click();
   const nameDialog = page.locator('.modal-card[aria-label="Line tag name"]');
@@ -105,12 +80,3 @@ async function tagFocusedPart(page: Page, name: string): Promise<void> {
   await page.waitForFunction((expected) => document.querySelector(".part-tag")?.textContent === `tag: ${expected}`, name, { timeout: 15_000 });
 }
 
-async function switchTakeGaugeDot(page: Page, dotIndex: number, expectTakeCount: string): Promise<void> {
-  const retaken = page.locator(".manuscript-part.focused");
-  await retaken.locator(".take-gauge-dot").nth(dotIndex).click();
-  await page.waitForFunction(
-    (expected) => document.querySelector(".manuscript-part.focused .part-take-count")?.textContent?.includes(expected) === true,
-    expectTakeCount,
-    { timeout: 15_000 }
-  );
-}

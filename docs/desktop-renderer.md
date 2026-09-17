@@ -342,6 +342,17 @@ The map draws at most 120 circles and bars at once. When the story has more
 parts than fit, it shows a window of parts around the focused part and folds
 the parts outside the window into one bar at each end.
 
+Move the pointer over the stage to open a lens. The lens is a dashed band
+that follows the pointer along the spine. Where the lens sits, a folded run
+opens into its separate takes. You can then see and click each take. The
+lens does not move again until the pointer leaves it; this stops the newly
+opened takes from pushing the run out from under the pointer. Move the
+pointer off the stage to close the lens and fold the runs again.
+
+While the pointer is off the stage, the arrow keys move a map cursor across
+every part and take instead. When the map cursor lands on a take that has
+left your line, the lens opens where that take's line leaves your line.
+
 Click a circle to focus that take. `Escape` returns to Write at the same
 part. Below the map, an accessible list repeats every drawn circle and bar
 as a button, and a Fact lens list repeats every anchored Fact State as a
