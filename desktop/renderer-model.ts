@@ -5,7 +5,8 @@ import type {
   StoryFact,
   StoryPathNode,
   StoryPayload,
-  StorySummary
+  StorySummary,
+  TakeLineRead
 } from "../shared/types.js";
 import { deriveChapters, type ChapterPartLike } from "../shared/chapters.js";
 import type { FactState } from "../shared/fact-state.js";
@@ -47,14 +48,19 @@ export type DesktopPopover =
   | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null }
   | { readonly kind: "part-menu"; readonly partId: string }
   | { readonly kind: "aside" }
-  | { readonly kind: "log" };
+  | { readonly kind: "log" }
+  /** ⌥-click compare (D-05, D-23): `read` is null while `getTakeLine` is in
+   *  flight (a loading line) and stays null on failure, with `error` set
+   *  instead — see `compareTake` in `renderer-compare-commands.ts`. */
+  | { readonly kind: "compare"; readonly nodeId: string; readonly read: TakeLineRead | null; readonly error: string | null };
 /** The last chapter-break operation `u` (TUI-mirrored undo) can reverse:
  * a removal (today's shape — `restoreChapterBreak` needs the removed
  * record) or an addition from `C`/`+ Break` (only the id `removeChapterBreak`
  * needs). `u` toggles between the two, like the TUI's own undo. */
 export type ChapterUndo =
   | { readonly kind: "removed"; readonly breakId: string; readonly removed: RemovedChapterBreak }
-  | { readonly kind: "added"; readonly breakId: string };
+  | { readonly kind: "added"; readonly breakId: string }
+  | { readonly kind: "moved"; readonly breakId: string; readonly fromPartId: string };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -294,6 +300,13 @@ export interface RendererState {
   readonly theme: DesktopTheme;
   readonly inspectorHidden: boolean;
   readonly mapCursorId: string | null;
+  /** D-35: the part the minimap's viewport last picked outside the drawn
+   * window — `computeMapLayout` windows around it instead of the focused
+   * part. `null` means "window around the focused part", as before the
+   * minimap existed. Resets to `null` wherever `mapCursorId` already resets,
+   * and whenever the writer enters Map, so entering always centres on the
+   * focused part. */
+  readonly mapCenterPartId: string | null;
   readonly popover: DesktopPopover | null;
   /** Which Settings 2c left-nav sheet is showing. Not persisted; a fresh
    * launch always opens on Routes. */
@@ -353,6 +366,7 @@ export const INITIAL_STATE: RendererState = {
   theme: savedDesktopTheme(),
   inspectorHidden: savedDesktopInspectorHidden(),
   mapCursorId: null,
+  mapCenterPartId: null,
   popover: null,
   settingsSection: "routes",
   log: []
@@ -375,6 +389,7 @@ export interface RendererActions {
   readonly setTheme: (theme: DesktopTheme) => void;
   readonly setInspectorHidden: (hidden: boolean) => void;
   readonly setMapCursor: (id: string | null) => void;
+  readonly setMapCenter: (id: string | null) => void;
   readonly openKeys: () => void;
   readonly openPalette: (group?: DesktopCommandGroup) => void;
   readonly openPartMenu: (partId: string) => void;
@@ -418,6 +433,9 @@ export interface RendererActions {
   readonly switchLine: (node: StoryPathNode) => void;
   readonly switchNode: (nodeId: string) => void;
   readonly switchToTaggedLine: (tagName: string, nodeId: string) => void;
+  /** ⌥-click compare (D-05, D-23): opens the compare popover for `nodeId`,
+   *  or toasts when it is already on the current line. */
+  readonly compareTake: (nodeId: string) => void;
   readonly copyLine: (node: StoryPathNode) => void;
   readonly pasteLine: (node: StoryPathNode) => void;
   readonly takeFromCut: (node: StoryPathNode, selection?: TextSelection) => void;
@@ -456,6 +474,7 @@ export interface RendererActions {
   readonly revertFactEditor: () => void;
   readonly createChapter: (partId?: string) => void;
   readonly renameChapter: (chapter: ChapterBreak) => void;
+  readonly moveChapterBreak: (breakId: string, parentPartId: string) => void;
   readonly removeChapter: (chapter: ChapterBreak) => void;
   readonly summarizeChapter: (chapter: ChapterBreak) => void;
   readonly restoreChapter: () => void;

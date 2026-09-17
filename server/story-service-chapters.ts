@@ -4,6 +4,7 @@ import type { Story, StoryPayload } from "../shared/types.js";
 import {
   chapterBreakRemovalFingerprint,
   createChapterBreak,
+  moveChapterBreak,
   parseRemovedChapterBreak,
   removeChapterBreak,
   renameChapterBreak,
@@ -141,6 +142,42 @@ export class StoryServiceChapters {
       return await this.localStoryPayload(
         mutationRequest,
         "renameChapterBreak",
+        (story) => apply(story) ? STORY_UNCHANGED : undefined
+      );
+    }
+    return buildStoryPayload(await this.dependencies.stories.mutate(
+      id,
+      (story) => { apply(story); }
+    ));
+  }
+
+  async moveChapterBreak(
+    id: string,
+    breakId: string,
+    parentPartId: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    this.dependencies.ensureOpen();
+    if (mutationRequest === undefined) {
+      mutationRequest = await mintActivatedStoryMutationRequest(
+        this.dependencies.stories,
+        id,
+        "moveChapterBreak",
+        `${breakId}\0${parentPartId}`
+      );
+    }
+    const apply = (story: Story): boolean => {
+      const current = story.chapterBreaks.find(
+        (chapterBreak) => chapterBreak.id === breakId
+      );
+      const unchanged = current?.parentPartId === parentPartId;
+      moveChapterBreak(story, breakId, parentPartId);
+      return unchanged;
+    };
+    if (mutationRequest !== undefined) {
+      return await this.localStoryPayload(
+        mutationRequest,
+        "moveChapterBreak",
         (story) => apply(story) ? STORY_UNCHANGED : undefined
       );
     }

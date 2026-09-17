@@ -132,6 +132,13 @@ const MAP_COMMANDS: readonly DesktopCommand[] = [
     id: "map.open", group: "Map", label: "Open Map", binding: "navOpenMap",
     available: always, handles: { mode: "NAV", action: "open-map" },
     run: (ctx) => ctx.actions.setTab("map")
+  },
+  {
+    // No key binding: the TUI has no compare key.
+    id: "map.compare-cursor-take", group: "Map", label: "Compare the map cursor's take with your line",
+    available: (ctx) => ctx.story !== null && ctx.state.mapCursorId !== null
+      && !ctx.story.path.some((node) => node.id === ctx.state.mapCursorId),
+    run: (ctx) => ctx.actions.compareTake(ctx.state.mapCursorId!)
   }
 ];
 

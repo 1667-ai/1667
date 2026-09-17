@@ -30,7 +30,8 @@ import type {
   StoryPayload,
   StorySummary,
   SwitchRequest,
-  TakeFromCutRequest
+  TakeFromCutRequest,
+  TakeLineRead
 } from "../shared/types.js";
 import type {
   DiscardPendingSettingsCommand,
@@ -183,6 +184,10 @@ export interface StoryApi {
   /** One take's stored thought. Rejects (404, distinguishably by message)
    *  when the take has none. */
   getReasoning(storyId: string, nodeId: string): Promise<ReasoningRecord>;
+  /** A take's own line beyond the last part it shares with the story's
+   *  current line. Rejects (404, distinguishably by message) when the take
+   *  is missing. */
+  getTakeLine(storyId: string, nodeId: string): Promise<TakeLineRead>;
   /** Complete bounded Aside document. Empty when none exists. */
   getAside(storyId: string): Promise<{ notes: readonly { question: string; answer: string }[] }>;
   /** Read v2 sessions for an anchor. Optional so v1 embedders remain valid. */
@@ -239,6 +244,10 @@ export interface StoryApi {
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
+  /** Moves a break to a different seam. A real move removes the break's own
+   *  summary, because it no longer covers the chapter; ask the writer first.
+   *  Moving a break onto its current seam changes nothing. */
+  moveChapterBreak(storyId: string, breakId: string, parentPartId: string): Promise<StoryPayload>;
   removeChapterBreak(storyId: string, breakId: string): Promise<{ payload: StoryPayload; removed: RemovedChapterBreak }>;
   restoreChapterBreak(storyId: string, breakId: string, removed: RemovedChapterBreak): Promise<StoryPayload>;
   summarizeChapter(storyId: string, breakId: string, signal?: AbortSignal): Promise<StoryPayload>;

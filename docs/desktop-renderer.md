@@ -97,7 +97,9 @@ A 320px inspector sits at the right. It stays contextual to the focused
 manuscript part and shows six sections in a fixed order: takes at the focused
 part, Facts in force at that part, Aside, Author's Note, Author Brief, and
 the request context. Click a section's header to collapse it to its count;
-a section never disappears completely. Below 960px window width, the
+a section never disappears completely. In the Takes section, click a take to
+switch to it. ⌥-click a take to compare it with your line instead (see
+"Compare popover" below). Below 960px window width, the
 inspector docks under the main column instead of beside it.
 
 A toast shows the last status message at the bottom-left of the window. It
@@ -299,9 +301,21 @@ Click **Restore removed** after you remove a break to bring it back.
 
 The ruler draws each part as a segment. The width of a segment shows the
 part's word count. A triangle marks the focused part. A darker segment
-shows a chapter with a current summary. The renderer has no call to move a
-break, so you cannot drag a break in this version. Click a segment to
-focus that part on Write.
+shows a chapter with a current summary. Click a segment to focus that part
+on Write.
+
+Each chapter break shows a handle on the ruler. The handle sits at the
+boundary after the break's part. Drag the handle to move the break to a
+new part. You can also focus the handle, then press the Left or Right
+arrow key to move the break by one part. A chapter always keeps at least
+one part. A break stops at its neighbor's edge.
+
+A break's own summary cannot move with it: it would no longer match what
+it claims to cover. If the break has a summary, 1667 asks before it moves
+the break. Confirm to move the break and remove the summary. Cancel to
+keep the break and the summary where they were. Press `u` to undo a move;
+`u` does not bring the removed summary back. Use **Summarize** to make a
+new one.
 
 The table below lists each chapter with its part range, word count, and
 summary state. Click a row to focus the chapter's first part on Write. Use
@@ -330,10 +344,56 @@ The map draws at most 120 circles and bars at once. When the story has more
 parts than fit, it shows a window of parts around the focused part and folds
 the parts outside the window into one bar at each end.
 
-Click a circle to focus that take. `Escape` returns to Write at the same
-part. Below the map, an accessible list repeats every drawn circle and bar
-as a button, and a Fact lens list repeats every anchored Fact State as a
-button.
+Move the pointer over the stage to open a lens. The lens is a dashed band
+that follows the pointer along the spine. Where the lens sits, a folded run
+opens into its separate takes. You can then see and click each take. The
+lens does not move again until the pointer leaves it; this stops the newly
+opened takes from pushing the run out from under the pointer. Move the
+pointer off the stage to close the lens and fold the runs again.
+
+While the pointer is off the stage, the arrow keys move a map cursor across
+every part and take instead. When the map cursor lands on a take that has
+left your line, the lens opens where that take's line leaves your line.
+
+Click a circle to focus that take. ⌥-click a circle to compare that take
+with your line instead (see "Compare popover" below). `Escape` returns to
+Write at the same part. Below the map, an accessible list repeats every
+drawn circle and bar as a button, and a Fact lens list repeats every
+anchored Fact State as a button.
+
+The stage keeps its own scroll position. If you scroll the stage and then
+do something unrelated, Map does not reset your view. When you open Map,
+or when the shown window of parts changes, the stage scrolls so the
+current part sits in the middle.
+
+For a story with 2 or more parts, a minimap strip sits under the stage. The
+strip shows the whole story line to scale by word count. A tick on the
+strip marks a chapter break. A small mark on the strip shows a part with
+other takes. A rectangle on the strip shows which part of the stage you
+can see.
+
+Drag the rectangle to move your view. Click the strip outside the
+rectangle to jump there. When the part you land on is already drawn, the
+stage scrolls to it right away. When the part is outside the drawn window,
+Map redraws around it after you let go.
+
+To move the rectangle from the keyboard, focus it with `Tab`, then press
+the left or right arrow key. Each press moves the view by about half its
+own width.
+
+### Compare popover
+
+⌥-click a take on Map, or in the inspector's Takes section, to compare it
+with your line. 1667 opens the compare popover instead of switching to the
+take. When the take is already on your line, 1667 shows a message and does
+not open the popover.
+
+The popover shows the shared part where the two lines meet, dimmed, above
+two columns: **Your line** on the left, **This take** on the right. Each
+column shows the parts after the shared part, in reading order, down to the
+take. A column with fewer parts than the other shows **No part here** for
+the missing rows. Click **Show this take** to switch to the take and close
+the popover. `Escape` closes the popover without switching.
 
 ### Log
 

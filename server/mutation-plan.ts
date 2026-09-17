@@ -41,6 +41,7 @@ interface MutationEntityNamespaces {
   reorderFact: never;
   createChapterBreak: "chapter-break";
   renameChapterBreak: never;
+  moveChapterBreak: never;
   removeChapterBreak: never;
   restoreChapterBreak: never;
   summarizeChapter: "chapter-summary" | "chapter-summary-rewrite";

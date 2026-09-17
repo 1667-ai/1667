@@ -454,6 +454,13 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(storyId) }
       )
     ),
+    moveChapterBreak: async (storyId, breakId, parentPartId) => rememberPayload(
+      await transport.call(
+        "moveChapterBreak",
+        { storyId, breakId, parentPartId },
+        { expectedAggregateVersion: await expectedVersion(storyId) }
+      )
+    ),
     removeChapterBreak: async (storyId, breakId) => {
       const expectedAggregateVersion = await expectedVersion(storyId);
       const preview = await transport.call(
@@ -481,6 +488,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
+    getTakeLine: async (storyId, nodeId) =>
+      await transport.call("getTakeLine", { storyId, nodeId }),
     planFactConsistency: async (input) => decodeFactConsistencyPlanResponse(
       await transport.call("planFactConsistency", input)
     ),

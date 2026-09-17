@@ -47,6 +47,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   getGenerationRecords: "transfer",
   getGenerationRecord: "transfer",
   getReasoning: "local",
+  getTakeLine: "local",
   switchLine: "local",
   createNode: "local",
   editNode: "local",
@@ -65,6 +66,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   reorderFact: "local",
   createChapterBreak: "local",
   renameChapterBreak: "local",
+  moveChapterBreak: "local",
   removeChapterBreak: "local",
   restoreChapterBreak: "local",
   summarizeChapter: "generation",
@@ -281,6 +283,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       if (httpMethod === "PATCH") return "renameChapterBreak";
       if (httpMethod === "DELETE") return "removeChapterBreak";
     }
+    if (subId !== undefined && action === "move"
+      && httpMethod === "POST") return "moveChapterBreak";
     if (subId !== undefined && action === "restore"
       && httpMethod === "POST") return "restoreChapterBreak";
     if (subId !== undefined && action === "summarize"
@@ -312,6 +316,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
     }
     if (subId !== undefined && action === "reasoning"
       && httpMethod === "GET") return "getReasoning";
+    if (subId !== undefined && action === "line"
+      && httpMethod === "GET") return "getTakeLine";
   }
   if (sub === "tags" && subId !== undefined
     && action === undefined && parts.length === 6) {

@@ -45,6 +45,31 @@ export function renameChapterBreak(story: Story, breakId: string, title: string)
   return chapterBreak;
 }
 
+/** Moves a break to a different seam. The break's own summary cannot follow
+ * it: the format pins a summary's `coveredExtent.toPartId` to its
+ * `parentId` (`story-format-chapters.ts`'s `validateChapterRecords`), which
+ * every 1667 build ever shipped enforces on load, so a mechanical carry-along
+ * would leave `fromPartId` matching the real extent and the summary reading
+ * fresh — silently omitting whatever now falls between the old seam and the
+ * new one, with no honest stored value left to mark that stale. The summary
+ * is removed instead, the same way `removeChapterBreak` removes one. The
+ * *next* chapter's own summary, if it has one, is untouched here and still
+ * reads stale on its own through the ordinary `fromPartId` mismatch, because
+ * its start boundary shifted. Moving onto the break's own current seam is a
+ * no-op that keeps the summary: excluding the break itself from the
+ * occupied-seam check is what makes that safe instead of a self-conflict. */
+export function moveChapterBreak(story: Story, breakId: string, parentPartId: string): ChapterBreak {
+  const chapterBreak = requireChapterBreak(story, breakId);
+  const parent = requireNode(story, parentPartId);
+  if (parent.chapterBreakId !== undefined) throw new HttpError(400, "A chapter summary cannot anchor a chapter break");
+  if (story.chapterBreaks.some((candidate) => candidate.id !== breakId && candidate.parentPartId === parentPartId)) {
+    throw new HttpError(409, "This seam already has a chapter break");
+  }
+  if (chapterBreak.parentPartId !== parentPartId) removeChapterSummaries(story, breakId);
+  chapterBreak.parentPartId = parentPartId;
+  return chapterBreak;
+}
+
 /** Chapter one has no opening break, so its name is stored on the story. An
  * empty name is an absent one: the chapter then reads as the story itself,
  * which is what it did before it could be named at all. */
@@ -57,13 +82,23 @@ export function removeChapterBreak(story: Story, breakId: string): RemovedChapte
   const index = story.chapterBreaks.findIndex((chapterBreak) => chapterBreak.id === breakId);
   if (index === -1) throw new HttpError(404, `Chapter break not found: ${breakId}`);
   const chapterBreak = story.chapterBreaks[index]!;
+  const summaries = removeChapterSummaries(story, breakId);
+  story.chapterBreaks.splice(index, 1);
+  return { break: { ...chapterBreak }, summaries };
+}
+
+/** Detaches every summary node a break made — the node itself, its tag, and
+ * its `recentNodeIds` entry — and hands back clones of what was removed.
+ * Shared by `removeChapterBreak` (the caller keeps the clones, to restore
+ * later) and `moveChapterBreak` (the caller discards them; see its own
+ * comment for why a moved break cannot keep its summary). */
+function removeChapterSummaries(story: Story, breakId: string): StoryNode[] {
   const summaries = story.nodes.filter((node) => node.chapterBreakId === breakId).map(cloneNode);
   const summaryIds = new Set(summaries.map((node) => node.id));
-  story.chapterBreaks.splice(index, 1);
   story.nodes = story.nodes.filter((node) => !summaryIds.has(node.id));
   story.tags = story.tags.filter((tag) => !summaryIds.has(tag.nodeId));
   story.recentNodeIds = story.recentNodeIds.filter((nodeId) => !summaryIds.has(nodeId));
-  return { break: { ...chapterBreak }, summaries };
+  return summaries;
 }
 
 export function restoreChapterBreak(

@@ -628,8 +628,22 @@ option { background: var(--paper); color: var(--ink); }
 .map-node:hover { fill: var(--amber-dark); }
 .map-node-ring { fill: none; stroke: var(--graphite); stroke-width: 1.5; pointer-events: none; }
 .map-cursor { fill: none; stroke: var(--amber-dark); stroke-width: 2; stroke-dasharray: 3 2; pointer-events: none; }
+/* D-34: the fisheye lens wash. Under the nodes (drawn first in the SVG) and
+   never a click/hover target of its own. */
+.map-lens { fill: var(--amber-wash); stroke: var(--amber-dark); stroke-width: 1; stroke-dasharray: 5 4; pointer-events: none; }
 .map-dead-end-mark { fill: var(--ivory); font: 8px var(--mono); pointer-events: none; }
 .map-window-note { margin: 8px 0; color: var(--muted); font: 10px var(--mono); }
+/* D-35: the minimap strip. `.map-minimap-viewport` is an absolutely
+   positioned button (not an SVG shape) over `.map-minimap-strip`, sized and
+   moved with inline `left`/`width` percentages from `renderer-map-view.ts`. */
+.map-minimap { position: relative; margin: 14px 0; padding: 8px 0; }
+.map-minimap-strip { display: block; width: 100%; height: 20px; }
+.map-minimap-line { fill: var(--paper-deep); }
+.map-minimap-tick { stroke: var(--amber-dark); stroke-width: 1.5; }
+.map-minimap-forks { fill: none; stroke: var(--amber-soft); stroke-width: 1.5; }
+.map-minimap-viewport { position: absolute; top: 8px; bottom: 8px; min-width: 10px; padding: 0; border: 1px solid var(--amber-dark); background: var(--amber-wash); cursor: grab; }
+.map-minimap-viewport:active { cursor: grabbing; }
+.map-minimap-viewport:focus-visible { outline: 2px solid var(--amber-dark); outline-offset: 1px; }
 .map-list { display: grid; gap: 4px; margin: 14px 0; padding: 0; list-style: none; }
 .map-list-item { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 6px 8px; background: var(--paper); }
 .map-list-label { overflow: hidden; color: var(--muted); font: 11px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
@@ -755,6 +769,16 @@ option { background: var(--paper); color: var(--ink); }
 .log-row-time { color: var(--faint); }
 .log-row-text { overflow-wrap: anywhere; color: var(--ink); }
 .log-row-error .log-row-text { color: var(--ember); }
+/* Compare popover (⌥-click, D-05/D-23): the take's own line beside the
+   reader's current line, their shared tail dimmed above, 760 wide (the
+   popover's own default). */
+.compare-shared { margin: 0; padding-bottom: 10px; overflow: hidden; border-bottom: var(--hairline); color: var(--muted); font: var(--prose-weight) var(--prose-size)/var(--prose-leading) var(--serif); white-space: pre-wrap; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; }
+.compare-skipped { margin: 0; color: var(--faint); font: 10px var(--mono); }
+.compare-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 18px; }
+.compare-column h3 { margin: 0 0 6px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .08em; text-transform: uppercase; }
+.compare-row { margin: 0 0 10px; color: var(--ink); font: var(--prose-weight) var(--prose-size)/var(--prose-leading) var(--serif); white-space: pre-wrap; }
+.compare-row.empty { color: var(--faint); font-style: italic; }
+.compare-footer { display: flex; justify-content: flex-end; padding-top: 6px; border-top: var(--hairline); }
 
 .welcome { max-width: 560px; margin: 15vh auto; text-align: center; }
 .welcome h1 { margin: 11px 0; color: var(--graphite); font: 600 46px/1.05 var(--serif); }
@@ -905,6 +929,8 @@ option { background: var(--paper); color: var(--ink); }
 .chapter-ruler-part:hover { background: color-mix(in srgb, var(--amber) 65%, transparent); }
 .chapter-ruler-part.focused { background: var(--amber); }
 .chapter-ruler-caret { position: absolute; top: -14px; left: 50%; transform: translateX(-50%); color: var(--amber-dark); font-size: 11px; line-height: 1; }
+.chapter-ruler-handle { flex: 0 0 10px; border: 0; padding: 0; background: var(--graphite); cursor: ew-resize; touch-action: none; }
+.chapter-ruler-handle:hover, .chapter-ruler-handle:focus-visible { background: var(--amber-dark); }
 .chapter-ruler-marks { display: flex; margin-top: 6px; }
 .chapter-ruler-mark { flex: 1 1 0; min-width: 10ch; overflow: hidden; color: var(--muted); font: 10px var(--mono); text-overflow: ellipsis; white-space: nowrap; }
 .chapter-ruler-scale { display: flex; justify-content: space-between; margin-top: 4px; color: var(--faint); font: 10px var(--mono); }

@@ -15,7 +15,8 @@ import type {
   GenerationSettings,
   Story,
   StoryPayload,
-  StorySummary
+  StorySummary,
+  TakeLineRead
 } from "../shared/types.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
@@ -323,6 +324,14 @@ export class StoryService extends StoryServiceRuntime {
   async getReasoning(id: string, nodeId: string): Promise<ReasoningRecord> {
     this.ensureOpen();
     return await this.stories.loadReasoning(id, nodeId);
+  }
+
+  /** A take's own line beyond the last part it shares with the story's
+   *  current line. Throws a 404 — distinguishably by message — when the
+   *  story or the take is missing. */
+  async getTakeLine(id: string, nodeId: string): Promise<TakeLineRead> {
+    this.ensureOpen();
+    return await this.stories.loadTakeLine(id, nodeId);
   }
 
   /** Complete bounded Aside document. Empty when none exists. */
@@ -1255,6 +1264,20 @@ export class StoryService extends StoryServiceRuntime {
       id,
       breakId,
       title,
+      mutationRequest
+    );
+  }
+
+  async moveChapterBreak(
+    id: string,
+    breakId: string,
+    parentPartId: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyChapters.moveChapterBreak(
+      id,
+      breakId,
+      parentPartId,
       mutationRequest
     );
   }

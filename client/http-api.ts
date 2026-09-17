@@ -24,6 +24,7 @@ import {
   decodeSummaryTakeResponse,
   decodeTokenProbabilitiesResponse,
   decodeReasoningResponse,
+  decodeTakeLineResponse,
 } from "./api-response-decoders.js";
 import {
   decodeGenerationRecordSummariesResponse,
@@ -701,6 +702,11 @@ export function createApi(
       `/api/stories/${storyId}/nodes/${nodeId}/reasoning`,
       decodeReasoningResponse
     ),
+    getTakeLine: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/line`,
+      decodeTakeLineResponse
+    ),
     planFactConsistency: (input) => request(
       "POST",
       `/api/stories/${input.storyId}/fact-consistency/plan`,
@@ -1059,6 +1065,13 @@ export function createApi(
           ? `/api/stories/${storyId}/chapter-breaks`
           : `/api/stories/${storyId}/chapter-breaks/${breakId}`,
         { title }
+      ),
+    moveChapterBreak: (storyId, breakId, parentPartId) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/chapter-breaks/${breakId}/move`,
+        { parentPartId }
       ),
     removeChapterBreak: async (storyId, breakId) => {
       const preview = await request(

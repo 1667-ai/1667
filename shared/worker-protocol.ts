@@ -18,7 +18,8 @@ import type {
   StoryNode,
   StorySummary,
   SwitchRequest,
-  TakeFromCutRequest
+  TakeFromCutRequest,
+  TakeLineRead
 } from "./types.js";
 import type { ChatMessage } from "./prompt-plan.js";
 import type { PromptTokenCount } from "./tokenize-source.js";
@@ -239,6 +240,9 @@ export interface WorkerMethodContract {
    *  stored thought fails the request (typed 404 reason) rather than
    *  returning one. */
   getReasoning: { input: { storyId: string; nodeId: string }; output: ReasoningRecord };
+  /** A take's own line beyond the last part it shares with the story's
+   *  current line — see `TakeLineRead`. */
+  getTakeLine: { input: { storyId: string; nodeId: string }; output: TakeLineRead };
   switchLine: { input: { storyId: string; nodeId: string; options?: Omit<SwitchRequest, "nodeId"> }; output: StoryPayload };
   createNode: { input: { storyId: string; body: CreateNodeRequest }; output: StoryPayload };
   editNode: { input: { storyId: string; nodeId: string; body: EditNodeRequest }; output: StoryPayload };
@@ -274,6 +278,7 @@ export interface WorkerMethodContract {
     output: { payload: StoryPayload; breakId: string };
   };
   renameChapterBreak: { input: { storyId: string; breakId: string | null; title: string }; output: StoryPayload };
+  moveChapterBreak: { input: { storyId: string; breakId: string; parentPartId: string }; output: StoryPayload };
   removeChapterBreak: {
     input: {
       storyId: string;
@@ -435,7 +440,7 @@ export type MutatingWorkerMethod =
   | "deleteStory" | "switchLine"
   | "createNode" | "editNode" | "deleteNode" | "pruneUnusedTakes" | "takeFromCut" | "pasteStoryLine"
   | "putBookmark" | "deleteBookmark" | "createFact" | "patchFact" | "deleteFact" | "createFactState" | "patchFactState" | "deleteFactState" | "reorderFact"
-  | "createChapterBreak" | "renameChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
+  | "createChapterBreak" | "renameChapterBreak" | "moveChapterBreak" | "removeChapterBreak" | "restoreChapterBreak" | "summarizeChapter"
   | "importSillyTavern" | "importMarkdown" | "importNovelAI" | "importScenario" | "importLorebook" | "importCard" | "continueStory" | "rewriteNode" | "commitPartialRewrite" | "createSummaryTake"
   | "askAside" | "clearAside" | "asideSessionMutation" | "retakeAside" | "checkFactConsistency";
 
@@ -469,7 +474,7 @@ export const MUTATING_METHODS: ReadonlySet<MutatingWorkerMethod> = new Set([
   "deleteStory", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact",
-  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
+  "createChapterBreak", "renameChapterBreak", "moveChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory", "rewriteNode", "commitPartialRewrite", "createSummaryTake",
   "askAside", "clearAside", "asideSessionMutation", "retakeAside", "checkFactConsistency"
 ]);
@@ -493,7 +498,7 @@ export const LOCAL_DURABILITY_MUTATION_METHODS = [
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "switchLine",
   "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine", "commitPartialRewrite",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact",
-  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard",
+  "createChapterBreak", "renameChapterBreak", "moveChapterBreak", "removeChapterBreak", "restoreChapterBreak", "importLorebook", "importCard",
   "clearAside"
 ] as const satisfies readonly MutatingWorkerMethod[];
 
@@ -721,10 +726,10 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
-  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning",
+  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning", "getTakeLine",
   "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact", "getSettings",
-  "createChapterBreak", "renameChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
+  "createChapterBreak", "renameChapterBreak", "moveChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
   "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory",

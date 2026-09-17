@@ -86,6 +86,19 @@ window.runClientContract = async () => {
   story = await api.takeFromCut(story.id, root.id, { offset: 8, expected: "The blue" });
   check(story.path[0]?.text === "The blue", "Cut did not preserve the selected prefix");
   story = await api.switchLine(story.id, root.id, { stopAtNode: true });
+  const altTake = await api.createNode(story.id, { parentId: root.id, text: "An alternate opening." });
+  const altTakeId = altTake.path[1]!.id;
+  // Creating another take of the same part supersedes it as the active
+  // child, leaving altTakeId off the current line for getTakeLine to read.
+  story = await api.createNode(story.id, { parentId: root.id, text: "The blue door opened wider." });
+  const takeLine = await api.getTakeLine(story.id, altTakeId);
+  check(takeLine.forkIndex === 0, "getTakeLine did not find the shared root");
+  check(takeLine.skipped === 0, "getTakeLine skipped parts it should not have");
+  check(takeLine.parts.length === 1 && takeLine.parts[0]?.text === "An alternate opening.",
+    "getTakeLine did not return the off-path take's own line");
+  // Restore the line to just root, matching the state putBookmark (below)
+  // and every later step already expects.
+  story = await api.switchLine(story.id, root.id, { stopAtNode: true });
   story = await api.putBookmark(story.id, root.id, "Opening", "");
   check(story.tags[0]?.name === "Opening", "Tag was not saved");
   story = await api.deleteBookmark(story.id, root.id);
@@ -115,6 +128,13 @@ window.runClientContract = async () => {
   const chapter = await api.createChapterBreak(story.id, root.id, "Chapter Two");
   story = await api.renameChapterBreak(story.id, chapter.breakId, "The Visitor");
   check(story.chapterBreaks[0]?.title === "The Visitor", "Chapter rename failed");
+  story = await api.createNode(story.id, { parentId: root.id, text: "A knock rattled the frame." });
+  const second = story.path[1]!;
+  story = await api.moveChapterBreak(story.id, chapter.breakId, second.id);
+  check(story.chapterBreaks[0]?.parentPartId === second.id, "Chapter move failed");
+  story = await api.moveChapterBreak(story.id, chapter.breakId, root.id);
+  check(story.chapterBreaks[0]?.parentPartId === root.id, "Chapter move back failed");
+  story = await api.deleteNode(story.id, second.id, 1);
   story = await api.summarizeChapter(story.id, chapter.breakId);
   const summary = story.nodes.find((node) => node.chapterBreakId === chapter.breakId)!;
   check(summary.text !== undefined, "Chapter summary was not hydrated");

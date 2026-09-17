@@ -449,6 +449,11 @@ async function invokeReadOnly(
         requireString(input.storyId, "storyId"),
         requireString(input.nodeId, "nodeId")
       );
+    case "getTakeLine":
+      return await service.getTakeLine(
+        requireString(input.storyId, "storyId"),
+        requireString(input.nodeId, "nodeId")
+      );
     case "getAside": {
       const storyId = requireString(input.storyId, "storyId");
       if (input.anchor === undefined) return await service.getAside(storyId);

@@ -1,5 +1,5 @@
 import { activePath, computeRollups } from "../shared/story-tree.js";
-import type { NodeStub, Story, StoryPathNode, StoryPayload } from "../shared/types.js";
+import type { NodeStub, Story, StoryNode, StoryPathNode, StoryPayload } from "../shared/types.js";
 import { MAX_AUTHORS_NOTE_CHARS, storedAuthorsNoteDepth } from "../shared/authors-note.js";
 import { MAX_AUTHOR_BRIEF_CHARS, storedAuthorBrief } from "../shared/author-brief.js";
 import { humanEditIsMeaningful } from "../shared/human-edit.js";
@@ -8,6 +8,30 @@ import { nodeStubPreview, nodeStubTokens, nodeStubWords } from "./story-node-tex
 import { boundedString } from "./story-wire-validation.js";
 import { asidePresenceFromIndex } from "../shared/aside.js";
 import { allAsideSessionRefs, visibleLegacyAsideSessionId } from "./aside-session-store.js";
+
+/** Projects a domain `StoryNode` to the wire-only `StoryPathNode` shape:
+ *  the same take the reader already has, minus its Generation Record id
+ *  list (only a count travels — see `StoryPathNode`). Used for
+ *  `StoryPayload.path` below and for `getTakeLine` (server/stories.ts),
+ *  the one other read that hands a take's own prose back this same way. */
+export function toStoryPathNode(node: StoryNode): StoryPathNode {
+  const { generationRecordIds, ...rest } = node;
+  return {
+    ...rest,
+    ...(generationRecordIds === undefined || generationRecordIds.length === 0
+      ? {}
+      : { generationRecordCount: generationRecordIds.length }),
+    ...(node.attribution == null ? {} : {
+      attribution: { ...node.attribution, ranges: node.attribution.ranges.map((range) => ({ ...range })) }
+    }),
+    ...(node.rewrittenSpans === undefined ? {} : {
+      rewrittenSpans: node.rewrittenSpans.map((range) => ({ ...range }))
+    }),
+    ...(node.imageAttachments === undefined ? {} : {
+      imageAttachments: node.imageAttachments.map((attachment) => ({ ...attachment }))
+    })
+  };
+}
 
 export function buildStoryPayload(
   story: Story,
@@ -108,28 +132,7 @@ export function buildStoryPayload(
     }),
     // Shallow copies keep handlers from mutating store state through the
     // response; structuredClone here cost ~29ms on 20k-part paths.
-    path: activePath(story).map((node): StoryPathNode => {
-      // A path node is prose the reader already has; its Generation Record
-      // history is fetched on demand (see GenerationRecordSummary and
-      // loadGenerationRecordSummaries), so the ordered id list itself never
-      // needs to travel with the story — only a count, same as NodeStub.
-      const { generationRecordIds, ...rest } = node;
-      return {
-        ...rest,
-        ...(generationRecordIds === undefined || generationRecordIds.length === 0
-          ? {}
-          : { generationRecordCount: generationRecordIds.length }),
-        ...(node.attribution == null ? {} : {
-          attribution: { ...node.attribution, ranges: node.attribution.ranges.map((range) => ({ ...range })) }
-        }),
-        ...(node.rewrittenSpans === undefined ? {} : {
-          rewrittenSpans: node.rewrittenSpans.map((range) => ({ ...range }))
-        }),
-        ...(node.imageAttachments === undefined ? {} : {
-          imageAttachments: node.imageAttachments.map((attachment) => ({ ...attachment }))
-        })
-      };
-    }),
+    path: activePath(story).map(toStoryPathNode),
     activeRootId: story.activeRootId,
     tags: story.tags.map((tag) => ({ ...tag })),
     recentNodeIds: [...story.recentNodeIds],

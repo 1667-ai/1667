@@ -13,7 +13,7 @@ import {
 } from "../shared/types.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
 import { reconcileFactEditorBody } from "./renderer-facts-commands.js";
-import { effectiveFocusedPartId, type TextSelection } from "./renderer-model.js";
+import { effectiveFocusedPartId, storyChapters, type TextSelection } from "./renderer-model.js";
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import type { FactConsistencyScope } from "../shared/fact-consistency-contract.js";
 import {
@@ -434,6 +434,36 @@ export async function renameChapter(ctx: RendererCommandContext, id: string, cur
   await ctx.run("Renaming chapter", async () => { await ctx.replaceStory(await api.renameChapterBreak(story.id, id || null, title)); });
 }
 
+/** A moved break cannot keep its own summary (see `moveChapterBreak` in
+ *  `server/chapter-breaks.ts`): the format leaves no honest stored value
+ *  that would mark a carried-along summary stale, so the server removes it.
+ *  Ask first, the same way other destructive commands do, so a drag or an
+ *  arrow-key step never deletes a summary the writer did not mean to lose. */
+export async function moveChapterBreak(ctx: RendererCommandContext, breakId: string, parentPartId: string): Promise<void> {
+  const api = ctx.api();
+  const story = ctx.story();
+  const current = story.chapterBreaks.find((item) => item.id === breakId);
+  if (current === undefined || current.parentPartId === parentPartId) return;
+  const fromPartId = current.parentPartId;
+  const hasSummary = story.nodes.some((node) => node.chapterBreakId === breakId);
+  if (hasSummary) {
+    const chapterNumber = storyChapters(story).find((chapter) => chapter.closedBy?.id === breakId)?.number ?? "?";
+    if (!await ctx.confirmDialog(
+      "Move chapter break",
+      `Moving this break removes the summary of chapter ${chapterNumber}.`
+    )) return;
+  }
+  await ctx.run("Moving chapter break", async () => {
+    const payload = await api.moveChapterBreak(story.id, breakId, parentPartId);
+    await ctx.replaceStory(payload);
+    const index = payload.path.findIndex((node) => node.id === parentPartId);
+    ctx.setState({
+      chapterUndo: { kind: "moved", breakId, fromPartId },
+      status: `Break moved to ¶ ${index + 1}${hasSummary ? " · summary removed" : ""} · u undoes`
+    });
+  });
+}
+
 export async function removeChapter(ctx: RendererCommandContext, id: string, title: string): Promise<void> {
   const api = ctx.api();
   const story = ctx.story();
@@ -462,6 +492,25 @@ export async function restoreChapter(ctx: RendererCommandContext): Promise<void>
     await ctx.run("Restoring chapter", async () => {
       await ctx.replaceStory(await ctx.api().restoreChapterBreak(story.id, undo.breakId, undo.removed));
       ctx.setState({ chapterUndo: null, status: "Chapter break restored" });
+    });
+    return;
+  }
+  if (undo.kind === "moved") {
+    const current = story.chapterBreaks.find((item) => item.id === undo.breakId);
+    if (current === undefined) {
+      ctx.setState({ chapterUndo: null, status: "Nothing to undo", error: null });
+      return;
+    }
+    const movingFrom = current.parentPartId;
+    // The chapter can have been summarized since the move; moving back
+    // removes that summary too, so ask exactly like a forward move does.
+    if (story.nodes.some((node) => node.chapterBreakId === undo.breakId)) {
+      const chapterNumber = storyChapters(story).find((chapter) => chapter.closedBy?.id === undo.breakId)?.number ?? "?";
+      if (!await ctx.confirmDialog("Move chapter break", `Moving this break removes the summary of chapter ${chapterNumber}.`)) return;
+    }
+    await ctx.run("Moving chapter break", async () => {
+      await ctx.replaceStory(await ctx.api().moveChapterBreak(story.id, undo.breakId, undo.fromPartId));
+      ctx.setState({ chapterUndo: { kind: "moved", breakId: undo.breakId, fromPartId: movingFrom }, status: "Chapter break moved back · u moves it again" });
     });
     return;
   }

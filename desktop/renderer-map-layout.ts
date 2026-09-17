@@ -1,15 +1,21 @@
-/** Pure geometry for the Map stemma (⌘5, D-30…D-32). No DOM, no actions —
- * `renderer-map-view.ts` draws what this returns. Kept in its own file so it
- * can be unit-tested (and timed) without Electron.
+/** Pure geometry for the Map stemma (⌘5, D-30…D-32, D-34). No DOM, no
+ * actions — `renderer-map-view.ts` draws what this returns. Kept in its own
+ * file so it can be unit-tested (and timed) without Electron.
  *
- * Reduced scope (see `05-map-braid-aside.md` §0): no icicle, no minimap, no
- * fisheye lens, no regen clouds. A collapsed run's subtree is summarised as
- * one bar even when it forks again further down — the bar's count and words
- * cover the whole subtree, but nested forks inside it are not drawn. This
- * keeps the layout O(nodes) and the ≤120 budget easy to prove, at the cost of
- * detail a writer would only reach by expanding a run — expansion is not
- * implemented; a click focuses the run's tip instead. */
+ * Reduced scope (see `05-map-braid-aside.md` §0): no icicle, no regen
+ * clouds. The minimap's own geometry (D-35, the whole line compressed to one
+ * strip) lives in `renderer-minimap-layout.ts`, not here — this file only
+ * gained the `centerPartId` windowing option the minimap drives. A collapsed
+ * run's subtree is summarised as one bar even when it forks again further
+ * down — the bar's count and words cover the whole subtree, but nested forks
+ * inside it are not drawn, unless the `lensIndex` option (D-34) opens that
+ * branch: inside the lens, an off-path branch with more than one take draws
+ * its followed chain as individual nodes and folds only the rest of its
+ * subtree into one small bar. This keeps the layout O(nodes) and the ≤120
+ * budget easy to prove, at the cost of detail a writer would only reach by
+ * hovering (or moving the map cursor to) the fork that grows it. */
 import type { NodeStub, StoryPayload } from "../shared/types.js";
+import { LENS_BUDGET, LENS_CHAIN_GAP, LENS_MAX_RADIUS, LENS_PAD, LENS_REST_GAP, walkActiveChain, type MapLensLayout } from "./renderer-map-lens.js";
 
 export const DEFAULT_MAP_NODE_BUDGET = 120;
 /** A single fork can carry far more sibling takes than the whole budget (the
@@ -23,6 +29,9 @@ const ROW_HEIGHT = 34;
 const COLD_MS = 21 * 24 * 60 * 60 * 1000;
 const MARGIN_X = 24;
 const MARGIN_Y = 24;
+/** Where a shown branch's own node (or the first node of an opened chain)
+ * sits, right of its spine parent. */
+const BRANCH_X_OFFSET = 18;
 
 /** The row a fork's branch at this position (0-based, in recency order)
  * draws on: alternating below (even) and above (odd) the spine, one level
@@ -71,6 +80,9 @@ export interface MapLayoutEdge {
   readonly to: MapPoint;
   readonly onPath: boolean;
   readonly cold: boolean;
+  /** Draw a straight line rather than the off-path cubic curve. True for the
+   * spine and for a D-34 opened chain's edges (still off-path in colour). */
+  readonly straight: boolean;
 }
 
 /** D-32: a forkless run (or a run that forks again only past this budget)
@@ -104,11 +116,22 @@ export interface MapLayout {
   /** True when the spine was windowed (some parts folded to boundary bars). */
   readonly windowed: boolean;
   readonly totalParts: number;
+  readonly lens: MapLensLayout | null;
 }
 
 export interface MapLayoutOptions {
   readonly maxNodes?: number;
   readonly now?: number;
+  /** D-35: windows the spine around this part instead of `focusedPartId` —
+   * set while the minimap's viewport targets a part outside the drawn
+   * window. `undefined` (the default) leaves windowing keyed to
+   * `focusedPartId`, unchanged from before the minimap existed. */
+  readonly centerPartId?: string | null;
+  /** D-34: a path index (into the full, unwindowed `story.path`) the lens is
+   * centred on — the spine index nearest the pointer, or where the map
+   * cursor's take leaves the current line. `undefined`/`null` (the default)
+   * draws no lens, unchanged from before it existed. */
+  readonly lensIndex?: number | null;
 }
 
 function nodeRadius(words: number): number {
@@ -169,8 +192,15 @@ export function computeMapLayout(
   const now = options.now ?? Date.now();
   const path = story.path;
   if (path.length === 0) {
-    return { width: MARGIN_X * 2, height: MARGIN_Y * 2, nodes: [], edges: [], collapsedRuns: [], chapterTicks: [], windowStart: 0, windowEnd: 0, windowed: false, totalParts: 0 };
+    return { width: MARGIN_X * 2, height: MARGIN_Y * 2, nodes: [], edges: [], collapsedRuns: [], chapterTicks: [], windowStart: 0, windowEnd: 0, windowed: false, totalParts: 0, lens: null };
   }
+  const hasLens = options.lensIndex !== undefined && options.lensIndex !== null;
+  const lensCenterIndex = hasLens ? Math.min(path.length - 1, Math.max(0, Math.trunc(options.lensIndex!))) : -1;
+  // Always hold back a slice of the budget for the lens before windowing
+  // picks `[lo, hi)`, so a windowed story still has room to open runs, and
+  // so the drawn window does not change when a lens appears or goes away
+  // (that would shift the whole stemma under the pointer).
+  const windowBudget = Math.max(1, maxNodes - LENS_BUDGET);
   const childrenByParent = new Map<string | null, NodeStub[]>();
   for (const node of story.nodes) {
     const list = childrenByParent.get(node.parentId);
@@ -180,8 +210,9 @@ export function computeMapLayout(
   const nodeStubById = new Map(story.nodes.map((node) => [node.id, node] as const));
   const pathIds = new Set(path.map((node) => node.id));
 
-  const focusedIndex = focusedPartId === null ? -1 : path.findIndex((node) => node.id === focusedPartId);
-  const safeFocusedIndex = focusedIndex === -1 ? path.length - 1 : focusedIndex;
+  const centerId = options.centerPartId ?? focusedPartId;
+  const centerIndex = centerId === null ? -1 : path.findIndex((node) => node.id === centerId);
+  const safeFocusedIndex = centerIndex === -1 ? path.length - 1 : centerIndex;
 
   // Off-path branch roots per path index, precomputed once (O(nodes) total).
   // Index 0 also collects `childrenByParent.get(null)`: an alternate root
@@ -206,12 +237,13 @@ export function computeMapLayout(
   let hi = path.length;
   for (;;) {
     const boundaryBars = (lo > 0 ? 1 : 0) + (hi < path.length ? 1 : 0);
-    if (windowWeight(lo, hi) + boundaryBars <= maxNodes || hi - lo <= 1) break;
+    if (windowWeight(lo, hi) + boundaryBars <= windowBudget || hi - lo <= 1) break;
     const distLo = safeFocusedIndex - lo;
     const distHi = hi - 1 - safeFocusedIndex;
     if (distLo > distHi) lo += 1; else hi -= 1;
   }
   const windowed = lo > 0 || hi < path.length;
+  const boundaryBarCount = (lo > 0 ? 1 : 0) + (hi < path.length ? 1 : 0);
 
   // x positions: cumulative words along the windowed spine, min gap enforced.
   const xs: number[] = [];
@@ -223,6 +255,74 @@ export function computeMapLayout(
     const proposed = MARGIN_X + (lo > 0 ? 40 : 0) + cumulativeWords * 0.6;
     cursorX = index === lo ? Math.max(cursorX, proposed) : Math.max(cursorX + MIN_SPINE_GAP, proposed);
     xs.push(cursorX);
+  }
+
+  // D-34: decide which branches the lens opens, nearest the centre first,
+  // before laying out a single node — the fisheye spacing pass right after
+  // this needs to know an opened chain's node count to push later spine x
+  // positions clear of it.
+  const openedChains = new Map<string, { readonly chain: readonly NodeStub[]; readonly restCount: number; readonly restWords: number; readonly restTipId: string | null }>();
+  let lensSpan: { start: number; end: number } | null = null;
+  if (hasLens) {
+    const center = Math.min(hi - 1, Math.max(lo, lensCenterIndex));
+    lensSpan = { start: Math.max(lo, center - 1), end: Math.min(hi - 1, center + 1) };
+    let remainingLensBudget = maxNodes - (windowWeight(lo, hi) + boundaryBarCount);
+    offsetLoop:
+    for (const offset of [0, -1, 1, -2, 2, -3, 3, -4, 4]) {
+      if (Math.abs(offset) > LENS_MAX_RADIUS) continue;
+      const index = center + offset;
+      if (index < lo || index >= hi) continue;
+      const branches = branchesByIndex.get(index);
+      if (branches === undefined) continue;
+      const ordered = [...branches].sort((a, b) => Date.parse(b.lastTouched) - Date.parse(a.lastTouched));
+      for (const branchRoot of ordered.slice(0, MAX_BRANCHES_PER_FORK)) {
+        const subtree = collectSubtree(childrenByParent, nodeStubById, branchRoot.id);
+        if (subtree.length <= 1) continue; // nothing to open — already draws as one node
+        const chain = walkActiveChain(branchRoot, childrenByParent);
+        const chainIds = new Set(chain.map((node) => node.id));
+        const rest = subtree.filter((node) => !chainIds.has(node.id));
+        // Opening this branch replaces the 1 primitive its collapsed run
+        // already costs in `weight` with the chain plus (maybe) a rest bar.
+        const cost = chain.length + (rest.length > 0 ? 1 : 0) - 1;
+        if (cost > remainingLensBudget) break offsetLoop; // nearest-centre-first: stop here, not just skip
+        remainingLensBudget -= cost;
+        const restTipId = rest.length === 0 ? null : rest.reduce((latest, node) => (Date.parse(node.lastTouched) > Date.parse(latest.lastTouched) ? node : latest), rest[0]!).id;
+        openedChains.set(branchRoot.id, { chain, restCount: rest.length, restWords: rest.reduce((sum, node) => sum + node.words, 0), restTipId });
+        lensSpan = { start: Math.min(lensSpan.start, index), end: Math.max(lensSpan.end, index) };
+      }
+    }
+  }
+
+  // Fisheye spacing: an opened chain can need more room to its right than a
+  // plain branch ever did — push every later spine x by the overrun so no
+  // opened chain overlaps the next spine node or its own branches. Parts
+  // outside the lens (nothing opened at their index) keep their spacing.
+  let lensRightExtent = hasLens && lensSpan !== null ? xs[lensSpan.end - lo]! : 0;
+  if (openedChains.size > 0) {
+    let shift = 0;
+    for (let index = lo; index < hi; index += 1) {
+      xs[index - lo] = xs[index - lo]! + shift;
+      const branches = branchesByIndex.get(index);
+      if (branches === undefined) continue;
+      const ordered = [...branches].sort((a, b) => Date.parse(b.lastTouched) - Date.parse(a.lastTouched)).slice(0, MAX_BRANCHES_PER_FORK);
+      let rightmost = xs[index - lo]!;
+      for (const branchRoot of ordered) {
+        const opened = openedChains.get(branchRoot.id);
+        if (opened === undefined) continue;
+        const chainEndX = xs[index - lo]! + BRANCH_X_OFFSET + (opened.chain.length - 1) * LENS_CHAIN_GAP;
+        const lastWords = opened.chain[opened.chain.length - 1]!.words;
+        const restWidth = Math.min(120, 20 + opened.restCount * 4);
+        const endX = opened.restCount > 0 ? chainEndX + LENS_REST_GAP + restWidth : chainEndX + nodeRadius(lastWords);
+        rightmost = Math.max(rightmost, endX);
+      }
+      if (lensSpan !== null && index >= lensSpan.start && index <= lensSpan.end) {
+        lensRightExtent = Math.max(lensRightExtent, rightmost);
+      }
+      if (rightmost === xs[index - lo] || index + 1 >= hi) continue;
+      const nextBase = xs[index + 1 - lo]!;
+      const needed = rightmost + MIN_SPINE_GAP;
+      if (needed > nextBase) shift += needed - nextBase;
+    }
   }
 
   const nodes: MapLayoutNode[] = [];
@@ -262,7 +362,7 @@ export function computeMapLayout(
       partNumber: index + 1
     });
     if (index > lo) {
-      edges.push({ id: `spine:${path[index - 1]!.id}:${pathNode.id}`, from: { x: xs[index - lo - 1]!, y: spineY }, to: { x: xs[index - lo]!, y: spineY }, onPath: true, cold: false });
+      edges.push({ id: `spine:${path[index - 1]!.id}:${pathNode.id}`, from: { x: xs[index - lo - 1]!, y: spineY }, to: { x: xs[index - lo]!, y: spineY }, onPath: true, straight: true, cold: false });
     }
     if (pathNode.chapterBreakId !== undefined) {
       chapterTicks.push({ id: pathNode.chapterBreakId, x: xs[index - lo]!, title: "" });
@@ -283,9 +383,41 @@ export function computeMapLayout(
     const shown = ordered.slice(0, MAX_BRANCHES_PER_FORK);
     const overflow = ordered.slice(MAX_BRANCHES_PER_FORK);
     shown.forEach((branchRoot, branchIndex) => {
-      const subtree = collectSubtree(childrenByParent, nodeStubById, branchRoot.id);
       const y = spineY + branchRowOffset(branchIndex);
-      const x = parentX + 18;
+      const x = parentX + BRANCH_X_OFFSET;
+      const opened = openedChains.get(branchRoot.id);
+      if (opened !== undefined) {
+        // D-34: the lens opened this branch — draw its followed chain as
+        // individual nodes, spaced evenly to the right, with straight edges;
+        // any takes off that chain fold into one small rest bar.
+        let chainX = x;
+        opened.chain.forEach((chainNode, chainPosition) => {
+          const words = chainNode.words;
+          nodes.push({
+            id: chainNode.id,
+            x: chainX,
+            y,
+            r: isDeadEnd(chainNode, false) ? 5 : nodeRadius(words),
+            onPath: false,
+            ring: false,
+            summary: chainNode.role === "summary",
+            deadEnd: isDeadEnd(chainNode, false),
+            cold: isCold(chainNode, false, now),
+            words,
+            preview: chainNode.preview
+          });
+          const from = chainPosition === 0 ? { x: parentX, y: spineY } : { x: chainX - LENS_CHAIN_GAP, y };
+          edges.push({ id: `lens:${path[index]!.id}:${chainNode.id}`, from, to: { x: chainX, y }, onPath: false, straight: true, cold: isCold(chainNode, false, now) });
+          chainX += LENS_CHAIN_GAP;
+        });
+        if (opened.restCount > 0) {
+          const restX = chainX - LENS_CHAIN_GAP + LENS_REST_GAP;
+          collapsedRuns.push({ id: `run:${branchRoot.id}`, x: restX, y, width: Math.min(120, 20 + opened.restCount * 4), count: opened.restCount, words: opened.restWords, tipNodeId: opened.restTipId! });
+          edges.push({ id: `lens:rest:${branchRoot.id}`, from: { x: chainX - LENS_CHAIN_GAP, y }, to: { x: restX, y }, onPath: false, straight: true, cold: false });
+        }
+        return;
+      }
+      const subtree = collectSubtree(childrenByParent, nodeStubById, branchRoot.id);
       if (subtree.length <= 1) {
         const words = branchRoot.words;
         nodes.push({
@@ -301,17 +433,17 @@ export function computeMapLayout(
           words,
           preview: branchRoot.preview
         });
-        edges.push({ id: `branch:${path[index]!.id}:${branchRoot.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, cold: isCold(branchRoot, false, now) });
+        edges.push({ id: `branch:${path[index]!.id}:${branchRoot.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, straight: false, cold: isCold(branchRoot, false, now) });
       } else {
         const totalWords = subtree.reduce((sum, node) => sum + node.words, 0);
         const tip = subtree.reduce((latest, node) => Date.parse(node.lastTouched) > Date.parse(latest.lastTouched) ? node : latest, subtree[0]!);
         collapsedRuns.push({ id: `run:${branchRoot.id}`, x, y, width: Math.min(120, 20 + subtree.length * 4), count: subtree.length, words: totalWords, tipNodeId: tip.id });
-        edges.push({ id: `branch:${path[index]!.id}:${branchRoot.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, cold: false });
+        edges.push({ id: `branch:${path[index]!.id}:${branchRoot.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, straight: false, cold: false });
       }
     });
     if (overflow.length > 0) {
       const y = spineY + branchRowOffset(shown.length);
-      const x = parentX + 18;
+      const x = parentX + BRANCH_X_OFFSET;
       let count = 0;
       let words = 0;
       for (const branchRoot of overflow) {
@@ -320,7 +452,7 @@ export function computeMapLayout(
         words += subtree.reduce((sum, node) => sum + node.words, 0);
       }
       collapsedRuns.push({ id: `run:overflow:${path[index]!.id}`, x, y, width: Math.min(120, 20 + count * 4), count, words, tipNodeId: overflow[0]!.id });
-      edges.push({ id: `branch:overflow:${path[index]!.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, cold: false });
+      edges.push({ id: `branch:overflow:${path[index]!.id}`, from: { x: parentX, y: spineY }, to: { x, y }, onPath: false, straight: false, cold: false });
     }
   }
 
@@ -332,6 +464,10 @@ export function computeMapLayout(
   const width = rightmost + MARGIN_X;
   const height = spineY + MAX_ROW_OFFSET_BELOW + MARGIN_Y;
 
+  const lens: MapLensLayout | null = hasLens && lensSpan !== null
+    ? { startIndex: lensSpan.start, endIndex: lensSpan.end, x: xs[lensSpan.start - lo]! - LENS_PAD, width: lensRightExtent + LENS_PAD - (xs[lensSpan.start - lo]! - LENS_PAD) }
+    : null;
+
   return {
     width,
     height,
@@ -342,7 +478,8 @@ export function computeMapLayout(
     windowStart: lo,
     windowEnd: hi,
     windowed,
-    totalParts: path.length
+    totalParts: path.length,
+    lens
   };
 }
 

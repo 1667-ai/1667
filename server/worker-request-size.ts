@@ -122,6 +122,7 @@ function logicalRequestBody(
       return { originalProviderMutationId: input.originalProviderMutationId };
     case "createChapterBreak": return { parentPartId: input.parentPartId, title: input.title };
     case "renameChapterBreak": return { title: input.title };
+    case "moveChapterBreak": return { parentPartId: input.parentPartId };
     case "removeChapterBreak": {
       if (protocolVersion === PREDECESSOR_WORKER_PROTOCOL_VERSION) {
         if (input.removedFingerprint !== undefined) throw mixedRemovalSchema();
@@ -243,6 +244,7 @@ function logicalRequestBody(
     case "getGenerationRecords":
     case "getGenerationRecord":
     case "getReasoning":
+    case "getTakeLine":
     case "planFactConsistency":
     case "checkFactConsistency":
     case "getFactConsistencyRun":

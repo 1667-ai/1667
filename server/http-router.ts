@@ -630,6 +630,14 @@ async function handleApi(
         removedFingerprint
       }));
     }
+    if (subId !== undefined && action === "move" && method === "POST") {
+      const parentPartId = requireString((await jsonBody()).parentPartId, "parentPartId");
+      return sendJson(response, 200, await mutate("moveChapterBreak", {
+        storyId: id,
+        breakId: subId,
+        parentPartId
+      }));
+    }
     if (subId !== undefined && action === "restore" && method === "POST") {
       const removed = await jsonBody();
       return sendJson(response, 200, await mutate("restoreChapterBreak", {
@@ -751,6 +759,14 @@ async function handleApi(
       response,
       200,
       await service.getReasoning(id, subId)
+    );
+  }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
+    && action === "line" && method === "GET") {
+    return sendJson(
+      response,
+      200,
+      await service.getTakeLine(id, subId)
     );
   }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {

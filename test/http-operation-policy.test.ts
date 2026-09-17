@@ -53,6 +53,10 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     { method: "getGenerationRecord", lifetime: "transfer" }
   );
   assert.deepEqual(
+    httpOperationPolicy("GET", "/api/stories/story/nodes/node/line"),
+    { method: "getTakeLine", lifetime: "local" }
+  );
+  assert.deepEqual(
     httpOperationPolicy("PUT", "/api/stories/story/authors-note"),
     { method: "setAuthorsNote", lifetime: "local" }
   );
@@ -88,6 +92,10 @@ test("HTTP operation policy is exact and assigns frozen lifetime classes", () =>
     httpOperationPolicy("GET", "/api/stories/story/fact-consistency"),
     { method: "getFactConsistencyRun", lifetime: "transfer" }
   );
+  assert.deepEqual(
+    httpOperationPolicy("POST", "/api/stories/story/chapter-breaks/break/move"),
+    { method: "moveChapterBreak", lifetime: "local" }
+  );
   for (const [method, path] of [
     ["PUT", "/api/stories/story/tags/node/extra"],
     ["PATCH", "/api/stories/story/facts/fact/extra"],
@@ -115,8 +123,10 @@ test("HTTP operation policy rejects a trailing segment on every route except the
     ["POST", "/api/stories/story/nodes/node/paste-line/junk"],
     ["GET", "/api/stories/story/nodes/node/token-probabilities/junk"],
     ["GET", "/api/stories/story/nodes/node/reasoning/junk"],
+    ["GET", "/api/stories/story/nodes/node/line/junk"],
     ["POST", "/api/stories/story/chapter-breaks/break/restore/junk"],
     ["POST", "/api/stories/story/chapter-breaks/break/summarize/junk"],
+    ["POST", "/api/stories/story/chapter-breaks/break/move/junk"],
     ["GET", "/api/stories/story/chapter-breaks/break/preview/junk"],
     ["POST", "/api/stories/story/unknown-outcomes/id/ack/junk"],
     [
