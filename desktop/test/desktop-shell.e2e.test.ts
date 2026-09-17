@@ -60,29 +60,37 @@ async function createStory(page: Page, title: string): Promise<void> {
 // 320px wide.
 async function test1440Geometry(app: ElectronApplication, page: Page): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1440, 900));
-  await page.waitForTimeout(150);
-  for (const selector of [".titlebar", ".rail", ".inspector"]) {
-    await page.locator(selector).waitFor({ state: "visible", timeout: 15_000 });
-  }
-  const titlebar = await page.locator(".titlebar").boundingBox();
-  const rail = await page.locator(".rail").boundingBox();
-  const inspector = await page.locator(".inspector").boundingBox();
-  assert.ok(titlebar, "titlebar must render at 1440x900");
+  const { titlebar, rail, inspector } = await measure(page, 1440, [".titlebar", ".rail", ".inspector"]);
   assert.equal(Math.round(titlebar!.height), 44, "titlebar must be 44px tall");
-  assert.ok(rail, "rail must render at 1440x900");
   assert.equal(Math.round(rail!.width), 56, "rail must be 56px wide");
-  assert.ok(inspector, "inspector must render at 1440x900");
   assert.equal(Math.round(inspector!.width), 320, "inspector must be 320px wide at 1440");
+}
+
+type Box = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+
+/** Read every box in one page call once the page has the expected width. A
+ *  full re-render can replace an element between two separate Playwright
+ *  calls, so separate measurements can see a detached element. */
+async function measure(page: Page, width: number, selectors: readonly string[]): Promise<Record<string, Box>> {
+  const boxes = await page.waitForFunction((args) => {
+    // Windows counts the frame in the window size, so allow a frame's width.
+    if (window.innerWidth > args.width || window.innerWidth < args.width - 40) return null;
+    const result: Record<string, { x: number; y: number; width: number; height: number }> = {};
+    for (const selector of args.selectors) {
+      const rect = document.querySelector(selector)?.getBoundingClientRect();
+      if (rect === undefined || rect.width === 0 || rect.height === 0) return null;
+      result[selector.slice(1)] = { x: rect.x, y: rect.y, width: rect.width, height: rect.height };
+    }
+    return result;
+  }, { width, selectors }, { timeout: 15_000 });
+  return await boxes.jsonValue() as Record<string, Box>;
 }
 
 // 2. At 960x640 the inspector docks below the main column, nothing
 // horizontal-scrolls, and the prose column stays >= 600px wide.
 async function test960Geometry(app: ElectronApplication, page: Page): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(960, 640));
-  await page.waitForTimeout(150);
-  const workspace = await page.locator(".workspace").boundingBox();
-  const inspector = await page.locator(".inspector").boundingBox();
-  assert.ok(workspace && inspector, "workspace and inspector must render at 960x640");
+  const { workspace, inspector } = await measure(page, 960, [".workspace", ".inspector"]);
   assert.ok(inspector!.y >= workspace!.y + workspace!.height - 1, "the inspector must dock below the main column at 960px");
   assert.ok(workspace!.width >= 600, `the prose column must stay >= 600px wide at 960px (was ${workspace!.width})`);
   const overflow = await page.evaluate(() => document.documentElement.scrollWidth > window.innerWidth + 1);

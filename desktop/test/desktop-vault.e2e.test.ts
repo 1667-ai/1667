@@ -129,11 +129,14 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.click(".modal-submit");
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
     await page.click(".modal-submit");
-    // A failed unseal reopens the project, and on a slow machine that reload
-    // can replace the failure toast before it paints. Accept either notice
-    // here; the session log check below proves the failure was reported.
-    await page.waitForFunction(() => /Host action failed|Project ready/u.test(document.querySelector(".toast")?.textContent ?? ""),
+    // A failed unseal reopens the project, and that reload replaces the failure
+    // toast with its own statuses in an order that depends on the machine.
+    // Wait for the reopened story instead; the session log check below proves
+    // the failure was reported.
+    await page.waitForFunction(() => /Host action failed|Project ready|Story loaded|stor(y|ies)$/u.test(document.querySelector(".toast")?.textContent ?? ""),
       undefined, { timeout: 30_000 });
+    await page.waitForFunction(() => document.querySelector(".story-title")?.textContent === "Vault proof"
+      && document.querySelector(".tab-content") !== null, undefined, { timeout: 30_000 });
     await page.locator(".tab-settings").click();
     await page.locator(".tab-write").click();
     await page.waitForSelector(".composer-input", { timeout: 15_000 });

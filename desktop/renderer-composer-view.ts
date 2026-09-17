@@ -142,7 +142,23 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
     images,
     imageInput
   );
+  keepScrolledPartsAboveComposer(composer);
   return composer;
+}
+
+/** The composer is sticky at the bottom of the workspace, so a part scrolled
+ *  into view (by a key or a click) must stop above it. The composer's height
+ *  changes with its state and the platform's fonts, so follow it. */
+function keepScrolledPartsAboveComposer(composer: HTMLElement): void {
+  const observer = new ResizeObserver(() => {
+    if (!composer.isConnected) {
+      observer.disconnect();
+      return;
+    }
+    const workspace = composer.closest<HTMLElement>(".workspace");
+    if (workspace !== null) workspace.style.scrollPaddingBottom = `${composer.offsetHeight + 24}px`;
+  });
+  observer.observe(composer);
 }
 
 function renderStoppedGeneration(stopped: NonNullable<RendererState["stoppedGeneration"]>, actions: RendererActions): HTMLElement {

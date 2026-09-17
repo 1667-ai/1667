@@ -69,6 +69,9 @@ async function testFocusVsEdit(page: Page): Promise<void> {
   const first = page.locator(".manuscript-part").nth(0);
   const second = page.locator(".manuscript-part").nth(1);
   assert.match(await first.locator(".part-prose").innerText(), /The first part/u);
+  // Saving a part re-renders twice (the story, then focus), so wait for the
+  // focus to land instead of reading between the two renders.
+  await page.waitForFunction(() => document.querySelectorAll(".manuscript-part")[1]?.classList.contains("focused") === true, undefined, { timeout: 15_000 });
   assert.equal(await second.evaluate((el) => el.classList.contains("focused")), true, "the last part starts focused");
   assert.equal(await first.evaluate((el) => el.classList.contains("dim")), true, "an unfocused part is dim");
   assert.match(await second.locator(".part-gutter-waymark").innerText(), /¶ 2/u);
