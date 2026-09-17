@@ -1,6 +1,6 @@
 {
   "name": "@1667-ai/desktop",
-  "version": "0.11.0-beta.2",
+  "version": "0.11.0-beta.3",
   "private": true,
   "description": "1667 desktop application",
   "desktopName": "ai.1667.desktop",

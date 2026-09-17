@@ -5,6 +5,24 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0-beta.3 - 2026-09-17
+
+- **You can move a chapter break.** On Chapters, drag the break handle on the
+  ruler, or focus it and press Left or Right. Press `u` to move it back. If
+  the chapter has a summary, the desktop app asks first, because the move
+  removes that summary.
+- **The Map has a minimap.** A strip below the Map shows the full story line,
+  the chapter breaks, and the parts that have other takes. Drag the view
+  rectangle, or focus it and press Left or Right, to move the Map.
+- **A lens opens collapsed takes on the Map.** Move the pointer along the story
+  line, or move the map cursor, to show the takes in a collapsed run.
+- **You can compare a take with your story line.** Option-click a take on the
+  Map or in the take list. Two columns show both lines from the part where
+  they separate.
+- **A second unseal attempt works after a wrong password.** The desktop app
+  now does one project change at a time, so the next attempt no longer fails
+  with "No project is open."
+
 ## 0.11.0-beta.2 - 2026-09-16
 
 - **The desktop app uses the TUI keys.** When no field has focus, the same
