@@ -630,6 +630,14 @@ async function handleApi(
         removedFingerprint
       }));
     }
+    if (subId !== undefined && action === "move" && method === "POST") {
+      const parentPartId = requireString((await jsonBody()).parentPartId, "parentPartId");
+      return sendJson(response, 200, await mutate("moveChapterBreak", {
+        storyId: id,
+        breakId: subId,
+        parentPartId
+      }));
+    }
     if (subId !== undefined && action === "restore" && method === "POST") {
       const removed = await jsonBody();
       return sendJson(response, 200, await mutate("restoreChapterBreak", {

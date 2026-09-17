@@ -454,6 +454,13 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
         { expectedAggregateVersion: await expectedVersion(storyId) }
       )
     ),
+    moveChapterBreak: async (storyId, breakId, parentPartId) => rememberPayload(
+      await transport.call(
+        "moveChapterBreak",
+        { storyId, breakId, parentPartId },
+        { expectedAggregateVersion: await expectedVersion(storyId) }
+      )
+    ),
     removeChapterBreak: async (storyId, breakId) => {
       const expectedAggregateVersion = await expectedVersion(storyId);
       const preview = await transport.call(

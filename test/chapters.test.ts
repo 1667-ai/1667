@@ -3,8 +3,10 @@ import test from "node:test";
 import { assembleChapterContext, deriveChapters, isChapterSummaryStale } from "../shared/chapters.js";
 import { parseWorkerMutation } from "../server/worker-mutations.js";
 import { StoryServiceChapters } from "../server/story-service-chapters.js";
+import { moveChapterBreak } from "../server/chapter-breaks.js";
+import { validateChapterRecords } from "../server/story-format-chapters.js";
 import { activePath, childrenOf, computeRollups, contextSlice, switchToNode, takeIndex } from "../shared/story-tree.js";
-import type { ChapterBreak, StoryNode } from "../shared/types.js";
+import type { ChapterBreak, Story, StoryNode } from "../shared/types.js";
 import { assertWithinBudget, cpuBudget, startTiming } from "./performance-budget.js";
 
 const EARLY = "2026-01-01T00:00:00.000Z";
@@ -210,6 +212,101 @@ test("renaming a chapter accepts the null break of chapter one and an empty name
   assert.throws(() => parseWorkerMutation("renameChapterBreak", {
     storyId: "story", breakId: "", title: "Arrival"
   }), /breakId/u);
+});
+
+test("moving a summarized chapter break removes its own summary, and stales the summary after it", () => {
+  const p1 = node("p1", null, "p2");
+  const p2 = node("p2", "p1", "p3");
+  const p3 = node("p3", "p2", "p4");
+  const p4 = node("p4", "p3");
+  const first = seam("first", "p2", "Two");
+  const second = seam("second", "p3", "Three");
+  const firstSummary = chapterSummary("first-summary", "p2", first.id, "p1", "p2");
+  const secondSummary = chapterSummary("second-summary", "p3", second.id, "p3", "p3");
+  const story = {
+    chapterBreaks: [first, second],
+    nodes: [p1, p2, p3, p4, firstSummary, secondSummary],
+    tags: [{ nodeId: "first-summary", name: "Tagged", status: "Draft", color: "", createdAt: EARLY }],
+    recentNodeIds: ["first-summary"]
+  } as unknown as Story;
+
+  // A moved break's own summary can no longer be trusted: the format pins
+  // coveredExtent.toPartId to the summary's parentId, so a mechanical move
+  // would leave fromPartId matching the real extent and the summary would
+  // read fresh — silently omitting whatever now falls between the old seam
+  // and the new one. There is no honest stored value that marks that state
+  // stale, so the summary must go instead of following the break.
+  const moved = moveChapterBreak(story, "first", "p1");
+  assert.equal(moved.parentPartId, "p1", "the break itself moves to the new seam");
+
+  assert.equal(
+    story.nodes.some((node) => node.id === "first-summary"),
+    false,
+    "the moved break's own summary is removed, not carried along stale"
+  );
+  assert.equal(story.tags.some((tag) => tag.nodeId === "first-summary"), false, "its tag goes with it");
+  assert.equal(story.recentNodeIds.includes("first-summary"), false);
+
+  assert.doesNotThrow(
+    () => validateChapterRecords(story.chapterBreaks, story.nodes),
+    "removing the orphaned summary must still leave a valid stored shape"
+  );
+
+  const path = activePath({ nodes: [p1, p2, p3, p4], activeRootId: "p1" } as never);
+  const chapters = deriveChapters(path, story.chapterBreaks, story.nodes);
+  assert.equal(chapters[0]!.summary, null, "chapter one lost its summary along with the break that moved");
+  assert.equal(chapters[1]!.stale, true, "chapter two's summary no longer matches its shifted starting boundary");
+});
+
+test("moving a chapter break refuses a chapter-summary seam and an occupied seam, and requires a known break", () => {
+  const p1 = node("p1", null, "p2");
+  const p2 = node("p2", "p1", "p3");
+  const p3 = node("p3", "p2");
+  const first = seam("first", "p1", "Two");
+  const second = seam("second", "p2", "Three");
+  const summary = chapterSummary("summary", "p1", first.id, "p1", "p1");
+  const story = { chapterBreaks: [first, second], nodes: [p1, p2, p3, summary] } as unknown as Story;
+
+  assert.throws(
+    () => moveChapterBreak(story, "second", "summary"),
+    /A chapter summary cannot anchor a chapter break/u
+  );
+  assert.throws(
+    () => moveChapterBreak(story, "second", "p1"),
+    /This seam already has a chapter break/u
+  );
+  assert.throws(
+    () => moveChapterBreak(story, "missing", "p2"),
+    /Chapter break not found: missing/u
+  );
+});
+
+test("moving a chapter break onto its own seam is a no-op that keeps its summary", () => {
+  const p1 = node("p1", null, "p2");
+  const p2 = node("p2", "p1");
+  const closing = seam("closing", "p1", "Two");
+  const summary = chapterSummary("summary", "p1", closing.id, "p1", "p1");
+  const story = {
+    chapterBreaks: [closing],
+    nodes: [p1, p2, summary],
+    tags: [],
+    recentNodeIds: []
+  } as unknown as Story;
+
+  const moved = moveChapterBreak(story, "closing", "p1");
+  assert.equal(moved.parentPartId, "p1");
+  assert.equal(story.chapterBreaks.length, 1);
+  assert.equal(story.nodes.some((node) => node.id === "summary"), true, "the same-seam no-op keeps the summary");
+});
+
+test("moving a chapter break requires a parentPartId", () => {
+  assert.throws(() => parseWorkerMutation("moveChapterBreak", {
+    storyId: "story", breakId: "break"
+  }), /parentPartId/u);
+  assert.deepEqual(
+    parseWorkerMutation("moveChapterBreak", { storyId: "story", breakId: "break", parentPartId: "p2" }),
+    { storyId: "story", breakId: "break", parentPartId: "p2" }
+  );
 });
 
 test("naming chapter one is refused where the directory never took the fence", async () => {

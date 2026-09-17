@@ -1259,6 +1259,20 @@ export class StoryService extends StoryServiceRuntime {
     );
   }
 
+  async moveChapterBreak(
+    id: string,
+    breakId: string,
+    parentPartId: string,
+    mutationRequest?: unknown
+  ): Promise<StoryPayload> {
+    return await this.storyChapters.moveChapterBreak(
+      id,
+      breakId,
+      parentPartId,
+      mutationRequest
+    );
+  }
+
   async deleteChapterBreak(
     id: string,
     breakId: string,

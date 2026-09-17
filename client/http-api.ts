@@ -1060,6 +1060,13 @@ export function createApi(
           : `/api/stories/${storyId}/chapter-breaks/${breakId}`,
         { title }
       ),
+    moveChapterBreak: (storyId, breakId, parentPartId) =>
+      mutateStoryPayload(
+        storyId,
+        "POST",
+        `/api/stories/${storyId}/chapter-breaks/${breakId}/move`,
+        { parentPartId }
+      ),
     removeChapterBreak: async (storyId, breakId) => {
       const preview = await request(
         "GET",

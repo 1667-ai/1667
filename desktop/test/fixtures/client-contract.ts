@@ -115,6 +115,13 @@ window.runClientContract = async () => {
   const chapter = await api.createChapterBreak(story.id, root.id, "Chapter Two");
   story = await api.renameChapterBreak(story.id, chapter.breakId, "The Visitor");
   check(story.chapterBreaks[0]?.title === "The Visitor", "Chapter rename failed");
+  story = await api.createNode(story.id, { parentId: root.id, text: "A knock rattled the frame." });
+  const second = story.path[1]!;
+  story = await api.moveChapterBreak(story.id, chapter.breakId, second.id);
+  check(story.chapterBreaks[0]?.parentPartId === second.id, "Chapter move failed");
+  story = await api.moveChapterBreak(story.id, chapter.breakId, root.id);
+  check(story.chapterBreaks[0]?.parentPartId === root.id, "Chapter move back failed");
+  story = await api.deleteNode(story.id, second.id, 1);
   story = await api.summarizeChapter(story.id, chapter.breakId);
   const summary = story.nodes.find((node) => node.chapterBreakId === chapter.breakId)!;
   check(summary.text !== undefined, "Chapter summary was not hydrated");

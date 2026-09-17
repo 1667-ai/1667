@@ -52,6 +52,7 @@ import {
   importLorebook,
   runFactConsistency,
   showFactConsistency,
+  moveChapterBreak,
   moveFact,
   pasteLine,
   pruneUnused,
@@ -145,6 +146,7 @@ class RendererApp {
     setTheme: (theme) => this.setTheme(theme),
     setInspectorHidden: (hidden) => this.setInspectorHidden(hidden),
     setMapCursor: (id) => this.setState({ mapCursorId: id }),
+    setMapCenter: (id) => this.setState({ mapCenterPartId: id }),
     openKeys: () => this.setState({ popover: { kind: "keys" } }),
     openPalette: (group) => this.setState({ popover: { kind: "palette", query: "", group: group ?? null } }),
     openPartMenu: (partId) => this.setState({ popover: { kind: "part-menu", partId } }),
@@ -239,6 +241,7 @@ class RendererApp {
     revertFactEditor: () => revertFactEditor(this.commandContext()),
     createChapter: (partId) => { void this.createChapter(partId); },
     renameChapter: (chapter) => { void this.renameChapter(chapter.id, chapter.title); },
+    moveChapterBreak: (breakId, parentPartId) => { void this.moveChapterBreak(breakId, parentPartId); },
     removeChapter: (chapter) => { void this.removeChapter(chapter.id, chapter.title); },
     summarizeChapter: (chapter) => { void this.summarizeChapter(chapter.id, chapter.title); },
     restoreChapter: () => { void this.restoreChapter(); },
@@ -519,7 +522,11 @@ class RendererApp {
   }
 
   private setTab(tab: RendererTab): void {
-    this.setState({ tab });
+    // Entering Map always centres the drawn window on the focused part
+    // (D-35): a stale minimap target from a previous visit must not carry
+    // over and silently window somewhere else.
+    const enteringMap = tab === "map" && this.state.tab !== "map";
+    this.setState({ tab, ...(enteringMap ? { mapCenterPartId: null } : {}) });
     if (tab === "settings" && (this.state.settings === null || this.state.settingsEditor === null)) void this.loadSettings();
   }
 
@@ -640,7 +647,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, mapCursorId: null, composerWriteTarget: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, mapCursorId: null, mapCenterPartId: null, composerWriteTarget: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -1510,6 +1517,10 @@ class RendererApp {
     await renameChapter(this.commandContext(), id, current);
   }
 
+  private async moveChapterBreak(breakId: string, parentPartId: string): Promise<void> {
+    await moveChapterBreak(this.commandContext(), breakId, parentPartId);
+  }
+
   private async removeChapter(id: string, title: string): Promise<void> {
     await removeChapter(this.commandContext(), id, title);
   }
@@ -1603,7 +1614,7 @@ class RendererApp {
     const storyChanged = previousStory !== null && previousStory.id !== story.id;
     // A genuinely different story also invalidates the Facts draft (it names
     // no Fact in the new story), the map cursor, and any pending `w` target.
-    this.setState({ story, ...(storyChanged ? { editingPartId: null, factEditor: null, mapCursorId: null, composerWriteTarget: null } : {}) });
+    this.setState({ story, ...(storyChanged ? { editingPartId: null, factEditor: null, mapCursorId: null, mapCenterPartId: null, composerWriteTarget: null } : {}) });
     const stories = this.state.stories.map((summary) => summary.id === story.id ? {
       ...summary,
       title: story.title,

@@ -68,6 +68,7 @@ import {
   createDemoChapterBreak,
   DEMO_SUMMARY_TEXT,
   editDemoChapterSummary,
+  moveDemoChapterBreak,
   removeDemoChapterBreak,
   renameDemoChapterBreak,
   restoreDemoChapterBreak,
@@ -137,6 +138,7 @@ export interface DemoController {
   reorderFact(id: string, toIndex: number): StoryPayload;
   createChapterBreak(parentPartId: string, title?: string): { payload: StoryPayload; breakId: string };
   renameChapterBreak(breakId: string | null, title: string): StoryPayload;
+  moveChapterBreak(breakId: string, parentPartId: string): StoryPayload;
   removeChapterBreak(breakId: string): { payload: StoryPayload; removed: RemovedChapterBreak };
   restoreChapterBreak(breakId: string, removed: RemovedChapterBreak): StoryPayload;
   summarizeChapter(breakId: string): StoryPayload;
@@ -500,6 +502,10 @@ export function createDemoController(dense = false): DemoController {
       }
       return payloadFrom(story);
     },
+    moveChapterBreak(breakId, parentPartId) {
+      moveDemoChapterBreak(story, breakId, parentPartId);
+      return payloadFrom(story);
+    },
     removeChapterBreak(breakId) {
       const removed = removeDemoChapterBreak(story, breakId);
       return { payload: payloadFrom(story), removed };
@@ -842,6 +848,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     reorderFact: async (_storyId, factId, toIndex) => demo.reorderFact(factId, toIndex),
     createChapterBreak: async (_storyId, parentPartId, title = "") => demo.createChapterBreak(parentPartId, title),
     renameChapterBreak: async (_storyId, breakId, title) => demo.renameChapterBreak(breakId, title),
+    moveChapterBreak: async (_storyId, breakId, parentPartId) => demo.moveChapterBreak(breakId, parentPartId),
     removeChapterBreak: async (_storyId, breakId) => demo.removeChapterBreak(breakId),
     restoreChapterBreak: async (_storyId, breakId, removed) => demo.restoreChapterBreak(breakId, removed),
     summarizeChapter: async (_storyId, breakId) => demo.summarizeChapter(breakId),

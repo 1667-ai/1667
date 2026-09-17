@@ -239,6 +239,9 @@ export interface StoryApi {
   createChapterBreak(storyId: string, parentPartId: string, title?: string): Promise<{ payload: StoryPayload; breakId: string }>;
   /** A null break id names chapter one, which no break opens. */
   renameChapterBreak(storyId: string, breakId: string | null, title: string): Promise<StoryPayload>;
+  /** Moves a break to a different seam. The break's summary, if it has one,
+   *  follows it and reads stale until the chapter is summarized again. */
+  moveChapterBreak(storyId: string, breakId: string, parentPartId: string): Promise<StoryPayload>;
   removeChapterBreak(storyId: string, breakId: string): Promise<{ payload: StoryPayload; removed: RemovedChapterBreak }>;
   restoreChapterBreak(storyId: string, breakId: string, removed: RemovedChapterBreak): Promise<StoryPayload>;
   summarizeChapter(storyId: string, breakId: string, signal?: AbortSignal): Promise<StoryPayload>;

@@ -54,7 +54,8 @@ export type DesktopPopover =
  * needs). `u` toggles between the two, like the TUI's own undo. */
 export type ChapterUndo =
   | { readonly kind: "removed"; readonly breakId: string; readonly removed: RemovedChapterBreak }
-  | { readonly kind: "added"; readonly breakId: string };
+  | { readonly kind: "added"; readonly breakId: string }
+  | { readonly kind: "moved"; readonly breakId: string; readonly fromPartId: string };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -294,6 +295,13 @@ export interface RendererState {
   readonly theme: DesktopTheme;
   readonly inspectorHidden: boolean;
   readonly mapCursorId: string | null;
+  /** D-35: the part the minimap's viewport last picked outside the drawn
+   * window — `computeMapLayout` windows around it instead of the focused
+   * part. `null` means "window around the focused part", as before the
+   * minimap existed. Resets to `null` wherever `mapCursorId` already resets,
+   * and whenever the writer enters Map, so entering always centres on the
+   * focused part. */
+  readonly mapCenterPartId: string | null;
   readonly popover: DesktopPopover | null;
   /** Which Settings 2c left-nav sheet is showing. Not persisted; a fresh
    * launch always opens on Routes. */
@@ -353,6 +361,7 @@ export const INITIAL_STATE: RendererState = {
   theme: savedDesktopTheme(),
   inspectorHidden: savedDesktopInspectorHidden(),
   mapCursorId: null,
+  mapCenterPartId: null,
   popover: null,
   settingsSection: "routes",
   log: []
@@ -375,6 +384,7 @@ export interface RendererActions {
   readonly setTheme: (theme: DesktopTheme) => void;
   readonly setInspectorHidden: (hidden: boolean) => void;
   readonly setMapCursor: (id: string | null) => void;
+  readonly setMapCenter: (id: string | null) => void;
   readonly openKeys: () => void;
   readonly openPalette: (group?: DesktopCommandGroup) => void;
   readonly openPartMenu: (partId: string) => void;
@@ -456,6 +466,7 @@ export interface RendererActions {
   readonly revertFactEditor: () => void;
   readonly createChapter: (partId?: string) => void;
   readonly renameChapter: (chapter: ChapterBreak) => void;
+  readonly moveChapterBreak: (breakId: string, parentPartId: string) => void;
   readonly removeChapter: (chapter: ChapterBreak) => void;
   readonly summarizeChapter: (chapter: ChapterBreak) => void;
   readonly restoreChapter: () => void;

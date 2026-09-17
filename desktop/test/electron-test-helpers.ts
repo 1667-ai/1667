@@ -8,6 +8,26 @@ export async function goToLibrary(page: Page): Promise<void> {
   await page.waitForSelector(".tab-content.library", { timeout: 15_000 });
 }
 
+/** Creates a story from Library and waits for Write to show its title. Used
+ * by every Map e2e test that needs a fresh story to build a stemma on. */
+export async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
+  await page.locator(".new-story-button").click();
+  await page.waitForSelector(".modal-card", { timeout: 15_000 });
+  await page.locator(".modal-input").fill(title);
+  await page.locator(".modal-submit").click();
+  await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 15_000 });
+}
+
+/** Types `text` into the composer and saves it as a manual part, waiting for
+ * the manuscript to grow by one. */
+export async function saveManualPart(page: Page, text: string): Promise<void> {
+  const before = await page.locator(".manuscript-part").count();
+  await page.locator(".composer-input").fill(text);
+  await page.locator(".composer-manual").click();
+  await page.waitForFunction((expected) => document.querySelectorAll(".manuscript-part").length === expected, before + 1, { timeout: 15_000 });
+}
+
 /** A part just created or switched to can keep re-rendering for a beat after
  * its own `.manuscript-part` count first satisfies a caller's wait (a
  * trailing aside/story refresh replaces the whole tree again). Waiting for

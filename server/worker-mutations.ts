@@ -741,6 +741,28 @@ const MUTATIONS: MutationRegistry = {
       );
     }
   }),
+  moveChapterBreak: define<"moveChapterBreak">({
+    parse: (value) => {
+      const input = requireRecord(value, "moveChapterBreak input");
+      return {
+        storyId: requireString(input.storyId, "storyId"),
+        breakId: requireString(input.breakId, "breakId"),
+        parentPartId: requireString(input.parentPartId, "parentPartId")
+      };
+    },
+    storyId: (input) => input.storyId,
+    execute: async (service, input, plan, context) => {
+      const recovered = await plan.reconcileStory(service.stories, input.storyId, (story) =>
+        story.chapterBreaks.some((chapterBreak) => chapterBreak.id === input.breakId
+          && chapterBreak.parentPartId === input.parentPartId));
+      return recovered ?? await service.moveChapterBreak(
+        input.storyId,
+        input.breakId,
+        input.parentPartId,
+        context.storyMutationRequest
+      );
+    }
+  }),
   removeChapterBreak: define<"removeChapterBreak">({
     parse: (value, protocolVersion) => {
       const input = requireRecord(value, "removeChapterBreak input");

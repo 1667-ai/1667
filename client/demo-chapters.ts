@@ -23,6 +23,25 @@ export function renameDemoChapterBreak(story: Story, breakId: string, title: str
   chapterBreak.title = title;
 }
 
+// A moved break cannot keep its own summary — see moveChapterBreak's own
+// comment in server/chapter-breaks.ts for why there is no honest stored
+// value that would mark a carried-along summary stale. Moving onto the
+// break's own current seam is a no-op that keeps it.
+export function moveDemoChapterBreak(story: Story, breakId: string, parentPartId: string): void {
+  const chapterBreak = story.chapterBreaks.find((candidate) => candidate.id === breakId);
+  if (chapterBreak === undefined) throw new Error(`Unknown demo chapter break: ${breakId}`);
+  if (!story.nodes.some((node) => node.id === parentPartId && node.chapterBreakId === undefined)) {
+    throw new Error(`Unknown demo part: ${parentPartId}`);
+  }
+  if (story.chapterBreaks.some((candidate) => candidate.id !== breakId && candidate.parentPartId === parentPartId)) {
+    throw new Error("This seam already has a chapter break");
+  }
+  if (chapterBreak.parentPartId !== parentPartId) {
+    story.nodes = story.nodes.filter((node) => node.chapterBreakId !== breakId);
+  }
+  chapterBreak.parentPartId = parentPartId;
+}
+
 export function removeDemoChapterBreak(story: Story, breakId: string): RemovedChapterBreak {
   const chapterBreak = story.chapterBreaks.find((candidate) => candidate.id === breakId);
   if (chapterBreak === undefined) throw new Error(`Unknown demo chapter break: ${breakId}`);

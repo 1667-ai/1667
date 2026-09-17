@@ -65,6 +65,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   reorderFact: "local",
   createChapterBreak: "local",
   renameChapterBreak: "local",
+  moveChapterBreak: "local",
   removeChapterBreak: "local",
   restoreChapterBreak: "local",
   summarizeChapter: "generation",
@@ -281,6 +282,8 @@ function httpWorkerMethod(httpMethod: string, path: string): WorkerMethod {
       if (httpMethod === "PATCH") return "renameChapterBreak";
       if (httpMethod === "DELETE") return "removeChapterBreak";
     }
+    if (subId !== undefined && action === "move"
+      && httpMethod === "POST") return "moveChapterBreak";
     if (subId !== undefined && action === "restore"
       && httpMethod === "POST") return "restoreChapterBreak";
     if (subId !== undefined && action === "summarize"
