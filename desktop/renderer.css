@@ -294,7 +294,8 @@ button:disabled { cursor: default; opacity: .46; }
 .delete-story { color: var(--ember); }
 .refresh-button { padding-inline: 8px; }
 
-.workspace { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; padding: 28px 42px 64px; overflow: auto; }
+/* The bottom scroll padding keeps a part scrolled into view above the sticky composer. */
+.workspace { position: relative; grid-column: 2; grid-row: 2; min-width: 0; min-height: 0; padding: 28px 42px 64px; overflow: auto; scroll-padding-bottom: 220px; }
 .library { max-width: 760px; }
 .library-section { margin-top: 28px; padding-top: 18px; border-top: var(--hairline); }
 .library-section-actions { flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -355,15 +356,16 @@ option { background: var(--paper); color: var(--ink); }
 /* Manuscript (D-09/D-10/D-11/D-13): a 150/660 grid, centred; each part
    repeats the same two columns so its gutter and prose stay aligned with
    the next. No boxes or hairlines between parts — vertical rhythm only. */
-.manuscript { display: grid; grid-template-columns: 150px 660px; column-gap: 28px; justify-content: center; padding: 40px 2px 12px; }
-@media (max-width: 960px) { .manuscript { grid-template-columns: 90px minmax(600px, 660px); } }
+/* The gutter shrinks toward 64px before the prose loses width, and the prose
+   shrinks below 660 only when the column is narrower than gutter + gap + 660. */
+.manuscript { display: grid; grid-template-columns: clamp(64px, calc(100% - 688px), 150px) minmax(0, 660px); column-gap: 28px; justify-content: center; padding: 40px 2px 12px; }
 .chapter-rule { grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; margin: 5px 0 20px; color: var(--amber-dark); font: 10px var(--mono); letter-spacing: .12em; text-transform: uppercase; }
 .chapter-rule::after { content: ""; flex: 1; border-top: 1px solid var(--amber-wash); }
 .chapter-number { color: var(--faint); }
 .chapter-name { font-weight: 600; }
 .manuscript-part { grid-column: 1 / -1; display: grid; grid-template-columns: subgrid; column-gap: 28px; margin-bottom: 22px; }
 @supports not (grid-template-columns: subgrid) {
-  .manuscript-part { grid-template-columns: 150px 660px; }
+  .manuscript-part { grid-template-columns: clamp(64px, calc(100% - 688px), 150px) minmax(0, 660px); }
 }
 .part-gutter { grid-column: 1; display: grid; justify-items: end; gap: 5px; padding-top: 3px; text-align: right; }
 .part-gutter-waymark, .part-gutter-hint { color: var(--faint); font: 10px var(--mono); letter-spacing: .03em; }

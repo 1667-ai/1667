@@ -97,6 +97,19 @@ async function test960Geometry(app: ElectronApplication, page: Page): Promise<vo
   await page.waitForFunction(() => document.documentElement.clientWidth <= 944, undefined, { timeout: 5_000 });
   const narrowOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.ok(!narrowOverflow, "nothing must horizontal-scroll when the page is narrower than the 960px window");
+  // Between 961 and 1180px the inspector still sits beside the manuscript, so
+  // the manuscript must shrink to its column instead of spilling under the rail.
+  for (const width of [1024, 1180, 1264]) {
+    await app.evaluate(({ BrowserWindow }, size) => BrowserWindow.getAllWindows()[0]?.setContentSize(size, 700), width);
+    await page.waitForFunction((size) => document.documentElement.clientWidth === size, width, { timeout: 5_000 });
+    const fit = await page.evaluate(() => {
+      const workspace = document.querySelector(".workspace")!.getBoundingClientRect();
+      const manuscript = document.querySelector(".manuscript")!;
+      const box = manuscript.getBoundingClientRect();
+      return { inside: box.left >= workspace.left && box.right <= workspace.right, tracksFit: manuscript.scrollWidth <= manuscript.clientWidth + 1 };
+    });
+    assert.ok(fit.inside && fit.tracksFit, `the manuscript must fit its column at ${width}px`);
+  }
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setMinimumSize(960, 640));
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1440, 900));
   await page.waitForTimeout(150);

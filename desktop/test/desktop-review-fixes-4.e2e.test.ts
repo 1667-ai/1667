@@ -184,3 +184,31 @@ test("Electron review fixes 4: manuscript keys wait while a dialog is open", { t
     await teardown(launched);
   }
 });
+
+// A full re-render (a toast, a context-meter refresh) must keep the writer's
+// text selection in the manuscript, so Rewrite and Fact from selection still
+// see it.
+test("Electron review fixes 4: a re-render keeps a text selection in the manuscript", { timeout: 180_000 }, async () => {
+  const launched = await launch();
+  const { page } = launched;
+  try {
+    await createStory(page, "Selection survives");
+    await saveManualPart(page, "The lamp was low and the ink was wet.");
+    await focusPart(page, 0);
+    await page.locator(".part-prose").first().evaluate((element) => {
+      const text = element.firstChild;
+      if (text === null) return;
+      const range = document.createRange();
+      range.setStart(text, 4);
+      range.setEnd(text, 8);
+      const selection = window.getSelection();
+      selection?.removeAllRanges();
+      selection?.addRange(range);
+    });
+    await page.keyboard.press("u");
+    await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Nothing to undo") === true);
+    assert.equal(await page.evaluate(() => window.getSelection()?.toString() ?? ""), "lamp");
+  } finally {
+    await teardown(launched);
+  }
+});

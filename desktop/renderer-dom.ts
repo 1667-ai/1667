@@ -73,3 +73,36 @@ export function panelHeading(title: string, description: string, control?: HTMLE
 export function metricRow(label: string, value: string): HTMLElement {
   return el("div", "metric-row", el("span", "", label), el("strong", "", value));
 }
+
+/** A text selection inside one part's prose, by part key and text offsets. */
+export interface ProseSelection {
+  readonly key: string;
+  readonly start: number;
+  readonly end: number;
+}
+
+/** Record a selection inside a `.part-prose` so a full re-render can restore
+ *  it. The prose is one text node, so the range offsets are text offsets. */
+export function captureProseSelection(): ProseSelection | null {
+  const selection = window.getSelection();
+  if (selection === null || selection.rangeCount === 0 || selection.isCollapsed) return null;
+  const range = selection.getRangeAt(0);
+  const prose = range.startContainer.parentElement?.closest<HTMLElement>(".part-prose") ?? null;
+  if (prose === null || prose.firstChild === null) return null;
+  if (range.startContainer !== prose.firstChild || range.endContainer !== prose.firstChild) return null;
+  const key = prose.closest<HTMLElement>("[data-preserve]")?.dataset.preserve;
+  return key === undefined ? null : { key, start: range.startOffset, end: range.endOffset };
+}
+
+export function restoreProseSelection(root: HTMLElement, saved: ProseSelection | null): void {
+  if (saved === null) return;
+  const card = [...root.querySelectorAll<HTMLElement>("[data-preserve]")].find((candidate) => candidate.dataset.preserve === saved.key);
+  const text = card?.querySelector(".part-prose")?.firstChild ?? null;
+  if (text === null || text.nodeType !== Node.TEXT_NODE || (text.textContent ?? "").length < saved.end) return;
+  const range = document.createRange();
+  range.setStart(text, saved.start);
+  range.setEnd(text, saved.end);
+  const selection = window.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+}

@@ -93,6 +93,7 @@ import { retakeLine, rewriteLine, summarizeLine } from "./renderer-generation-co
 import { eyebrowFor, submitLabel } from "./renderer-composer-view.js";
 import { createSettingsEditorState, RendererSettingsController } from "./renderer-settings-controller.js";
 import { settingsDraftDirty } from "./renderer-settings-diff.js";
+import { captureProseSelection, restoreProseSelection } from "./renderer-dom.js";
 
 const root = document.querySelector<HTMLElement>("#app");
 if (root === null) throw new Error("Desktop renderer root is missing.");
@@ -1846,11 +1847,13 @@ class RendererApp {
       const key = details.dataset.preserve;
       if (key !== undefined) openDetails.set(key, details.open);
     }
+    const proseSelection = captureProseSelection();
     renderApp(renderRoot, this.state, this.actions);
     for (const details of renderRoot.querySelectorAll<HTMLDetailsElement>("details[data-preserve]")) {
       const key = details.dataset.preserve;
       if (key !== undefined && openDetails.has(key)) details.open = openDetails.get(key)!;
     }
+    restoreProseSelection(renderRoot, proseSelection);
     if (focusedKey === undefined && focusedClassName === undefined) return;
     const focusedContainer = focusedContainerKey === undefined
       ? renderRoot

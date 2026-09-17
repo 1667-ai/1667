@@ -129,7 +129,10 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     await page.click(".modal-submit");
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
     await page.click(".modal-submit");
-    await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("Host action failed") === true,
+    // A failed unseal reopens the project, and on a slow machine that reload
+    // can replace the failure toast before it paints. Accept either notice
+    // here; the session log check below proves the failure was reported.
+    await page.waitForFunction(() => /Host action failed|Project ready/u.test(document.querySelector(".toast")?.textContent ?? ""),
       undefined, { timeout: 30_000 });
     await page.locator(".tab-settings").click();
     await page.locator(".tab-write").click();
@@ -137,6 +140,11 @@ test("Electron confirms, seals, and permanently unseals a project vault", { time
     assert.equal(await page.locator(".composer-input").inputValue(), "Keep this direction after a wrong vault password.");
     await page.locator(".composer-input").fill("");
     await goToLibrary(page);
+    await page.keyboard.press("!");
+    await page.waitForSelector(".popover.log", { timeout: 15_000 });
+    assert.match(await page.locator(".popover.log").innerText(), /Vault Password is incorrect/u);
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".popover.log", { state: "detached", timeout: 15_000 });
     await page.click(".project-unseal");
     await page.waitForSelector('.modal-card[aria-label="Unseal project"]', { timeout: 15_000 });
     assert.match(await page.locator(".modal-card").innerText(), /remove encryption permanently/iu);
