@@ -5,7 +5,7 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-## 0.11.0-beta.3 - 2026-09-17
+## 0.11.0-beta.4 - 2026-09-17
 
 - **You can move a chapter break.** On Chapters, drag the break handle on the
   ruler, or focus it and press Left or Right. Press `u` to move it back. If
