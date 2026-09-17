@@ -761,6 +761,14 @@ async function handleApi(
       await service.getReasoning(id, subId)
     );
   }
+  if (head === "stories" && id !== undefined && sub === "nodes" && subId !== undefined
+    && action === "line" && method === "GET") {
+    return sendJson(
+      response,
+      200,
+      await service.getTakeLine(id, subId)
+    );
+  }
   if (head === "stories" && id !== undefined && sub === "prune-unused-takes" && method === "POST") {
     return sendJson(response, 200, await mutate("pruneUnusedTakes", {
       storyId: id,

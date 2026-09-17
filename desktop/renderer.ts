@@ -77,6 +77,7 @@ import {
 } from "./renderer-facts-commands.js";
 import { factEditorDirty } from "./renderer-facts-model.js";
 import { manageTags } from "./renderer-tag-commands.js";
+import { compareTake } from "./renderer-compare-commands.js";
 import {
   askAside,
   clearAside,
@@ -203,6 +204,7 @@ class RendererApp {
     switchLine: (node) => { void this.switchLine(node); },
     switchNode: (nodeId) => { void this.switchNode(nodeId); },
     switchToTaggedLine: (tagName, nodeId) => { void this.switchToTaggedLine(tagName, nodeId); },
+    compareTake: (nodeId) => { void compareTake(this.commandContext(), nodeId); },
     copyLine: (node) => this.copyLine(node),
     pasteLine: (node) => { void this.pasteLine(node); },
     takeFromCut: (node, selection) => { void this.takeFromCut(node, selection); },

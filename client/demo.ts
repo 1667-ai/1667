@@ -779,6 +779,7 @@ export function demoStoryApi(demo: DemoController): StoryApi {
     getGenerationRecords: async () => [],
     getGenerationRecord: async () => unavailable("Generation records"),
     getReasoning: async () => unavailable("A thought"),
+    getTakeLine: async () => unavailable("A take's line"),
     planFactConsistency: async (input) =>
       factConsistency.planFactConsistency(demo.payload(), input),
     checkFactConsistency: async (input) =>

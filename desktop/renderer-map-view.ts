@@ -166,7 +166,10 @@ function renderStemma(state: RendererState, layout: MapLayout, actions: Renderer
       ? svgEl("rect", { x: node.x - node.r, y: node.y - node.r, width: node.r * 2, height: node.r * 2, transform: `rotate(45 ${node.x} ${node.y})` })
       : svgEl("circle", { cx: node.x, cy: node.y, r: node.r });
     shape.setAttribute("class", classes.join(" "));
-    shape.addEventListener("click", () => actions.switchNode(node.id));
+    shape.addEventListener("click", (event) => {
+      if ((event as MouseEvent).altKey) actions.compareTake(node.id);
+      else actions.switchNode(node.id);
+    });
     const title = svgEl("title");
     title.textContent = `${node.preview || "Untitled part"} · ${node.words.toLocaleString()} words`;
     shape.append(title);

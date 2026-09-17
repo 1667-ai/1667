@@ -2,13 +2,15 @@ import { randomUUID } from "node:crypto";
 import { mkdir, rm } from "node:fs/promises";
 import path from "node:path";
 import { activeLineFingerprintSource } from "../shared/story-text.js";
-import { activePath, descendantLine, pathTo } from "../shared/story-tree.js";
+import { activePath, descendantLine, indexTree, nodeById, pathTo } from "../shared/story-tree.js";
 import {
+  MAX_TAKE_LINE_PARTS,
   type EditNodeRequest,
   type PasteStoryLineRequest,
   type PruneUnusedTakesRequest,
   type Story,
-  type StorySummary
+  type StorySummary,
+  type TakeLineRead
 } from "../shared/types.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
 import { BoundedLruMap } from "../shared/bounded-lru-map.js";
@@ -46,6 +48,7 @@ import {
   restorePendingGenerationRecords
 } from "./story-node-generation-records.js";
 import { putStoryTag, removeStoryTag } from "./story-tags.js";
+import { toStoryPathNode } from "./story-payload.js";
 import {
   afterCommit,
   mkdirDurable,
@@ -914,6 +917,44 @@ export class StoryStore {
         throw new HttpError(404, "This take has no stored thought.");
       }
       return await new StoryObjectStore(this.bundlePath(id)).readReasoning(stored.reasoningId);
+    });
+  }
+
+  /** A take's own line beyond the last part it shares with the story's
+   *  current line: `StoryPayload.path` carries only the current line's
+   *  prose, so a compare view needs this read to see an off-path take's
+   *  text. Mirrors `loadReasoning`: 404s, distinguishably by message, when
+   *  the story or the take is missing. Chapter summary takes are ordinary
+   *  takes here — a summary's line is just its one part past the fork. */
+  async loadTakeLine(id: string, nodeId: string): Promise<TakeLineRead> {
+    return await this.withIo(id, async () => {
+      let story: Story;
+      try {
+        story = await this.loadUnlocked(id);
+      } catch (error) {
+        if (error instanceof HttpError && error.status === 404) throw new HttpError(404, `Take not found: ${nodeId}`);
+        throw error;
+      }
+      await this.schedulePendingCleanup(id);
+      const index = indexTree(story);
+      if (nodeById(index, nodeId) === null) throw new HttpError(404, `Take not found: ${nodeId}`);
+      const ancestry = pathTo(index, nodeId);
+      await hydrateStoryNodes(story, ancestry.map((node) => node.id));
+      const currentIds = new Set(activePath(index).map((node) => node.id));
+      let forkIndex = -1;
+      for (let position = ancestry.length - 1; position >= 0; position -= 1) {
+        if (currentIds.has(ancestry[position]!.id)) {
+          forkIndex = position;
+          break;
+        }
+      }
+      const afterFork = ancestry.slice(forkIndex + 1);
+      const parts = afterFork.length > MAX_TAKE_LINE_PARTS ? afterFork.slice(-MAX_TAKE_LINE_PARTS) : afterFork;
+      return {
+        forkIndex,
+        parts: parts.map(toStoryPathNode),
+        skipped: afterFork.length - parts.length
+      };
     });
   }
 

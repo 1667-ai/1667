@@ -488,6 +488,8 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getGenerationRecord", { storyId, nodeId, recordId }),
     getReasoning: async (storyId, nodeId) =>
       await transport.call("getReasoning", { storyId, nodeId }),
+    getTakeLine: async (storyId, nodeId) =>
+      await transport.call("getTakeLine", { storyId, nodeId }),
     planFactConsistency: async (input) => decodeFactConsistencyPlanResponse(
       await transport.call("planFactConsistency", input)
     ),

@@ -111,7 +111,15 @@ function renderTakesSection(story: StoryPayload, focusedNode: StoryPathNode | nu
   const siblings = story.nodes.filter((candidate) => candidate.parentId === focusedNode.parentId && candidate.role !== "summary");
   const rows = siblings.map((sibling) => {
     const shown = sibling.id === focusedNode.id;
-    const row = actionButton("take-row", "", () => actions.switchNode(sibling.id));
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "button take-row";
+    // ⌥-click compares this take with your line (D-05, D-23) instead of
+    // switching to it — actionButton has no way to see the click event.
+    row.addEventListener("click", (event) => {
+      if (event.altKey) actions.compareTake(sibling.id);
+      else actions.switchNode(sibling.id);
+    });
     row.classList.toggle("shown", shown);
     const tag = story.tags.find((candidate) => candidate.nodeId === rememberedLeafId(story, sibling.id));
     row.append(

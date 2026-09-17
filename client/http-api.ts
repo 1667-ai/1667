@@ -24,6 +24,7 @@ import {
   decodeSummaryTakeResponse,
   decodeTokenProbabilitiesResponse,
   decodeReasoningResponse,
+  decodeTakeLineResponse,
 } from "./api-response-decoders.js";
 import {
   decodeGenerationRecordSummariesResponse,
@@ -700,6 +701,11 @@ export function createApi(
       "GET",
       `/api/stories/${storyId}/nodes/${nodeId}/reasoning`,
       decodeReasoningResponse
+    ),
+    getTakeLine: (storyId, nodeId) => request(
+      "GET",
+      `/api/stories/${storyId}/nodes/${nodeId}/line`,
+      decodeTakeLineResponse
     ),
     planFactConsistency: (input) => request(
       "POST",

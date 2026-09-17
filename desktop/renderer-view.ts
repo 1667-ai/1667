@@ -15,6 +15,7 @@ import { renderChapters } from "./renderer-chapters-view.js";
 import { renderMap } from "./renderer-map-view.js";
 import { renderAsidePopover } from "./renderer-aside-popover-view.js";
 import { renderLogPopover } from "./renderer-log-view.js";
+import { renderComparePopover } from "./renderer-compare-view.js";
 
 export function renderApp(root: HTMLElement, state: RendererState, actions: RendererActions): void {
   document.documentElement.dataset.desktopTheme = state.theme;
@@ -57,6 +58,13 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
     const log = renderLogPopover(state, actions);
     shell.append(log);
     if (!hadPopover) focusPopoverCard(log);
+  }
+  if (state.popover?.kind === "compare" && state.story !== null) {
+    const compare = renderComparePopover(state.story, state, actions);
+    if (compare !== null) {
+      shell.append(compare);
+      if (!hadPopover) focusPopoverCard(compare);
+    }
   }
   const dialog = renderDialog(state, actions, !hadDialog);
   if (dialog !== null) shell.append(dialog);

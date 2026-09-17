@@ -639,6 +639,39 @@ export function assertStoryPathNode(value: unknown): asserts value is StoryPathN
   }
 }
 
+/** Caps `TakeLineRead.parts` (see below): far enough past a fork to be
+ *  read, never carried automatically with the story. */
+export const MAX_TAKE_LINE_PARTS = 12;
+
+/** `getTakeLine`'s result: a take's own line beyond the last part it shares
+ *  with `StoryPayload.path`, the reader's current line — `StoryPayload.path`
+ *  carries only the current line's prose, so a compare view needs this read
+ *  to see an off-path take's text. A take whose line starts at another root
+ *  take still resolves, with `forkIndex` -1, rather than 404ing. */
+export interface TakeLineRead {
+  /** Index on the story's current line of the last part the take's line
+   *  shares with it; -1 when the take's line starts at another root take. */
+  readonly forkIndex: number;
+  /** Parts of the take's line after the fork, in reading order, ending at
+   *  the take. At most `MAX_TAKE_LINE_PARTS`: when there are more, these are
+   *  the ones nearest the take. */
+  readonly parts: readonly StoryPathNode[];
+  /** Parts between the fork and `parts[0]` that the result leaves out. */
+  readonly skipped: number;
+}
+
+/** Boundary assertion for `getTakeLine`'s result. */
+export function assertTakeLineRead(value: unknown): asserts value is TakeLineRead {
+  const read = requireRecord(value, "The server returned an invalid take line.");
+  if (typeof read.forkIndex !== "number" || !Number.isSafeInteger(read.forkIndex) || read.forkIndex < -1) {
+    invalidField("take line", "forkIndex");
+  }
+  if (typeof read.skipped !== "number" || !Number.isSafeInteger(read.skipped) || read.skipped < 0) {
+    invalidField("take line", "skipped");
+  }
+  requireArray(read, "parts", "take line").forEach(assertStoryPathNode);
+}
+
 function assertTag(value: unknown): void {
   const tag = requireRecord(value, "The server returned an invalid tag.");
   requireStrings(tag, "tag", "nodeId", "name", "status", "color", "createdAt");

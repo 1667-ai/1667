@@ -97,7 +97,9 @@ A 320px inspector sits at the right. It stays contextual to the focused
 manuscript part and shows six sections in a fixed order: takes at the focused
 part, Facts in force at that part, Aside, Author's Note, Author Brief, and
 the request context. Click a section's header to collapse it to its count;
-a section never disappears completely. Below 960px window width, the
+a section never disappears completely. In the Takes section, click a take to
+switch to it. ⌥-click a take to compare it with your line instead (see
+"Compare popover" below). Below 960px window width, the
 inspector docks under the main column instead of beside it.
 
 A toast shows the last status message at the bottom-left of the window. It
@@ -353,10 +355,11 @@ While the pointer is off the stage, the arrow keys move a map cursor across
 every part and take instead. When the map cursor lands on a take that has
 left your line, the lens opens where that take's line leaves your line.
 
-Click a circle to focus that take. `Escape` returns to Write at the same
-part. Below the map, an accessible list repeats every drawn circle and bar
-as a button, and a Fact lens list repeats every anchored Fact State as a
-button.
+Click a circle to focus that take. ⌥-click a circle to compare that take
+with your line instead (see "Compare popover" below). `Escape` returns to
+Write at the same part. Below the map, an accessible list repeats every
+drawn circle and bar as a button, and a Fact lens list repeats every
+anchored Fact State as a button.
 
 The stage keeps its own scroll position. If you scroll the stage and then
 do something unrelated, Map does not reset your view. When you open Map,
@@ -377,6 +380,20 @@ Map redraws around it after you let go.
 To move the rectangle from the keyboard, focus it with `Tab`, then press
 the left or right arrow key. Each press moves the view by about half its
 own width.
+
+### Compare popover
+
+⌥-click a take on Map, or in the inspector's Takes section, to compare it
+with your line. 1667 opens the compare popover instead of switching to the
+take. When the take is already on your line, 1667 shows a message and does
+not open the popover.
+
+The popover shows the shared part where the two lines meet, dimmed, above
+two columns: **Your line** on the left, **This take** on the right. Each
+column shows the parts after the shared part, in reading order, down to the
+take. A column with fewer parts than the other shows **No part here** for
+the missing rows. Click **Show this take** to switch to the take and close
+the popover. `Escape` closes the popover without switching.
 
 ### Log
 

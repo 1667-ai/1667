@@ -244,6 +244,7 @@ function logicalRequestBody(
     case "getGenerationRecords":
     case "getGenerationRecord":
     case "getReasoning":
+    case "getTakeLine":
     case "planFactConsistency":
     case "checkFactConsistency":
     case "getFactConsistencyRun":

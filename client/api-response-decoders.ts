@@ -1,14 +1,16 @@
 import {
   assertChapterBreak,
   assertPromptReadyStoryPayload,
-  assertStoryNode
+  assertStoryNode,
+  assertTakeLineRead
 } from "../shared/types.js";
 import type {
   ChapterBreak,
   ModelServerCheckResult,
   StoryNode,
   StoryPayload,
-  StorySummary
+  StorySummary,
+  TakeLineRead
 } from "../shared/types.js";
 import type { FactBudgetDrop } from "../shared/fact-budget.js";
 import type { TokenProbabilityRecord } from "../shared/token-probabilities.js";
@@ -452,6 +454,15 @@ export function decodeUnknownOutcomeStatusResponse(
 
 export function decodeStoryResponse(value: unknown): StoryPayload {
   assertPromptReadyStoryPayload(value);
+  return value;
+}
+
+/** `getTakeLine`'s wire shape reuses `StoryPathNode`, so this mirrors
+ * `decodeStoryResponse`'s own boundary-assertion shape rather than
+ * `decodeReasoningResponse`'s canonical-object re-parse — a take's line has
+ * no separate content-addressed format of its own. */
+export function decodeTakeLineResponse(value: unknown): TakeLineRead {
+  assertTakeLineRead(value);
   return value;
 }
 

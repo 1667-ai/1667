@@ -5,7 +5,8 @@ import type {
   StoryFact,
   StoryPathNode,
   StoryPayload,
-  StorySummary
+  StorySummary,
+  TakeLineRead
 } from "../shared/types.js";
 import { deriveChapters, type ChapterPartLike } from "../shared/chapters.js";
 import type { FactState } from "../shared/fact-state.js";
@@ -47,7 +48,11 @@ export type DesktopPopover =
   | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null }
   | { readonly kind: "part-menu"; readonly partId: string }
   | { readonly kind: "aside" }
-  | { readonly kind: "log" };
+  | { readonly kind: "log" }
+  /** ⌥-click compare (D-05, D-23): `read` is null while `getTakeLine` is in
+   *  flight (a loading line) and stays null on failure, with `error` set
+   *  instead — see `compareTake` in `renderer-compare-commands.ts`. */
+  | { readonly kind: "compare"; readonly nodeId: string; readonly read: TakeLineRead | null; readonly error: string | null };
 /** The last chapter-break operation `u` (TUI-mirrored undo) can reverse:
  * a removal (today's shape — `restoreChapterBreak` needs the removed
  * record) or an addition from `C`/`+ Break` (only the id `removeChapterBreak`
@@ -428,6 +433,9 @@ export interface RendererActions {
   readonly switchLine: (node: StoryPathNode) => void;
   readonly switchNode: (nodeId: string) => void;
   readonly switchToTaggedLine: (tagName: string, nodeId: string) => void;
+  /** ⌥-click compare (D-05, D-23): opens the compare popover for `nodeId`,
+   *  or toasts when it is already on the current line. */
+  readonly compareTake: (nodeId: string) => void;
   readonly copyLine: (node: StoryPathNode) => void;
   readonly pasteLine: (node: StoryPathNode) => void;
   readonly takeFromCut: (node: StoryPathNode, selection?: TextSelection) => void;

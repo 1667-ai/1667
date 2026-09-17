@@ -18,7 +18,8 @@ import type {
   StoryNode,
   StorySummary,
   SwitchRequest,
-  TakeFromCutRequest
+  TakeFromCutRequest,
+  TakeLineRead
 } from "./types.js";
 import type { ChatMessage } from "./prompt-plan.js";
 import type { PromptTokenCount } from "./tokenize-source.js";
@@ -239,6 +240,9 @@ export interface WorkerMethodContract {
    *  stored thought fails the request (typed 404 reason) rather than
    *  returning one. */
   getReasoning: { input: { storyId: string; nodeId: string }; output: ReasoningRecord };
+  /** A take's own line beyond the last part it shares with the story's
+   *  current line — see `TakeLineRead`. */
+  getTakeLine: { input: { storyId: string; nodeId: string }; output: TakeLineRead };
   switchLine: { input: { storyId: string; nodeId: string; options?: Omit<SwitchRequest, "nodeId"> }; output: StoryPayload };
   createNode: { input: { storyId: string; body: CreateNodeRequest }; output: StoryPayload };
   editNode: { input: { storyId: string; nodeId: string; body: EditNodeRequest }; output: StoryPayload };
@@ -722,7 +726,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "getUnknownOutcomeStatus", "previewChapterBreakRemoval",
   "renameStory", "setAuthorsNote", "setAuthorBrief", "setFactsBudget", "setPhraseBias", "setBannedStrings", "autonameStory",
   "acknowledgeUnknownOutcomes", "deleteStory",
-  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning",
+  "exportMarkdown", "getTokenProbabilities", "getGenerationRecords", "getGenerationRecord", "getReasoning", "getTakeLine",
   "switchLine", "createNode", "editNode", "deleteNode", "pruneUnusedTakes", "takeFromCut", "pasteStoryLine",
   "putBookmark", "deleteBookmark", "createFact", "patchFact", "deleteFact", "createFactState", "patchFactState", "deleteFactState", "reorderFact", "getSettings",
   "createChapterBreak", "renameChapterBreak", "moveChapterBreak", "removeChapterBreak", "restoreChapterBreak", "summarizeChapter",
