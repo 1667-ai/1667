@@ -11,7 +11,7 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
-    version: "0.11.0-beta.3",
+    version: "0.11.0-beta.4",
     date: "2026-09-17",
     body: "- **You can move a chapter break.** On Chapters, drag the break handle on the\n  ruler, or focus it and press Left or Right. Press `u` to move it back. If\n  the chapter has a summary, the desktop app asks first, because the move\n  removes that summary.\n- **The Map has a minimap.** A strip below the Map shows the full story line,\n  the chapter breaks, and the parts that have other takes. Drag the view\n  rectangle, or focus it and press Left or Right, to move the Map.\n- **A lens opens collapsed takes on the Map.** Move the pointer along the story\n  line, or move the map cursor, to show the takes in a collapsed run.\n- **You can compare a take with your story line.** Option-click a take on the\n  Map or in the take list. Two columns show both lines from the part where\n  they separate.\n- **A second unseal attempt works after a wrong password.** The desktop app\n  now does one project change at a time, so the next attempt no longer fails\n  with \"No project is open.\""
   },
