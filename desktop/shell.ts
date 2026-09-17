@@ -106,6 +106,12 @@ export class DesktopShell {
   private active: ActiveProject | null = null;
   private readonly opening = new Map<string, Promise<DesktopProjectSnapshot>>();
   private activationTail: Promise<void> = Promise.resolve();
+  // Serializes every request that reads or changes `active` (project open/
+  // create/adopt, vault lock state, story/profile import and export, plus
+  // start()/dispose()) so one cannot observe the close/reopen window
+  // sealVault()/unsealVault() open between closeActive() and activate() — the
+  // source of the "No project is open." race this lock fixes.
+  private requestTail: Promise<void> = Promise.resolve();
   private readonly auth = new Map<string, PendingAuth>();
   private readonly updater: DesktopUpdaterPort | undefined;
   private unsubscribeUpdater: (() => void) | undefined;
@@ -125,8 +131,26 @@ export class DesktopShell {
     return this.active === null ? null : this.projectSnapshot();
   }
 
+  /** Serialize one operation behind every request already queued for the
+   * active project, so it cannot run during another one's close/reopen
+   * window. A rejection does not break the chain for the next request. */
+  private withProjectLock<T>(operation: () => Promise<T>): Promise<T> {
+    const task = this.requestTail.then(operation);
+    this.requestTail = task.then(() => undefined, () => undefined);
+    return task;
+  }
+
+  /** Wait for every request already queued on the project lock to settle,
+   * without queuing new work. Used before a read that must not race a
+   * queued close/reopen, such as replaying state to a newly connected
+   * Renderer bridge. */
+  async afterProjectChanges(): Promise<void> {
+    await this.requestTail;
+  }
+
   /** Replay current shell state after a Renderer connects its bridge. */
   async publishCurrentState(): Promise<void> {
+    await this.afterProjectChanges();
     if (this.active === null) {
       this.options.emit({ type: "projectChanged", project: null });
     } else {
@@ -143,18 +167,20 @@ export class DesktopShell {
   /** Open the project selected by startup, if one exists. */
   async start(cwd: string, explicitDataDirectory?: string): Promise<DesktopProjectSnapshot | null> {
     await this.publishRecentProjects();
-    if (explicitDataDirectory !== undefined) {
-      const project = await projectFromDataDirectory(explicitDataDirectory);
-      return project.exists ? await this.activate(project) : null;
-    }
-    const outcome = await resolveProject({
-      cwd: path.resolve(cwd),
-      machineRoot: this.options.machineDir
+    return this.withProjectLock(async () => {
+      if (explicitDataDirectory !== undefined) {
+        const project = await projectFromDataDirectory(explicitDataDirectory);
+        return project.exists ? await this.activate(project) : null;
+      }
+      const outcome = await resolveProject({
+        cwd: path.resolve(cwd),
+        machineRoot: this.options.machineDir
+      });
+      if (outcome.kind === "project" && outcome.project.exists) {
+        return await this.activate(outcome.project);
+      }
+      return null;
     });
-    if (outcome.kind === "project" && outcome.project.exists) {
-      return await this.activate(outcome.project);
-    }
-    return null;
   }
 
   async dispose(): Promise<void> {
@@ -162,7 +188,7 @@ export class DesktopShell {
     this.auth.clear();
     this.unsubscribeUpdater?.();
     this.unsubscribeUpdater = undefined;
-    await this.closeActive();
+    await this.withProjectLock(() => this.closeActive());
   }
 
   async handle(request: DesktopShellRequest): Promise<DesktopShellResponse> {
@@ -182,17 +208,23 @@ export class DesktopShell {
   private async run(request: DesktopShellRequest): Promise<DesktopShellSuccess> {
     switch (request.type) {
       case "project.create":
-        return { type: "project", project: await this.activate(await initializeProject(normalizeRoot(request.root))) };
+        return {
+          type: "project",
+          project: await this.withProjectLock(async () => this.activate(await initializeProject(normalizeRoot(request.root))))
+        };
       case "project.open":
-        return { type: "project", project: await this.openProject(request.root, request.global === true) };
+        return {
+          type: "project",
+          project: await this.withProjectLock(() => this.openProject(request.root, request.global === true))
+        };
       case "project.adopt":
         return {
           type: "project",
-          project: await this.activate((await adoptProject({
+          project: await this.withProjectLock(async () => this.activate((await adoptProject({
             source: path.resolve(request.source),
             projectRoot: normalizeRoot(request.projectRoot),
             machineDir: this.options.machineDir
-          })).project)
+          })).project))
         };
       case "project.recent":
         return { type: "recent", projects: await this.options.recent.list() };
@@ -215,22 +247,30 @@ export class DesktopShell {
       }
       case "vault.unlock":
         {
-          const project = await this.unlockVault(request.password);
+          const project = await this.withProjectLock(() => this.unlockVault(request.password));
           return { type: "vault", state: project.vault, project };
         }
       case "vault.seal":
-        return { type: "vault", state: "sealed", project: await this.sealVault(request.password) };
+        return {
+          type: "vault",
+          state: "sealed",
+          project: await this.withProjectLock(() => this.sealVault(request.password))
+        };
       case "vault.unseal":
-        return { type: "vault", state: "unsealed", project: await this.unsealVault(request.password) };
+        return {
+          type: "vault",
+          state: "unsealed",
+          project: await this.withProjectLock(() => this.unsealVault(request.password))
+        };
       case "story.import":
         return {
           type: "storyImport",
-          result: await importStoryFile(this.requireApi(), path.resolve(request.file))
+          result: await this.withProjectLock(() => importStoryFile(this.requireApi(), path.resolve(request.file)))
         };
       case "story.export":
         return {
           type: "storyExport",
-          results: await exportStories({
+          results: await this.withProjectLock(() => exportStories({
             api: this.requireApi(),
             directory: path.resolve(request.directory),
             errorDirectory: this.activeProject().project.directory,
@@ -238,26 +278,26 @@ export class DesktopShell {
             all: request.all,
             format: request.format,
             force: request.force
-          })
+          }))
         };
       case "profile.import":
         return {
           type: "profileImport",
-          result: await importProfile({
+          result: await this.withProjectLock(() => importProfile({
             api: this.requireApi(),
             file: path.resolve(request.file),
             profile: request.profile
-          })
+          }))
         };
       case "profile.export":
         return {
           type: "profileExport",
-          result: await exportProfile({
+          result: await this.withProjectLock(() => exportProfile({
             api: this.requireApi(),
             directory: path.resolve(request.directory),
             profile: request.profile,
             force: request.force
-          })
+          }))
         };
       case "auth.status":
         return { type: "authStatus", statuses: await this.authStatus() };

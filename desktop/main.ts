@@ -246,7 +246,15 @@ ipcMain.on(DESKTOP_PORT_CONNECT_CHANNEL, (event) => {
   if (port === undefined) {
     return;
   }
-  void session.ready.then(() => {
+  void session.ready.then(async () => {
+    if (sessions.get(session.window.id) !== session || session.window.isDestroyed()) {
+      port.close();
+      return;
+    }
+    // Wait for any in-flight project change (a seal, unseal, or other locked
+    // request) to settle before reading which project is active, so a
+    // reconnecting bridge cannot attach mid-close/reopen.
+    await session.shell.afterProjectChanges();
     if (sessions.get(session.window.id) !== session || session.window.isDestroyed()) {
       port.close();
       return;

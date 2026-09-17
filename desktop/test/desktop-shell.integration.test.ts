@@ -150,6 +150,88 @@ test("unsealing an unlocked vault closes and restores the Host around decryption
   }
 });
 
+test("a correct unseal succeeds even when a concurrent wrong-password unseal races it", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-desktop-shell-unseal-race-"));
+  const machineDir = path.join(root, "machine");
+  const registry = new FakeRegistry();
+  const shell = new DesktopShell({
+    registry: registry.asRegistry(),
+    machineDir,
+    recent: new MemoryRecentProjectsStore(),
+    emit: () => undefined
+  });
+
+  try {
+    const created = await shell.handle({ type: "project.create", root });
+    assert.equal(created.ok, true);
+    const sealed = await shell.handle({ type: "vault.seal", password: "unseal-race-password" });
+    assert.equal(sealed.ok, true);
+    const unlocked = await shell.handle({ type: "vault.unlock", password: "unseal-race-password" });
+    assert.equal(unlocked.ok, true);
+
+    // Neither call is awaited before the next starts: both requests race the
+    // Shell's close/reopen window around unsealVault().
+    const wrongPromise = shell.handle({ type: "vault.unseal", password: "wrong-unseal-race-password" });
+    const correctPromise = shell.handle({ type: "vault.unseal", password: "unseal-race-password" });
+    const [wrong, correct] = await Promise.all([wrongPromise, correctPromise]);
+
+    assert.equal(wrong.ok, false);
+    if (wrong.ok) throw new Error("wrong-password unseal unexpectedly succeeded");
+    // Before the fix this call could instead observe the other request's
+    // close/reopen window and fail with "No project is open."
+    assert.notEqual(wrong.error.message, "No project is open.");
+    assert.match(wrong.error.message, /authentication failed|incorrect/iu);
+
+    assert.equal(correct.ok, true);
+    if (!correct.ok || correct.result.type !== "vault") throw new Error("concurrent unseal failed");
+    assert.deepEqual(
+      { vault: correct.result.project.vault, open: correct.result.project.open },
+      { vault: "unsealed", open: true }
+    );
+  } finally {
+    await shell.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("a locked read waits for an in-flight seal instead of racing the active project", async () => {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-desktop-shell-seal-race-"));
+  const machineDir = path.join(root, "machine");
+  const registry = new FakeRegistry();
+  const shell = new DesktopShell({
+    registry: registry.asRegistry(),
+    machineDir,
+    recent: new MemoryRecentProjectsStore(),
+    emit: () => undefined
+  });
+
+  try {
+    const created = await shell.handle({ type: "project.create", root });
+    assert.equal(created.ok, true);
+
+    // vault.unlock is a locked read/write (it starts with `activeProject()`,
+    // like `story.export`'s `errorDirectory`, unlike the harness's fake
+    // transport calls); without a lock this observes the seal's null window.
+    const sealPromise = shell.handle({ type: "vault.seal", password: "seal-race-password" });
+    const readPromise = shell.handle({ type: "vault.unlock", password: "seal-race-password" });
+    const [sealResult, readResult] = await Promise.all([sealPromise, readPromise]);
+
+    assert.equal(sealResult.ok, true);
+    // Before the fix this read could run while `closeActive()` has cleared
+    // the active project and fail with "No project is open."
+    if (!readResult.ok) assert.notEqual(readResult.error.message, "No project is open.");
+    assert.equal(readResult.ok, true);
+    if (!readResult.ok || readResult.result.type !== "vault") throw new Error("locked read failed");
+    assert.deepEqual(
+      { vault: readResult.result.project.vault, open: readResult.result.project.open },
+      { vault: "sealed", open: true }
+    );
+  } finally {
+    await shell.dispose();
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
 test("graphical story import uses the raw Host transport", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-desktop-import-"));
   const machineDir = path.join(root, "machine");
