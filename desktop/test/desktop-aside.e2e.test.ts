@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -146,6 +146,7 @@ test("Electron clears empty Aside sessions and preserves a newer question draft"
 });
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.click(".new-story-button");
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.fill(".modal-input", title);

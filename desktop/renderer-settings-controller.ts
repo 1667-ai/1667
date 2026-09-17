@@ -231,6 +231,17 @@ export class RendererSettingsController {
     });
   }
 
+  /** Reverts local draft edits to the last-applied document, in memory —
+   * no network round trip. Distinct from `discardPending`, which discards a
+   * server-side candidate that saved but never activated. */
+  public discardDraft(): void {
+    const editor = this.editor();
+    const settings = this.hooks.state().settings;
+    if (editor === null || settings === null) return;
+    const restored = createSettingsEditorState(settings, editor.draft.selectedProfileId);
+    if (restored !== null) this.setEditor(restored);
+  }
+
   public async discardPending(): Promise<void> {
     const editor = this.editor();
     const settings = this.hooks.state().settings;

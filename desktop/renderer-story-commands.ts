@@ -6,14 +6,14 @@ import {
   type FactInput,
   type FactPatch,
   type FactStatePatch,
-  type FactStateInput,
   type StoryFact,
   type StoryPathNode,
   type StoryPayload,
   type TagStatus
 } from "../shared/types.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
-import type { TextSelection } from "./renderer-model.js";
+import { reconcileFactEditorBody } from "./renderer-facts-commands.js";
+import { effectiveFocusedPartId, type TextSelection } from "./renderer-model.js";
 import type { SamplingPhraseBiasEntryV2 } from "../shared/settings-v2-types.js";
 import type { FactConsistencyScope } from "../shared/fact-consistency-contract.js";
 import {
@@ -329,27 +329,6 @@ export async function moveFact(ctx: RendererCommandContext, factId: string, dire
   await ctx.run("Reordering Facts", async () => { await ctx.replaceStory(await api.reorderFact(story.id, factId, index + direction)); });
 }
 
-export async function addFactState(ctx: RendererCommandContext, fact: StoryFact): Promise<void> {
-  const api = ctx.api();
-  const story = ctx.story();
-  if (api.createFactState === undefined) {
-    ctx.setState({ status: "Fact state editing is unavailable", error: null });
-    return;
-  }
-  const value = (await ctx.textDialog("Fact state text", "", "Type END for an end state."))?.trim();
-  if (value === undefined || value.length === 0) return;
-  const anchorChoice = await ctx.choiceDialog("Fact state scope", ["Story-wide", "After active part"], "Story-wide");
-  if (anchorChoice === null) return;
-  const anchorPartId = anchorChoice === "After active part" ? story.path.at(-1)?.id : undefined;
-  const input: FactStateInput = value.toUpperCase() === "END"
-    ? { ends: true, ...(anchorPartId === undefined ? {} : { anchorPartId }) }
-    : { text: value, ...(anchorPartId === undefined ? {} : { anchorPartId }) };
-  await ctx.run("Adding Fact state", async () => {
-    await ctx.replaceStory(await api.createFactState!(story.id, fact.id, input));
-    ctx.setState({ status: "Fact state added" });
-  });
-}
-
 export async function editFactState(ctx: RendererCommandContext, fact: StoryFact, state: FactState): Promise<void> {
   const api = ctx.api();
   const story = ctx.story();
@@ -414,6 +393,7 @@ export async function editFactState(ctx: RendererCommandContext, fact: StoryFact
   if (!anchorChanged && !valueChanged) return;
   await ctx.run("Editing Fact state", async () => {
     await ctx.replaceStory(await api.patchFactState!(story.id, fact.id, state.id, patch));
+    reconcileFactEditorBody(ctx, fact.id);
     ctx.setState({ status: "Fact state updated" });
   });
 }
@@ -425,20 +405,24 @@ export async function deleteFactState(ctx: RendererCommandContext, fact: StoryFa
   if (!await ctx.confirmDialog("Delete Fact state", "Delete this Fact state?")) return;
   await ctx.run("Deleting Fact state", async () => {
     await ctx.replaceStory(await api.deleteFactState!(story.id, fact.id, state.id));
+    reconcileFactEditorBody(ctx, fact.id);
     ctx.setState({ status: "Fact state deleted" });
   });
 }
 
-export async function createChapter(ctx: RendererCommandContext): Promise<void> {
+export async function createChapter(ctx: RendererCommandContext, parentPartId?: string): Promise<void> {
   const api = ctx.api();
   const story = ctx.story();
-  const parent = story.path.at(-1);
+  const parent = parentPartId === undefined
+    ? story.path.at(-1)
+    : story.path.find((node) => node.id === parentPartId);
   if (parent === undefined) return;
   const title = (await ctx.textDialog("Chapter title", "Untitled chapter"))?.trim();
   if (title === undefined) return;
   await ctx.run("Creating chapter", async () => {
     const result = await api.createChapterBreak(story.id, parent.id, title);
     await ctx.replaceStory(result.payload);
+    ctx.setState({ chapterUndo: { kind: "added", breakId: result.breakId } });
   });
 }
 
@@ -457,20 +441,34 @@ export async function removeChapter(ctx: RendererCommandContext, id: string, tit
   await ctx.run("Removing chapter", async () => {
     const result = await api.removeChapterBreak(story.id, id);
     await ctx.replaceStory(result.payload);
-    ctx.setState({ chapterUndo: { breakId: id, removed: result.removed }, status: "Chapter removed · restore is available" });
+    ctx.setState({ chapterUndo: { kind: "removed", breakId: id, removed: result.removed }, status: "Chapter removed · restore is available" });
   });
 }
 
+/** `u` (and the Chapters header's "Restore removed" button): reverses
+ * whichever chapter-break operation happened last. Restoring a removal
+ * clears the undo record (matching the TUI, one step of history). Removing
+ * an addition instead records a fresh `removed` entry from that removal's
+ * own response, so pressing `u` again restores it — the same toggle the TUI
+ * gives `C` then `u` then `u`. */
 export async function restoreChapter(ctx: RendererCommandContext): Promise<void> {
   const story = ctx.story();
   const undo = ctx.state().chapterUndo;
   if (undo === null) {
-    ctx.setState({ status: "No removed chapter to restore", error: null });
+    ctx.setState({ status: "Nothing to undo", error: null });
     return;
   }
-  await ctx.run("Restoring chapter", async () => {
-    await ctx.replaceStory(await ctx.api().restoreChapterBreak(story.id, undo.breakId, undo.removed));
-    ctx.setState({ chapterUndo: null, status: "Chapter restored" });
+  if (undo.kind === "removed") {
+    await ctx.run("Restoring chapter", async () => {
+      await ctx.replaceStory(await ctx.api().restoreChapterBreak(story.id, undo.breakId, undo.removed));
+      ctx.setState({ chapterUndo: null, status: "Chapter break restored" });
+    });
+    return;
+  }
+  await ctx.run("Removing chapter break", async () => {
+    const result = await ctx.api().removeChapterBreak(story.id, undo.breakId);
+    await ctx.replaceStory(result.payload);
+    ctx.setState({ chapterUndo: { kind: "removed", breakId: undo.breakId, removed: result.removed }, status: "Chapter break removed · u restores it" });
   });
 }
 
@@ -541,7 +539,7 @@ export async function runFactConsistency(ctx: RendererCommandContext, scope: Fac
     try { return ctx.state().story?.id === story.id && ctx.api() === api; }
     catch { return false; }
   };
-  const focusedPartId = story.path.at(-1)?.id;
+  const focusedPartId = effectiveFocusedPartId(ctx.state(), story) ?? story.path.at(-1)?.id;
   if (focusedPartId === undefined || api.planFactConsistency === undefined || api.checkFactConsistency === undefined) {
     ctx.setState({ status: "Fact consistency is unavailable", error: null });
     return;
@@ -560,7 +558,7 @@ export async function runFactConsistency(ctx: RendererCommandContext, scope: Fac
     const result = await api.checkFactConsistency({ ...input, planToken: plan.planToken });
     if (!isCurrent()) return;
     await ctx.replaceStory(result.payload);
-    ctx.setState({ factConsistency: result.run, factConsistencyBusy: false, status: "Fact check complete" });
+    ctx.setState({ factConsistency: result.run, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], status: "Fact check complete" });
   } catch (error) {
     if (!isCurrent()) return;
     ctx.setState({ factConsistencyBusy: false, status: "Fact check failed", error: error instanceof Error ? error.message : String(error) });
@@ -576,7 +574,7 @@ export async function showFactConsistency(ctx: RendererCommandContext): Promise<
   }
   await ctx.run("Loading Fact findings", async () => {
     const run = await api.getFactConsistencyRun!(story.id);
-    if (ctx.state().story?.id === story.id && ctx.api() === api) ctx.setState({ factConsistency: run });
+    if (ctx.state().story?.id === story.id && ctx.api() === api) ctx.setState({ factConsistency: run, factConsistencyDismissed: [] });
   });
 }
 

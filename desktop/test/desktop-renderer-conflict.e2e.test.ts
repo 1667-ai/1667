@@ -11,7 +11,7 @@ import { initializeProject } from "../../host/launcher-project.js";
 import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
 import { applyBasicSettingsDraft } from "../../shared/settings-basic-draft.js";
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -30,9 +30,10 @@ test("Electron reloads the latest story while retaining a second window draft", 
     await first.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
     const second = await openSecondWindow(app, first);
-    const draft = second.locator(".part-text").last();
+    const draft = await editPart(second, "last");
     await draft.fill("Unsaved text from the second window.");
 
+    await goToLibrary(first);
     await first.locator(".rename-story").click();
     await first.waitForSelector(".modal-card", { timeout: 15_000 });
     await first.locator(".modal-input").fill("Renamed by the first window");
@@ -45,20 +46,23 @@ test("Electron reloads the latest story while retaining a second window draft", 
 
     await second.locator(".part-save").last().click();
     await second.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("retry the action") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("retry the action") === true,
       undefined,
       { timeout: 15_000 }
     );
     assert.equal(await second.locator(".story-title").innerText(), "Renamed by the first window");
-    assert.equal(await draft.inputValue(), "Unsaved text from the second window.");
+    // A failed save leaves the part in edit mode with its draft intact.
+    assert.equal(await second.locator(".part-text").last().inputValue(), "Unsaved text from the second window.");
 
     await second.locator(".part-save").last().click();
     await second.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );
-    assert.equal(await second.locator(".part-text").last().inputValue(), "Unsaved text from the second window.");
+    // A successful save leaves edit mode; the saved text now shows in the prose.
+    await second.waitForSelector(".part-text", { state: "detached", timeout: 15_000 });
+    assert.equal(await second.locator(".part-prose").last().innerText(), "Unsaved text from the second window.");
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });
@@ -97,11 +101,12 @@ test("Electron resets the settings editor when the project changes", { timeout: 
       await page.waitForSelector(".new-story-button", { timeout: 30_000 });
       await page.locator(".tab-settings").click();
       await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+      await openSettingsSection(page, "output");
       const maxTokens = page.locator('[data-settings-field="profile.maxOutputTokens"]');
       await maxTokens.fill("654");
       await page.locator(".settings-save").click();
       await page.waitForFunction(
-        () => document.querySelector(".topbar-status")?.textContent?.includes("Settings saved") === true,
+        () => document.querySelector(".toast")?.textContent?.includes("Settings saved") === true,
         undefined,
         { timeout: 15_000 }
       );
@@ -143,7 +148,7 @@ test("Electron retains stopped text when a concurrent rename advances the story"
     await first.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
     const second = await openSecondWindow(app, first);
-    await first.locator(".composer-mode").selectOption("direct");
+    await first.locator(".composer-mode-direct").click();
     await first.locator(".composer-input").fill("Continue the scene while the other window renames it.");
     await first.locator(".composer-submit").click();
     await first.waitForSelector(".stream-card", { timeout: 15_000 });
@@ -154,6 +159,7 @@ test("Electron retains stopped text when a concurrent rename advances the story"
     );
     await first.waitForTimeout(300);
 
+    await goToLibrary(second);
     await second.locator(".rename-story").click();
     await second.waitForSelector(".modal-card", { timeout: 15_000 });
     await second.locator(".modal-input").fill("Renamed during stopped generation");
@@ -170,17 +176,17 @@ test("Electron retains stopped text when a concurrent rename advances the story"
     const stoppedText = await first.locator(".stopped-generation-text").innerText();
     assert.ok(stoppedText.length > 8, "stopped text must remain visible after the conflict");
     assert.match(await first.locator(".error-banner").innerText(), /story changed/u);
-    assert.match(await first.locator(".topbar-status").innerText(), /retry interrupted text save/u);
+    assert.match(await first.locator(".toast").innerText(), /retry interrupted text save/u);
 
     await first.locator(".stopped-save").click();
     await first.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Interrupted text saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Interrupted text saved") === true,
       undefined,
       { timeout: 30_000 }
     );
     assert.equal(await first.locator(".stopped-generation").count(), 0);
     assert.equal(await first.locator(".manuscript-part").count(), 2);
-    assert.ok((await first.locator(".part-text").last().inputValue()).length > 8);
+    assert.ok((await first.locator(".part-prose").last().innerText()).length > 8);
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });
@@ -200,15 +206,15 @@ test("Electron creates a child for a typed Continue direction", { timeout: 120_0
     await page.locator(".composer-input").fill("A saved parent line.");
     await page.locator(".composer-manual").click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
-    const parentText = await page.locator(".part-text").last().inputValue();
+    const parentText = await page.locator(".part-prose").last().innerText();
     const direction = "The visitor opens the old gate.";
-    await page.locator(".composer-mode").selectOption("continue");
+    await page.locator(".composer-mode-continue").click();
     await page.locator(".composer-input").fill(direction);
     await page.locator(".composer-submit").click();
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
     await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 2, undefined, { timeout: 30_000 });
-    assert.equal(await page.locator(".part-text").first().inputValue(), parentText);
+    assert.equal(await page.locator(".part-prose").first().innerText(), parentText);
     assert.equal(await page.locator(".part-instruction").last().innerText(), direction);
   } finally {
     await closeDesktopApp(app);
@@ -229,14 +235,20 @@ test("Electron creates a child below a saved summary for empty Continue", { time
     await page.locator(".composer-input").fill("A saved parent line.");
     await page.locator(".composer-manual").click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
-    await page.locator(".summary-take").click();
+    // Summary take (§4/§8) now lives in a part's `···` overflow menu.
+    const onlyPart = page.locator(".manuscript-part").last();
+    await onlyPart.locator(".part-prose").hover();
+    await onlyPart.locator(".part-more").click();
+    await page.waitForSelector(".part-menu", { timeout: 15_000 });
+    await page.locator(".part-menu .summary-take").click();
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
     await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
     const summaryCount = await page.locator(".manuscript-part").count();
     assert.equal(summaryCount, 2);
-    assert.match(await page.locator(".part-badges").last().innerText(), /summary/iu);
+    assert.equal(await page.locator(".manuscript-part").last().evaluate((el) => el.classList.contains("summary")), true);
+    assert.match(await page.locator(".part-summary-header").last().innerText(), /summary/iu);
 
-    await page.locator(".composer-mode").selectOption("continue");
+    await page.locator(".composer-mode-continue").click();
     await page.locator(".composer-input").fill("");
     await page.locator(".composer-submit").click();
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
@@ -263,7 +275,7 @@ test("Electron clears the keyboard-submitted direction after a successful take",
     await page.locator(".composer-input").fill("A saved parent line.");
     await page.locator(".composer-manual").click();
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
-    await page.locator(".composer-mode").selectOption("direct");
+    await page.locator(".composer-mode-direct").click();
     const direction = "The visitor opens the old gate.";
     const composer = page.locator(".composer-input");
     await composer.fill(direction);
@@ -303,22 +315,22 @@ test("Electron retake creates a continuation sibling and keeps the original take
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
     const direction = "The visitor opens the old gate.";
-    await page.locator(".composer-mode").selectOption("direct");
+    await page.locator(".composer-mode-direct").click();
     await page.locator(".composer-input").fill(direction);
     await page.locator(".composer-submit").click();
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
     await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
     const original = page.locator(".manuscript-part").last();
-    const originalText = await original.locator(".part-text").inputValue();
+    const originalText = await original.locator(".part-prose").innerText();
     const originalInstruction = await original.locator(".part-instruction").innerText();
 
+    // `.part-retake` (D-11) is the `r`-key verb: it reuses the part's saved
+    // direction and retakes immediately, with no dialog.
+    await original.locator(".part-prose").hover();
     await original.locator(".part-retake").click();
-    const dialog = page.locator('.modal-card[aria-label="Retake direction"]');
-    await dialog.waitFor({ state: "visible", timeout: 15_000 });
-    assert.equal(await dialog.locator(".modal-input").inputValue(), direction);
-    await dialog.locator(".modal-submit").click();
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
     await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
+    assert.equal(await page.locator(".part-instruction").last().innerText(), originalInstruction);
 
     await page.locator(".tab-inspect").click();
     await page.waitForSelector(".inspect-records", { timeout: 15_000 });
@@ -328,8 +340,8 @@ test("Electron retake creates a continuation sibling and keeps the original take
 
     await page.locator(".tab-write").click();
     await page.locator(".part-take-previous").last().click();
-    await page.waitForFunction((expected) => (document.querySelectorAll(".part-text").item(document.querySelectorAll(".part-text").length - 1) as HTMLTextAreaElement | null)?.value === expected, originalText, { timeout: 15_000 });
-    assert.equal(await page.locator(".part-text").last().inputValue(), originalText);
+    await page.waitForFunction((expected) => document.querySelector(".manuscript-part.focused .part-prose")?.textContent === expected, originalText, { timeout: 15_000 });
+    assert.equal(await page.locator(".part-prose").last().innerText(), originalText);
     assert.equal(await page.locator(".part-instruction").last().innerText(), originalInstruction);
   } finally {
     await closeDesktopApp(app);
@@ -352,24 +364,31 @@ test("Electron saves an edited take and edits its direction", { timeout: 120_000
     await page.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
     const direction = "The visitor opens the old gate.";
-    await page.locator(".composer-mode").selectOption("direct");
+    await page.locator(".composer-mode-direct").click();
     await page.locator(".composer-input").fill(direction);
     await page.locator(".composer-submit").click();
     await page.waitForSelector(".stream-card", { timeout: 30_000 });
     await page.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
     const original = page.locator(".manuscript-part").last();
-    const originalText = await original.locator(".part-text").inputValue();
+    const originalText = await original.locator(".part-prose").innerText();
     const originalInstruction = await original.locator(".part-instruction").innerText();
     const editedText = `${originalText} The brass key turns twice.`;
-    await original.locator(".part-text").fill(editedText);
+    await original.locator(".part-prose").dblclick();
+    const editor = original.locator(".part-text");
+    await editor.waitFor({ state: "visible", timeout: 15_000 });
+    await editor.fill(editedText);
     await original.locator(".part-save-take").click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved as take") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved as take") === true,
       undefined,
       { timeout: 30_000 }
     );
-    assert.equal(await page.locator(".part-text").last().inputValue(), editedText);
+    // Saving as a take also leaves edit mode; the saved text now shows as prose.
+    await page.waitForSelector(".part-text", { state: "detached", timeout: 15_000 });
+    assert.equal(await page.locator(".part-prose").last().innerText(), editedText);
 
+    await page.locator(".manuscript-part").last().locator(".part-prose").dblclick();
+    await page.locator(".part-text").waitFor({ state: "visible", timeout: 15_000 });
     await page.locator(".part-edit-direction").last().click();
     const directionDialog = page.locator('.modal-card[aria-label="Edit direction"]');
     await directionDialog.waitFor({ state: "visible", timeout: 15_000 });
@@ -380,14 +399,16 @@ test("Electron saves an edited take and edits its direction", { timeout: 120_000
       undefined,
       { timeout: 15_000 }
     );
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".part-text", { state: "detached", timeout: 15_000 });
 
     await page.locator(".part-take-previous").last().click();
-    await page.waitForFunction((expected) => (document.querySelectorAll(".part-text").item(document.querySelectorAll(".part-text").length - 1) as HTMLTextAreaElement | null)?.value === expected, originalText, { timeout: 15_000 });
-    assert.equal(await page.locator(".part-text").last().inputValue(), originalText);
+    await page.waitForFunction((expected) => document.querySelector(".manuscript-part.focused .part-prose")?.textContent === expected, originalText, { timeout: 15_000 });
+    assert.equal(await page.locator(".part-prose").last().innerText(), originalText);
     assert.equal(await page.locator(".part-instruction").last().innerText(), originalInstruction);
     await page.locator(".part-take-next").last().click();
-    await page.waitForFunction((expected) => (document.querySelectorAll(".part-text").item(document.querySelectorAll(".part-text").length - 1) as HTMLTextAreaElement | null)?.value === expected, editedText, { timeout: 15_000 });
-    assert.equal(await page.locator(".part-text").last().inputValue(), editedText);
+    await page.waitForFunction((expected) => document.querySelector(".manuscript-part.focused .part-prose")?.textContent === expected, editedText, { timeout: 15_000 });
+    assert.equal(await page.locator(".part-prose").last().innerText(), editedText);
     assert.equal(await page.locator(".part-instruction").last().innerText(), "The visitor uses the brass key.");
   } finally {
     await closeDesktopApp(app);
@@ -411,34 +432,49 @@ test("Electron drops drafts for a take removed by prune", { timeout: 120_000 }, 
     await first.locator(".composer-manual").click();
     await first.waitForFunction(() => document.querySelectorAll(".manuscript-part").length === 1, undefined, { timeout: 15_000 });
 
-    await first.locator(".composer-mode").selectOption("direct");
+    await first.locator(".composer-mode-direct").click();
     await first.locator(".composer-input").fill("The first take opens the gate.");
     await first.locator(".composer-submit").click();
     await first.waitForSelector(".stream-card", { timeout: 30_000 });
     await first.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
-    await first.locator(".part-retake").last().click();
-    const retakeDialog = first.locator('.modal-card[aria-label="Retake direction"]');
-    await retakeDialog.waitFor({ state: "visible", timeout: 15_000 });
-    await retakeDialog.locator(".modal-submit").click();
+    // A stream renders as its own `.manuscript-part.streaming`, appended
+    // after the real parts, so `.manuscript-part` alone stops meaning "the
+    // last real part" once one starts — pin the original part's own
+    // `data-preserve` key first and address it by that from here on.
+    const originalKey = await first.locator(".manuscript-part").last().getAttribute("data-preserve");
+    assert.ok(originalKey, "the original part must have a stable draft key");
+    const original = first.locator(`[data-preserve="${originalKey}"]`);
+    await original.locator(".part-prose").hover();
+    // `.part-retake` (D-11) reuses the saved direction and retakes at once,
+    // with no dialog — the original part is still on the path while it
+    // streams, so it can still be opened and edited underneath the stream.
+    await original.locator(".part-retake").click();
+    await first.waitForSelector(".stream-card", { timeout: 15_000 });
+    await original.locator(".part-prose").dblclick();
+    await original.locator(".part-text").waitFor({ state: "visible", timeout: 15_000 });
     // Keep an edit on the original take while Retake is in flight. The new
     // sibling makes that draft hidden, then prune must remove the old branch.
-    await first.locator(".part-text").last().fill("Draft on the take that will be pruned.");
-    await first.waitForSelector(".stream-card", { timeout: 30_000 });
+    await original.locator(".part-text").fill("Draft on the take that will be pruned.");
     await first.waitForSelector(".stream-card", { state: "detached", timeout: 30_000 });
 
     assert.equal((await first.locator(".story-save-state").innerText()).toLocaleLowerCase(), "unsaved edits");
 
-    await first.locator(".prune-unused").click();
+    const currentPart = first.locator(".manuscript-part").last();
+    await currentPart.locator(".part-prose").hover();
+    await currentPart.locator(".part-more").click();
+    await first.waitForSelector(".part-menu", { timeout: 15_000 });
+    await first.locator(".part-menu .prune-unused").click();
     const firstDialog = first.locator('.modal-card[aria-label="Prune unused takes"]');
     await firstDialog.waitFor({ state: "visible", timeout: 15_000 });
     await firstDialog.locator(".modal-submit").click();
     await first.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Pruned 1 unused take") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Pruned 1 unused take") === true,
       undefined,
       { timeout: 30_000 }
     );
     assert.equal((await first.locator(".story-save-state").innerText()).toLocaleLowerCase(), "saved");
 
+    await goToLibrary(first);
     await first.locator(".story-row").filter({ hasText: "Other story" }).click();
     await first.waitForFunction(
       () => document.querySelector(".story-title")?.textContent === "Other story",
@@ -475,10 +511,13 @@ async function openSecondWindow(app: ElectronApplication, first: Page): Promise<
   });
   const second = await opened;
   await second.waitForSelector(".story-title", { timeout: 30_000 });
+  await second.locator(".tab-write").click();
+  await second.waitForSelector(".composer-input", { timeout: 15_000 });
   return second;
 }
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.locator(".modal-input").fill(title);
@@ -487,6 +526,7 @@ async function createStory(page: Page, title: string): Promise<void> {
 }
 
 async function selectStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".story-row").filter({ hasText: title }).click();
   await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 30_000 });
 }

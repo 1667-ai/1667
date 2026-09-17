@@ -1,0 +1,234 @@
+/** Commands behind the Facts sheet's inline draft (phase 4b, 2a). Mirrors
+ * the shape of `renderer-story-commands.ts`'s Fact functions — plain
+ * functions over a `RendererCommandContext` — kept in a file of its own so
+ * `renderer-story-commands.ts` (already near the line-length guideline)
+ * does not grow further. The existing dialog-based `createFact`,
+ * `editFactState`, `deleteFactState` stay in `renderer-story-commands.ts`
+ * unchanged; the sheet's STATES list calls them directly. */
+import type { FactInput, FactPatch, StoryFact, StoryPayload } from "../shared/types.js";
+import type { RendererCommandContext } from "./renderer-command-context.js";
+import { effectiveFocusedPartId } from "./renderer-model.js";
+import {
+  blankFactDraft,
+  factBodyEditable,
+  factDraftFromFact,
+  factEditorDirty,
+  factSingleStateText,
+  parseFactBudget,
+  type FactDraft
+} from "./renderer-facts-model.js";
+
+/** Whether the sheet's current draft has anything unsaved, resolving the
+ * saved Fact (or `null` for a brand-new draft) from the live story rather
+ * than trusting a stale reference. Shared by `selectFact` and
+ * `startNewFactDraft` so neither silently replaces a dirty draft. */
+function currentFactEditorDirty(ctx: RendererCommandContext): boolean {
+  const editor = ctx.state().factEditor;
+  if (editor === null) return false;
+  const fact = editor.factId === null ? null : ctx.story().facts.find((candidate) => candidate.id === editor.factId) ?? null;
+  return factEditorDirty(fact, editor.draft);
+}
+
+async function confirmReplaceFactEditor(ctx: RendererCommandContext): Promise<boolean> {
+  if (!currentFactEditorDirty(ctx)) return true;
+  return await ctx.confirmDialog("Discard unsaved edits?", "This action will discard the unsaved edits to this Fact.");
+}
+
+/** Identifies one editor instance (review-fixes-3 #1): a fresh number on
+ * every `startNewFactDraft`, `selectFact`, and `revertFactEditor`, so a
+ * pending create's response can tell its own draft from an unrelated one
+ * that also happens to have `factId === null`. Typing never changes it. */
+let factEditorSessionCounter = 0;
+function nextFactEditorSession(): number {
+  factEditorSessionCounter += 1;
+  return factEditorSessionCounter;
+}
+
+/** `+ New` in the Facts list: opens an empty draft in the sheet instead of
+ * the form dialog `createFact` still uses when it has a node or a selection
+ * (New Fact here / Fact from selection in the manuscript's `···` menu). */
+export async function startNewFactDraft(ctx: RendererCommandContext): Promise<void> {
+  if (!await confirmReplaceFactEditor(ctx)) return;
+  ctx.setState({ tab: "facts", factEditor: { factId: null, draft: blankFactDraft(), session: nextFactEditorSession() } });
+}
+
+export async function selectFact(ctx: RendererCommandContext, factId: string | null): Promise<void> {
+  const editor = ctx.state().factEditor;
+  // Re-selecting the Fact that is already open must never discard its draft.
+  if (editor !== null && editor.factId === factId) return;
+  if (!await confirmReplaceFactEditor(ctx)) return;
+  if (factId === null) {
+    ctx.setState({ factEditor: null });
+    return;
+  }
+  const fact = ctx.story().facts.find((candidate) => candidate.id === factId);
+  ctx.setState({ factEditor: fact === undefined ? null : { factId, draft: factDraftFromFact(fact), session: nextFactEditorSession() } });
+}
+
+export function setFactDraft(ctx: RendererCommandContext, patch: Partial<FactDraft>): void {
+  const editor = ctx.state().factEditor;
+  if (editor === null) return;
+  ctx.setState({ factEditor: { ...editor, draft: { ...editor.draft, ...patch } } });
+}
+
+/** Reverts the draft to the saved Fact (or, for a brand-new draft, closes
+ * the sheet — there is nothing saved to revert to). */
+export function revertFactEditor(ctx: RendererCommandContext): void {
+  const editor = ctx.state().factEditor;
+  if (editor === null) return;
+  if (editor.factId === null) {
+    ctx.setState({ factEditor: null });
+    return;
+  }
+  const fact = ctx.story().facts.find((candidate) => candidate.id === editor.factId);
+  ctx.setState({ factEditor: fact === undefined ? null : { factId: fact.id, draft: factDraftFromFact(fact), session: nextFactEditorSession() } });
+}
+
+export async function saveFactEditor(ctx: RendererCommandContext): Promise<void> {
+  const editor = ctx.state().factEditor;
+  if (editor === null) return;
+  const draft = editor.draft;
+  const session = editor.session;
+  const budget = parseFactBudget(draft.budget);
+  if (draft.budget.trim().length > 0 && (budget === null || !Number.isSafeInteger(budget) || budget <= 0)) {
+    ctx.setState({ status: "Invalid Fact cap", error: "Fact cap must be a positive whole number." });
+    return;
+  }
+  const api = ctx.api();
+  const story = ctx.story();
+  const storyId = story.id;
+  // The editor stays open while the request is in flight: a slower save can
+  // finish after the writer typed more, selected a different Fact, or left
+  // the story. `draft` is that instant's object; `setFactDraft`/`selectFact`
+  // always replace it wholesale, so a reference match means nothing else
+  // has touched the editor since this request started.
+  const stillEditingThisDraft = (): boolean =>
+    ctx.state().story?.id === storyId && ctx.state().factEditor?.draft === draft;
+  // A slower save can also finish after the writer left this story entirely
+  // (a different project, or a switch mid-flight); adopting its payload then
+  // would silently restore the story this session left.
+  const stillOwnsStory = (): boolean => ctx.api() === api && ctx.state().story?.id === storyId;
+  if (editor.factId === null) {
+    const text = draft.body.trim();
+    if (text.length === 0) {
+      ctx.setState({ status: "Fact needs text", error: "Give the Fact a body before saving." });
+      return;
+    }
+    const input: FactInput = {
+      name: draft.name.trim().length === 0 ? undefined : draft.name.trim(),
+      tag: draft.tag.trim().length === 0 ? undefined : draft.tag.trim(),
+      text,
+      activation: draft.activation,
+      keys: [...draft.keys],
+      priority: draft.priority === "normal" ? undefined : draft.priority,
+      budgetTokens: budget ?? undefined
+    };
+    await ctx.run("Creating Fact", async () => {
+      const next = await api.createFact(story.id, input);
+      if (!stillOwnsStory()) return;
+      await ctx.replaceStory(next);
+      const createdId = next.facts.at(-1)?.id;
+      if (stillEditingThisDraft()) {
+        selectSaved(ctx, next, createdId, session);
+      } else {
+        // The writer typed more before creation completed: keep that newer
+        // text, but still adopt the created id so the next Save patches
+        // instead of creating a duplicate Fact. Only when the editor is
+        // still the *same* new-Fact session that requested this create —
+        // matching `factId === null` alone would also catch an unrelated
+        // draft opened afterward (review-fixes-3 #1).
+        const currentEditor = ctx.state().factEditor;
+        if (createdId !== undefined && currentEditor !== null && currentEditor.factId === null && currentEditor.session === session) {
+          ctx.setState({ factEditor: { factId: createdId, draft: currentEditor.draft, session: currentEditor.session } });
+        }
+      }
+      ctx.setState({ status: "Fact saved" });
+    });
+    return;
+  }
+  const fact = story.facts.find((candidate) => candidate.id === editor.factId);
+  if (fact === undefined) return;
+  const patch: FactPatch = {
+    name: draft.name.trim().length === 0 ? null : draft.name.trim(),
+    tag: draft.tag.trim().length === 0 ? null : draft.tag.trim(),
+    activation: draft.activation,
+    keys: [...draft.keys],
+    priority: draft.priority,
+    budgetTokens: budget
+  };
+  if (factBodyEditable(fact) && draft.body !== (factSingleStateText(fact) ?? "")) patch.text = draft.body;
+  await ctx.run("Saving Fact", async () => {
+    const next = await api.patchFact(story.id, fact.id, patch);
+    if (!stillOwnsStory()) return;
+    await ctx.replaceStory(next);
+    if (stillEditingThisDraft()) selectSaved(ctx, next, fact.id, session);
+    ctx.setState({ status: "Fact saved" });
+  });
+}
+
+function selectSaved(ctx: RendererCommandContext, story: StoryPayload, factId: string | undefined, session: number): void {
+  const saved = factId === undefined ? undefined : story.facts.find((candidate) => candidate.id === factId);
+  ctx.setState({ factEditor: saved === undefined ? null : { factId: saved.id, draft: factDraftFromFact(saved), session } });
+}
+
+/** After any state mutation (edit, delete, or one of the three add links
+ * below), the sheet's `body` draft field can go stale relative to the Fact's
+ * fresh single-state text: the mutation itself never touches the draft, but
+ * a Fact that is now (or still) body-editable reads `draft.body` for its
+ * next Save (review-fixes-3 #3 — editing a Fact's only state to
+ * story-wide flips it from the STATES list to the simple Body editor, which
+ * would otherwise show, and could resave, the pre-edit text). Rebuilds only
+ * `body`; every other draft field the writer may still be mid-edit on is
+ * left untouched. A no-op once the writer has since closed or switched the
+ * sheet away from this Fact. */
+export function reconcileFactEditorBody(ctx: RendererCommandContext, factId: string): void {
+  const editor = ctx.state().factEditor;
+  if (editor === null || editor.factId !== factId) return;
+  const fact = ctx.story().facts.find((candidate) => candidate.id === factId);
+  if (fact === undefined) return;
+  const body = factSingleStateText(fact) ?? "";
+  if (editor.draft.body === body) return;
+  ctx.setState({ factEditor: { ...editor, draft: { ...editor.draft, body } } });
+}
+
+type StateAddMode = "anchored" | "story-wide" | "end";
+
+/** The sheet's three footer links (§3): each is one click, unlike the
+ * manuscript's `+ Add state`, which still asks text then scope in one
+ * dialog. All three call the same `createFactState` the manuscript flow
+ * calls — no new StoryApi surface. */
+export async function addFactStateAt(ctx: RendererCommandContext, fact: StoryFact, mode: StateAddMode): Promise<void> {
+  const api = ctx.api();
+  if (api.createFactState === undefined) {
+    ctx.setState({ status: "Fact state editing is unavailable", error: null });
+    return;
+  }
+  const story = ctx.story();
+  const anchorPartId = mode === "story-wide" ? undefined : effectiveFocusedPartId(ctx.state(), story) ?? story.path.at(-1)?.id;
+  if (mode !== "story-wide" && anchorPartId === undefined) {
+    ctx.setState({ status: "No focused part to anchor to", error: null });
+    return;
+  }
+  if (mode === "end") {
+    await ctx.run("Ending Fact here", async () => {
+      await ctx.replaceStory(await api.createFactState!(story.id, fact.id, { ends: true, anchorPartId }));
+      reconcileFactEditorBody(ctx, fact.id);
+      ctx.setState({ status: "Fact ends here" });
+    });
+    return;
+  }
+  const text = (await ctx.textDialog("Fact state text", ""))?.trim();
+  if (text === undefined || text.length === 0) return;
+  await ctx.run("Adding Fact state", async () => {
+    await ctx.replaceStory(await api.createFactState!(story.id, fact.id, { text, ...(anchorPartId === undefined ? {} : { anchorPartId }) }));
+    reconcileFactEditorBody(ctx, fact.id);
+    ctx.setState({ status: "Fact state added" });
+  });
+}
+
+/** A finding is view-only and never reaches the server; "Dismiss" only
+ * removes it from this session's view. Keyed by part and index within that
+ * part's findings so two parts with the same finding text stay distinct. */
+export function dismissFinding(ctx: RendererCommandContext, key: string): void {
+  ctx.setState({ factConsistencyDismissed: [...ctx.state().factConsistencyDismissed, key] });
+}

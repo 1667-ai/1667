@@ -6,6 +6,7 @@ import type { ModelServerCheckResult } from "../../shared/types.js";
 import type { SettingsView } from "../../shared/settings-v2-view.js";
 import { validateSettingsDocumentV5 } from "../../shared/settings-v5-validation.js";
 import { INITIAL_STATE, type RendererState } from "../renderer-model.js";
+import { describeSettingsChanges, settingsDraftDirty } from "../renderer-settings-diff.js";
 import {
   createSettingsEditorState,
   RendererSettingsController,
@@ -155,6 +156,27 @@ test("desktop settings new connections do not reuse a stored credential referenc
   if (typeof connection === "string") return;
   assert.deepEqual(profileRoute(connection).connection.auth, { type: "none" });
   validateSettingsDocumentV5(connection.document);
+});
+
+test("desktop settings pending state catches a connection edit describeSettingsChanges does not name (review finding 17)", () => {
+  const base = INITIAL_SETTINGS_DOCUMENT_V5;
+  const draft = draftForDocument(base, null);
+  const connectionId = Object.keys(base.connections)[0]!;
+  const editedDocument = {
+    ...base,
+    connections: {
+      ...base.connections,
+      [connectionId]: { ...base.connections[connectionId]!, name: `${base.connections[connectionId]!.name} (edited)` }
+    }
+  };
+  const editedDraft = { ...draft, document: editedDocument };
+  assert.equal(settingsDraftDirty(base, editedDraft), true, "a connection name edit must count as dirty");
+  assert.deepEqual(
+    describeSettingsChanges(base, editedDraft),
+    ["other settings edited"],
+    "an edit no named change describes must still show one pending change"
+  );
+  assert.deepEqual(describeSettingsChanges(base, draft), [], "an unedited draft names no changes");
 });
 
 test("desktop settings draft reports invalid typed values without replacing the document", () => {

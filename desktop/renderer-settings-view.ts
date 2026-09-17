@@ -6,15 +6,14 @@ import {
   SAMPLING_SCALAR_KNOB_V2_VALUES,
   SETTINGS_PRESET_V2_VALUES,
   SETTINGS_PROTOCOL_V2_VALUES,
-  TEXT_PROMPT_FORMAT_V2_VALUES,
-  type SamplingScalarKnobV2
+  TEXT_PROMPT_FORMAT_V2_VALUES
 } from "../shared/settings-v2-types.js";
 import { SAMPLING_SCALAR_DESCRIPTORS } from "../shared/sampling-validation-policy.js";
 import { samplingKnobLabel } from "../shared/sampling-capabilities.js";
-import { profileRoute, samplingForProfile, type SamplingListName } from "./renderer-settings-model.js";
+import { MAX_ALTERNATIVE_TOKENS } from "../shared/token-probability-policy.js";
+import { profileRoute, samplingForProfile } from "./renderer-settings-model.js";
 import {
   button,
-  checkboxField,
   connectionForDraft,
   inputField,
   modelCapabilityValue,
@@ -24,56 +23,40 @@ import {
   profileGenerationReasoning,
   providerLabel,
   routeLabel,
-  samplingListValue,
+  scalarField,
   selectField,
   settingsConnectionSummary,
   settingsProfileSummary,
   textAreaField,
+  toggleField,
   type SettingsEditorActions,
   type SettingsEditorProps
 } from "./renderer-settings-controls.js";
-import type { SettingsActivationErrorCodeV2, SettingsActivationOutcomeV2 } from "../shared/settings-v2-types.js";
 
-export function renderSettingsEditor(
-  props: SettingsEditorProps,
-  actions: SettingsEditorActions
-): HTMLElement {
-  const panel = node("div", "panel settings-panel settings-editor");
-  panel.append(
-    heading("Generation settings", "Edit provider connections, profiles, routes, sampling, and writing prompts."),
-    renderProfileSection(props, actions),
-    renderConnectionSection(props, actions),
-    renderModelSection(props, actions),
-    renderGenerationSection(props, actions),
-    renderSamplingSection(props, actions),
-    renderRoutingSection(props, actions),
-    renderWritingSection(props, actions),
-    renderSaveBar(props, actions)
-  );
-  if (props.busy !== null) {
-    for (const control of panel.querySelectorAll("input, textarea, select, button")) {
-      (control as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | HTMLButtonElement).disabled = true;
-    }
-  }
-  if (props.error !== null) panel.append(node("p", "settings-error settings-global-error", props.error));
-  return panel;
-}
+/** Renderer-only defaults for the D-17 `┆` tick. The settings document has
+ * no canonical "default" for these — sampling knobs go blank to mean
+ * "provider default" and the timeouts are client-side operational bounds —
+ * so these follow common llama.cpp/OpenAI-compatible baselines. Documented
+ * here rather than silently invented in `shared/`, which this phase does
+ * not touch. */
+const SAMPLING_SCALAR_DEFAULTS: Readonly<Record<string, number>> = {
+  topP: 1, topK: 0, minP: 0, frequencyPenalty: 0, presencePenalty: 0, repeatPenalty: 1,
+  seed: 0, dryMultiplier: 0, dryBase: 1.75, dryRange: 0, xtcThreshold: 0.1, xtcProbability: 0,
+  dynatempRange: 0, mirostat: 0, mirostatTau: 5, mirostatEta: 0.1
+};
+const TIMEOUT_DEFAULTS_MS = { responseHeaderMs: 30_000, firstTokenMs: 30_000, idleMs: 30_000, totalMs: 300_000 } as const;
 
-function heading(title: string, description: string): HTMLElement {
-  return node("div", "panel-heading settings-heading",
-    node("div", "panel-heading-copy", node("span", "eyebrow", "Settings"), node("h2", "", title), node("p", "", description))
+export function section(title: string, description: string, ...children: (Node | string)[]): HTMLElement {
+  return node("section", "settings-section",
+    node("div", "settings-section-heading", node("span", "eyebrow", title), node("h3", "", title), node("p", "", description)),
+    ...children
   );
 }
 
-function section(title: string, description: string, ...children: (Node | string)[]): HTMLElement {
-  return node("section", "settings-section", node("div", "settings-section-heading", node("h3", "", title), node("p", "", description)), ...children);
-}
-
-function renderProfileSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+export function renderProfilesSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
   const draft = props.draft;
   const list = node("div", "settings-profile-list");
-  const ids = Object.keys(props.document.profiles);
-  for (const id of ids) {
+  for (const id of Object.keys(props.document.profiles)) {
     const profile = props.document.profiles[id];
     if (profile === undefined) continue;
     const row = node("button", `settings-profile-select ${draft.selectedProfileId === id ? "active" : ""}`);
@@ -93,11 +76,11 @@ function renderProfileSection(props: SettingsEditorProps, actions: SettingsEdito
   );
   const profile = profileForDraft(draft);
   return section("Profiles", "Profiles group a model with generation controls. Routes point to these profile IDs.", list, controls,
-    node("p", "settings-muted", `Editing ${profile.name || draft.selectedProfileId}. Changes stay in the typed draft until you save.`)
+    node("p", "settings-muted", `Editing ${profile.name || draft.selectedProfileId}. Changes stay in the typed draft until you apply them.`)
   );
 }
 
-function renderConnectionSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+export function renderConnectionsSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
   const draft = props.draft;
   const connection = connectionForDraft(draft);
   const auth = connection.auth;
@@ -106,12 +89,12 @@ function renderConnectionSection(props: SettingsEditorProps, actions: SettingsEd
     selectField(props, actions, "Provider preset", "connection.preset", SETTINGS_PRESET_V2_VALUES, connection.preset, Object.fromEntries(SETTINGS_PRESET_V2_VALUES.map((value) => [value, providerLabel(value)]))),
     selectField(props, actions, "Transport protocol", "connection.protocol", SETTINGS_PROTOCOL_V2_VALUES, connection.protocol),
     inputField(props, actions, "Base URL", "connection.baseUrl", connection.baseUrl ?? "", "url", { wide: true }),
-    checkboxField(props, actions, "Allow insecure HTTP on a LAN host", "connection.allowInsecureHttp", connection.allowInsecureHttp === true)
+    toggleField(props, actions, "Allow insecure HTTP on a LAN host", "connection.allowInsecureHttp", connection.allowInsecureHttp === true)
   ];
   if (connection.protocol === "text-completions") {
     fields.push(
       selectField(props, actions, "Text prompt format", "connection.textPromptFormat", ["", ...TEXT_PROMPT_FORMAT_V2_VALUES], connection.textPromptFormat ?? "", { "": "raw (default)" }),
-      checkboxField(props, actions, "Split <think> tags into model thoughts", "connection.splitThinkTags", connection.splitThinkTags === true)
+      toggleField(props, actions, "Split <think> tags into model thoughts", "connection.splitThinkTags", connection.splitThinkTags === true)
     );
   }
   const authFields = node("div", "settings-form", ...fields,
@@ -145,10 +128,10 @@ function renderConnectionSection(props: SettingsEditorProps, actions: SettingsEd
   authFields.append(renderHeaders(connection, actions));
   authFields.append(node("div", "settings-subheading", node("strong", "", "Request timeouts")));
   authFields.append(
-    inputField(props, actions, "Response headers (ms)", "connection.responseHeaderMs", String(connection.timeouts.responseHeaderMs), "number", { min: "1", max: "86400000", step: "1" }),
-    inputField(props, actions, "First token (ms)", "connection.firstTokenMs", String(connection.timeouts.firstTokenMs), "number", { min: "1", max: "86400000", step: "1" }),
-    inputField(props, actions, "Idle (ms)", "connection.idleMs", String(connection.timeouts.idleMs), "number", { min: "1", max: "86400000", step: "1" }),
-    inputField(props, actions, "Total (ms)", "connection.totalMs", String(connection.timeouts.totalMs), "number", { min: "1", max: "86400000", step: "1" })
+    scalarField(props, "Response headers (ms)", "connection.responseHeaderMs", { min: 1, max: 86_400_000, step: 1_000, defaultValue: TIMEOUT_DEFAULTS_MS.responseHeaderMs }, connection.timeouts.responseHeaderMs, (raw) => actions.editField("connection.responseHeaderMs", raw)),
+    scalarField(props, "First token (ms)", "connection.firstTokenMs", { min: 1, max: 86_400_000, step: 1_000, defaultValue: TIMEOUT_DEFAULTS_MS.firstTokenMs }, connection.timeouts.firstTokenMs, (raw) => actions.editField("connection.firstTokenMs", raw)),
+    scalarField(props, "Idle (ms)", "connection.idleMs", { min: 1, max: 86_400_000, step: 1_000, defaultValue: TIMEOUT_DEFAULTS_MS.idleMs }, connection.timeouts.idleMs, (raw) => actions.editField("connection.idleMs", raw)),
+    scalarField(props, "Total (ms)", "connection.totalMs", { min: 1, max: 86_400_000, step: 1_000, defaultValue: TIMEOUT_DEFAULTS_MS.totalMs }, connection.timeouts.totalMs, (raw) => actions.editField("connection.totalMs", raw))
   );
   const probe = node("div", "settings-probe-actions",
     button("settings-check", props.busy === "check" ? "Checking…" : "Check connection", actions.checkConnection),
@@ -159,7 +142,8 @@ function renderConnectionSection(props: SettingsEditorProps, actions: SettingsEd
   const status = props.providerStatus === undefined || props.providerStatus === null
     ? ""
     : node("p", `settings-provider-status ${props.providerStatus.kind}`, props.providerStatus.message);
-  return section("Provider connection", "The selected profile uses this provider route. Keys remain in the machine tier.", authFields, probe, status,
+  return section("Connections", "The selected profile uses this provider route. Keys remain in the machine tier.", authFields, probe, status,
+    renderModelSubsection(props, actions),
     node("div", "settings-connection-catalog", ...Object.entries(props.document.connections).map(([id, item]) => settingsConnectionSummary(id, item)))
   );
 }
@@ -197,7 +181,7 @@ function renderHeaders(connection: ReturnType<typeof connectionForDraft>, action
   return wrapper;
 }
 
-function renderModelSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+function renderModelSubsection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
   const draft = props.draft;
   const model = modelForDraft(draft);
   const discovered = props.discovery;
@@ -216,15 +200,16 @@ function renderModelSection(props: SettingsEditorProps, actions: SettingsEditorA
     selectField(props, actions, "Reasoning effort support", "model.reasoningEffort", ["supported", "unsupported", "unknown"], modelCapabilityValue(model, "reasoningEffort")),
     selectField(props, actions, "Reasoning content", "model.reasoningContent", ["supported", "unsupported", "unknown"], modelCapabilityValue(model, "reasoningContent")),
     selectField(props, actions, "Prompt caching", "model.promptCaching", ["supported", "unsupported", "unknown"], modelCapabilityValue(model, "promptCaching")),
-    inputField(props, actions, "Image token ceiling", "model.imageTokenCeiling", model.capabilities.imageTokenCeiling === undefined ? "" : String(model.capabilities.imageTokenCeiling), "number", { min: "1", max: "1000000000", step: "1" })
+    scalarField(props, "Image token ceiling", "model.imageTokenCeiling", { min: 1, max: 1_000_000_000, step: 1_000, defaultValue: model.discovered.maxOutputTokens ?? 0 }, model.capabilities.imageTokenCeiling ?? null, (raw) => actions.editField("model.imageTokenCeiling", raw))
   );
-  return section("Model discovery and context", "Choose a remote model, then keep discovered values or set explicit overrides.",
+  return node("div", "settings-model-subsection",
+    node("div", "settings-subheading", node("strong", "", "Model discovery and context")),
     node("div", "settings-form",
       selectField(props, actions, "Model record", "profile.modelId", Object.keys(props.document.models), draft.document.profiles[draft.selectedProfileId]?.modelId ?? "", Object.fromEntries(Object.entries(props.document.models).map(([id, item]) => [id, item.name || id]))),
       inputField(props, actions, "Remote model ID", "model.remoteId", model.remoteId, "text", { wide: true }),
       inputField(props, actions, "Model display name", "model.name", model.name),
-      inputField(props, actions, "Context window override", "model.contextWindow", model.overrides.contextWindow === undefined ? "" : String(model.overrides.contextWindow), "number", { min: "1", max: "1000000000", step: "1" }),
-      inputField(props, actions, "Output limit override", "model.maxOutputTokens", model.overrides.maxOutputTokens === undefined ? "" : String(model.overrides.maxOutputTokens), "number", { min: "1", max: "1000000000", step: "1" })
+      scalarField(props, "Context window override", "model.contextWindow", { min: 1, max: 1_000_000_000, step: 1_000, defaultValue: model.discovered.contextWindow ?? 0 }, model.overrides.contextWindow ?? null, (raw) => actions.editField("model.contextWindow", raw)),
+      scalarField(props, "Output limit override", "model.maxOutputTokens", { min: 1, max: 1_000_000_000, step: 100, defaultValue: model.discovered.maxOutputTokens ?? 0 }, model.overrides.maxOutputTokens ?? null, (raw) => actions.editField("model.maxOutputTokens", raw))
     ),
     node("div", "settings-discovered-meta", `Discovered context ${model.discovered.contextWindow ?? "unknown"}; discovered output limit ${model.discovered.maxOutputTokens ?? "unknown"}.`),
     capabilities,
@@ -232,28 +217,29 @@ function renderModelSection(props: SettingsEditorProps, actions: SettingsEditorA
   );
 }
 
-function renderGenerationSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+export function renderSamplingSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
   const profile = profileForDraft(props.draft);
-  const reasoning = profileGenerationReasoning(profile.generationReasoning);
-  return section("Generation", "Set the model response shape, reasoning behavior, cache policy, and alternatives.",
-    node("div", "settings-form",
-      inputField(props, actions, "Temperature", "profile.temperature", profile.temperature === null ? "" : String(profile.temperature), "number", { min: "-100", max: "100", step: "0.01" }),
-      inputField(props, actions, "Maximum output tokens", "profile.maxOutputTokens", String(profile.maxOutputTokens), "number", { min: "1", max: "1000000000", step: "1" }),
-      selectField(props, actions, "Reasoning effort", "profile.effort", ["default", "minimal", "low", "medium", "high", "xhigh", "max"], reasoning.effort),
-      selectField(props, actions, "Thinking mode", "profile.thinkingMode", ["default", "on", "off"], reasoning.thinkingMode),
-      selectField(props, actions, "Reasoning display", "profile.reasoning", ["off", "marker", "open"], profile.reasoning ?? "marker"),
-      selectField(props, actions, "Prompt cache", "profile.cachePolicy", ["off", "auto", "long"], profile.cachePolicy),
-      inputField(props, actions, "Token alternatives", "profile.tokenProbabilities", profile.tokenProbabilities === undefined ? "" : String(profile.tokenProbabilities), "number", { min: "1", max: "20", step: "1" }),
-      checkboxField(props, actions, "Keep model thoughts", "profile.discardReasoning", profile.discardReasoning !== true),
-      selectField(props, actions, "Continuation prompt layout", "profile.continuationPromptOptimization", ["", "late-cache-stable"], profile.continuationPromptOptimization ?? "", { "": "Compatibility (default)", "late-cache-stable": "Late cache stable" })
-    )
+  const sampling = samplingForProfile(profile);
+  const temperatureField = scalarField(
+    props,
+    "Temperature",
+    "profile.temperature",
+    { min: -100, max: 100, step: 0.01, defaultValue: 1 },
+    profile.temperature,
+    (raw) => actions.editField("profile.temperature", raw)
   );
-}
-
-function renderSamplingSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
-  const sampling = samplingForProfile(profileForDraft(props.draft));
-  const scalarFields = SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => samplingScalarField(props, actions, knob, sampling[knob]));
-  const lists: [SamplingListName, string, string][] = [
+  const scalarFields = SAMPLING_SCALAR_KNOB_V2_VALUES.map((knob) => {
+    const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
+    return scalarField(
+      props,
+      samplingKnobLabel(knob),
+      `sampling.${knob}`,
+      { min: descriptor.minimum, max: descriptor.maximum, step: descriptor.integer ? 1 : 0.01, defaultValue: SAMPLING_SCALAR_DEFAULTS[knob] ?? descriptor.minimum },
+      sampling[knob],
+      (raw) => actions.editSamplingScalar(knob, raw)
+    );
+  });
+  const lists: [string, string, string][] = [
     ["stop", "Stop sequences", sampling.stop.join("\n")],
     ["logitBias", "Logit bias", Object.entries(sampling.logitBias).map(([key, value]) => `${key} | ${value}`).join("\n")],
     ["phraseBias", "Phrase bias", sampling.phraseBias.map((entry) => `${entry.phrase} | ${entry.weight}`).join("\n")],
@@ -261,34 +247,14 @@ function renderSamplingSection(props: SettingsEditorProps, actions: SettingsEdit
     ["dryBreakers", "DRY breakers", sampling.dryBreakers.join("\n")]
   ];
   const listFields = lists.map(([list, title, value]) => samplingListField(props, actions, list, title, value));
-  return section("Sampling", "All sampling scalars and list panels stay in the selected profile. Blank values use provider defaults.",
-    node("div", "settings-form settings-sampling-scalars", ...scalarFields),
+  return section("Sampling", "Bars are output, brackets are input: ‹ › opens a typed field, and ┆ marks a renderer-assumed default. Blank values use the provider's own default.",
+    node("div", "settings-form settings-sampling-scalars", temperatureField, ...scalarFields),
     node("div", "settings-sampling-lists", ...listFields)
   );
 }
 
-function samplingScalarField(props: SettingsEditorProps, actions: SettingsEditorActions, knob: SamplingScalarKnobV2, value: number | null): HTMLElement {
-  const wrapper = labelForSampling(samplingKnobLabel(knob));
-  const descriptor = SAMPLING_SCALAR_DESCRIPTORS[knob];
-  const input = document.createElement("input");
-  input.type = "text";
-  input.inputMode = descriptor.integer ? "numeric" : "decimal";
-  input.value = value === null ? "" : String(value);
-  input.min = String(descriptor.minimum);
-  input.max = String(descriptor.maximum);
-  input.step = descriptor.integer ? "1" : "any";
-  input.placeholder = "provider default";
-  input.dataset.settingsField = `sampling.${knob}`;
-  input.classList.add("settings-control", `settings-control-sampling-${knob}`);
-  input.dataset.preserve = `settings:sampling:${knob}`;
-  input.addEventListener("input", () => actions.editSamplingScalar(knob, input.value));
-  wrapper.append(input);
-  appendSettingsError(wrapper, props.fieldErrors[`sampling.${knob}`]);
-  return wrapper;
-}
-
-function samplingListField(props: SettingsEditorProps, actions: SettingsEditorActions, list: SamplingListName, title: string, value: string): HTMLElement {
-  const wrapper = labelForSampling(title);
+function samplingListField(props: SettingsEditorProps, actions: SettingsEditorActions, list: string, title: string, value: string): HTMLElement {
+  const wrapper = node("label", "settings-sampling-field", title) as HTMLLabelElement;
   const text = document.createElement("textarea");
   text.rows = 4;
   text.value = value;
@@ -296,91 +262,55 @@ function samplingListField(props: SettingsEditorProps, actions: SettingsEditorAc
   text.dataset.settingsField = `sampling.${list}`;
   text.classList.add("settings-control", `settings-control-sampling-${list}`);
   text.dataset.preserve = `settings:sampling:${list}`;
-  text.addEventListener("input", () => actions.editSamplingList(list, text.value));
+  text.addEventListener("input", () => actions.editSamplingList(list as Parameters<SettingsEditorActions["editSamplingList"]>[0], text.value));
   wrapper.append(text);
-  appendSettingsError(wrapper, props.fieldErrors[`sampling.${list}`]);
+  const error = props.fieldErrors[`sampling.${list}`];
+  if (error !== undefined && error.length > 0) wrapper.append(node("span", "settings-error", error));
   return wrapper;
 }
 
-function labelForSampling(title: string): HTMLLabelElement {
-  const wrapper = node("label", "settings-sampling-field", title) as HTMLLabelElement;
-  return wrapper;
-}
-
-function appendSettingsError(parent: HTMLElement, error: string | undefined): void {
-  if (error !== undefined && error.length > 0) parent.append(node("span", "settings-error", error));
-}
-
-function renderRoutingSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+export function renderRoutesSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
   const profiles = Object.keys(props.document.profiles);
-  const labels = Object.fromEntries(profiles.map((id) => [id, props.document.profiles[id]?.name || id]));
-  return section("Routing", "Choose the generation profile for the default, prose, and utility requests.",
+  const labels = { "": "Same as the default route", ...Object.fromEntries(profiles.map((id) => [id, props.document.profiles[id]?.name || id])) };
+  const routeCard = (title: string, hint: string, field: "route.default" | "route.prose" | "route.utility", options: readonly string[], selected: string): HTMLElement => {
+    const active = props.activeDocument.routing;
+    const pending = selected !== (field === "route.default" ? active.default : field === "route.prose" ? active.prose ?? "" : active.utility ?? "");
+    return node("article", "settings-route-card",
+      node("div", "settings-route-copy", node("h4", "", title), node("p", "", hint)),
+      selectField(props, actions, "Profile", field, options, selected, labels),
+      pending ? node("span", "chip outline settings-route-pending", "PENDING") : ""
+    );
+  };
+  return section("Routes", "Each operation reads one Generation Profile. An unset prose or utility route falls back to the default.",
+    routeCard("Default route", "Used when a task does not have its own profile.", "route.default", profiles, props.document.routing.default),
+    routeCard("Prose route", "Used to write and rewrite story prose.", "route.prose", ["", ...profiles], props.document.routing.prose ?? ""),
+    routeCard("Utility route", "Used for summaries and other support tasks (aside, autoname, fact check).", "route.utility", ["", ...profiles], props.document.routing.utility ?? "")
+  );
+}
+
+export function renderOutputReasoningSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+  const profile = profileForDraft(props.draft);
+  const reasoning = profileGenerationReasoning(profile.generationReasoning);
+  const model = modelForDraft(props.draft);
+  return section("Output & reasoning", "Set the model response shape, reasoning behavior, and cache policy.",
     node("div", "settings-form",
-      selectField(props, actions, "Default route", "route.default", profiles, props.document.routing.default, labels),
-      selectField(props, actions, "Prose route", "route.prose", ["", ...profiles], props.document.routing.prose ?? "", { "": "Default route", ...labels }),
-      selectField(props, actions, "Utility route", "route.utility", ["", ...profiles], props.document.routing.utility ?? "", { "": "Default route", ...labels })
+      scalarField(props, "Maximum output tokens", "profile.maxOutputTokens", { min: 1, max: 1_000_000_000, step: 100, defaultValue: model.discovered.maxOutputTokens ?? 1_024 }, profile.maxOutputTokens, (raw) => actions.editField("profile.maxOutputTokens", raw)),
+      selectField(props, actions, "Reasoning effort", "profile.effort", ["default", "minimal", "low", "medium", "high", "xhigh", "max"], reasoning.effort),
+      selectField(props, actions, "Thinking mode", "profile.thinkingMode", ["default", "on", "off"], reasoning.thinkingMode),
+      selectField(props, actions, "Reasoning display", "profile.reasoning", ["off", "marker", "open"], profile.reasoning ?? "marker"),
+      selectField(props, actions, "Prompt cache", "profile.cachePolicy", ["off", "auto", "long"], profile.cachePolicy),
+      scalarField(props, "Token alternatives", "profile.tokenProbabilities", { min: 1, max: MAX_ALTERNATIVE_TOKENS, step: 1, defaultValue: 1 }, profile.tokenProbabilities ?? null, (raw) => actions.editField("profile.tokenProbabilities", raw)),
+      toggleField(props, actions, "Keep model thoughts", "profile.discardReasoning", profile.discardReasoning !== true, true),
+      selectField(props, actions, "Continuation prompt layout", "profile.continuationPromptOptimization", ["", "late-cache-stable"], profile.continuationPromptOptimization ?? "", { "": "Compatibility (default)", "late-cache-stable": "Late cache stable" })
     )
   );
 }
 
-function renderWritingSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
+export function renderWritingPromptsSection(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
   const fields = WRITING_PROMPT_FIELD_DEFINITIONS.map((definition) => writingField(props, actions, definition));
   return section("Writing prompts", "These prompts apply across prose, titles, summaries, rewrites, and Aside requests.", node("div", "settings-writing-fields", ...fields));
 }
 
 function writingField(props: SettingsEditorProps, actions: SettingsEditorActions, definition: WritingPromptFieldDefinition): HTMLElement {
   return textAreaField(props, actions, definition.title, `writing.${definition.field}`, props.document.writing[definition.field], `${definition.help} ${definition.emptyBehavior}.`);
-}
-
-function renderSaveBar(props: SettingsEditorProps, actions: SettingsEditorActions): HTMLElement {
-  const invalidFieldCount = Object.keys(props.fieldErrors).length;
-  const saveLabel = props.pendingRevision === null ? "Save settings" : "Retry activation";
-  const save = button("settings-save", props.busy === "save" ? "Saving…" : saveLabel, actions.save);
-  save.disabled = props.busy !== null || invalidFieldCount > 0;
-  const discard = props.pendingRevision === null
-    ? ""
-    : button("settings-discard-pending", props.busy === "discard" ? "Discarding…" : "Discard pending", actions.discardPending);
-  if (typeof discard !== "string") discard.disabled = props.busy !== null;
-  const pendingNotice = props.pendingRevision === null
-    ? ""
-    : pendingSettingsNotice(props.lastActivationOutcome);
-  return node("div", "settings-save-bar",
-    node("div", "settings-actions", save, button("settings-reload", "Reload", actions.reload), discard),
-    pendingNotice,
-    invalidFieldCount === 0
-      ? ""
-      : node("p", "settings-error settings-save-validation", `Fix ${invalidFieldCount} invalid field${invalidFieldCount === 1 ? "" : "s"} before saving.`),
-    node("p", "settings-muted", `Active revision ${props.activeRevision}; pending ${props.pendingRevision ?? "none"}.`)
-  );
-}
-
-function pendingSettingsNotice(outcome: SettingsActivationOutcomeV2 | null): HTMLElement {
-  const failure = activationFailureText(outcome);
-  return node("div", "settings-pending-notice",
-    node("strong", "", failure === null
-      ? "Settings saved · not active yet."
-      : `Settings saved · not active · ${failure}.`),
-    node("p", "settings-help", failure === null
-      ? "The saved candidate is pending. Retry activation checks it again. Discard pending removes it and keeps the active settings."
-      : "Retry activation checks this saved candidate again. Discard pending removes it and keeps the active settings.")
-  );
-}
-
-function activationFailureText(outcome: SettingsActivationOutcomeV2 | null): string | null {
-  if (outcome === null || outcome.result === "committed") return null;
-  return settingsActivationFailureText(outcome.errorCode);
-}
-
-function settingsActivationFailureText(errorCode: SettingsActivationErrorCodeV2): string {
-  switch (errorCode) {
-    case "credential_unresolved":
-      return "credential not found (env var or stored key)";
-    case "candidate_invalid":
-      return "provider check failed";
-    case "activation_crashed":
-      return "activation was interrupted";
-    case "activation_failed":
-    case "readiness_failed":
-      return "rolled back after an interruption";
-  }
 }

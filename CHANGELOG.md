@@ -5,6 +5,32 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0-beta.2 - 2026-09-16
+
+- **The desktop app uses the TUI keys.** When no field has focus, the same
+  letters, arrows, and punctuation do the same work as in the TUI. Press `?`
+  to see the list. Press `⌘K` or `Ctrl+K` to open the command palette.
+- **The desktop app has a new layout.** A narrow rail opens the Library,
+  Write, Facts, Chapters, Map, Inspect, and Settings. A panel on the right
+  shows the takes, Facts, Aside, and context for the focused story part.
+- **Story parts show as prose.** Click a part to focus it. Double-click it or
+  press `e` to edit it. A toolbar above the part shows Retake, Rewrite,
+  Direct, and Tag.
+- **Every desktop theme has its own colors and type.** Dark themes no longer
+  show light-gray panels and fields.
+- **Settings shows one section at a time.** A bar names each change before
+  you apply the revision. Numbers use steppers, and on or off settings use
+  two-word toggles.
+- **Facts open in an editor beside the list.** The list shows which Facts
+  apply at the focused part. Fact check findings open the part or the Fact
+  and change neither.
+- **Chapters show the story line to scale.** A new chapter break goes after
+  the focused part.
+- **The Map draws your story line as a straight spine.** Other lines branch
+  from it. A strip above the composer switches between tagged lines.
+- **Aside opens in a larger panel.** Press `!` to see every message from the
+  current session.
+
 ## 0.11.0-beta.1 - 2026-09-15
 
 - **1667 has a desktop app.** Open a project and use the writing tools,

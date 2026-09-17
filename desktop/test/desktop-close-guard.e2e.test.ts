@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -30,12 +30,14 @@ test("Electron guards dirty close and reload with native Discard or Cancel", { t
     const page = await app.firstWindow();
     page.on("dialog", (dialog) => { void dialog.dismiss().catch(() => undefined); });
     await page.waitForSelector(".story-title", { timeout: 30_000 });
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
 
     const existingParts = await page.locator(".manuscript-part").count();
     await page.locator(".composer-input").fill("Saved base");
     await page.locator(".composer-manual").click();
     await page.waitForFunction((count) => document.querySelectorAll(".manuscript-part").length > count, existingParts, { timeout: 15_000 });
-    const part = page.locator(".part-text").last();
+    const part = await editPart(page, "last");
     await part.fill("Unsaved native close draft");
     assert.match(await page.locator(".story-save-state").innerText(), /unsaved edits/iu);
 
@@ -52,19 +54,20 @@ test("Electron guards dirty close and reload with native Discard or Cancel", { t
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved native close draft");
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );
 
-    await page.locator(".part-text").last().fill("Quit retained native draft");
+    const reopened = await editPart(page, "last");
+    await reopened.fill("Quit retained native draft");
     const cancelledQuit = await chooseNativeQuit(app, 1);
     assert.equal(cancelledQuit.windows, 1);
     assert.equal(cancelledQuit.options.cancelId, 1);
     assert.equal(await page.locator(".part-text").last().inputValue(), "Quit retained native draft");
     await page.locator(".part-save").last().click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Saved") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Saved") === true,
       undefined,
       { timeout: 15_000 }
     );

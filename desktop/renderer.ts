@@ -7,7 +7,7 @@ import {
   type DraftImageReference,
   type SourceImageMediaType
 } from "../shared/image-attachment.js";
-import type { StoryPathNode, StoryPayload } from "../shared/types.js";
+import type { StoryFact, StoryPathNode, StoryPayload } from "../shared/types.js";
 import type { SearchHit } from "../shared/story-search.js";
 import { pathTo, subtreeCount } from "../shared/story-tree.js";
 import { rememberedLeafId } from "../shared/story-model.js";
@@ -15,6 +15,7 @@ import {
   INITIAL_STATE,
   makeMutationId,
   persistDesktopDirections,
+  persistDesktopInspectorHidden,
   persistDesktopTheme,
   storyHasUnsavedDrafts,
   type RendererActions,
@@ -24,17 +25,19 @@ import {
   type RendererTab,
   type RendererRecoveryWarning,
   type DesktopTheme,
+  type LogEntry,
   type StreamMode,
   type TextSelection
 } from "./renderer-model.js";
 import { renderApp } from "./renderer-view.js";
+import { createFeedbackClearHandler, updateFeedbackDom } from "./renderer-shell-view.js";
 import { RendererContextController, shouldAppendRendererContinuation } from "./renderer-context.js";
 import { createRendererApi, desktopShell, messageOf } from "./renderer-runtime.js";
 import type { DesktopShellRequest, DesktopShellResponse } from "./renderer-shell-contract.js";
 import { RendererShellController } from "./renderer-shell-controller.js";
+import { RendererKeysController } from "./renderer-keys-controller.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
 import {
-  addFactState,
   createChapter,
   createFact,
   deleteFact,
@@ -62,6 +65,16 @@ import {
   takeFromCut,
   copyLine
 } from "./renderer-story-commands.js";
+import {
+  addFactStateAt,
+  dismissFinding,
+  revertFactEditor,
+  saveFactEditor,
+  selectFact,
+  setFactDraft,
+  startNewFactDraft
+} from "./renderer-facts-commands.js";
+import { factEditorDirty } from "./renderer-facts-model.js";
 import { manageTags } from "./renderer-tag-commands.js";
 import {
   askAside,
@@ -77,7 +90,10 @@ import {
   stopAside
 } from "./renderer-aside-commands.js";
 import { retakeLine, rewriteLine, summarizeLine } from "./renderer-generation-commands.js";
+import { eyebrowFor, submitLabel } from "./renderer-composer-view.js";
 import { createSettingsEditorState, RendererSettingsController } from "./renderer-settings-controller.js";
+import { settingsDraftDirty } from "./renderer-settings-diff.js";
+import { captureProseSelection, restoreProseSelection } from "./renderer-dom.js";
 
 const root = document.querySelector<HTMLElement>("#app");
 if (root === null) throw new Error("Desktop renderer root is missing.");
@@ -89,6 +105,7 @@ class RendererApp {
   private asideController: AbortController | null = null;
   private dialogResolver: ((value: string | null) => void) | null = null;
   private shellController: RendererShellController | null = null;
+  private keysController: RendererKeysController | null = null;
   private connectInFlight: Promise<void> | null = null;
   private connectedProjectRoot: string | null = null;
   private searchSequence = 0;
@@ -110,11 +127,36 @@ class RendererApp {
 
   private readonly actions: RendererActions = {
     setTab: (tab) => this.setTab(tab),
+    setSettingsSection: (section) => this.setState({ settingsSection: section }),
+    focusPart: (id) => this.setState({ focusedPartId: id }),
+    editPart: (id) => this.setState(id === null ? { editingPartId: null } : { editingPartId: id, focusedPartId: id }),
+    acknowledgeFactConsistencySeen: () => this.setState({ factConsistencySeen: true }),
     setSearch: (value) => { this.setState({ search: value }); void this.searchStories(value); },
     openSearchHit: (hit) => { void this.openSearchHit(hit); },
-    setComposerMode: (mode) => this.setState({ composerMode: mode }),
+    // A pending `w` target must not survive a switch to Continue or Direct
+    // (review-fixes-4 #4): those modes stream from the composer, and a later
+    // manual save must not silently branch off the old `w` target instead of
+    // appending at the current line end.
+    setComposerMode: (mode) => this.setState(
+      mode === "write" ? { composerMode: mode } : { composerMode: mode, composerWriteTarget: null }
+    ),
+    setComposerWriteTarget: (target) => this.setState({ composerWriteTarget: target }),
     setDirections: (show) => this.setDirections(show),
     setTheme: (theme) => this.setTheme(theme),
+    setInspectorHidden: (hidden) => this.setInspectorHidden(hidden),
+    setMapCursor: (id) => this.setState({ mapCursorId: id }),
+    openKeys: () => this.setState({ popover: { kind: "keys" } }),
+    openPalette: (group) => this.setState({ popover: { kind: "palette", query: "", group: group ?? null } }),
+    openPartMenu: (partId) => this.setState({ popover: { kind: "part-menu", partId } }),
+    openAsidePopover: () => this.setState({ popover: { kind: "aside" } }),
+    openLog: () => this.setState({ popover: { kind: "log" } }),
+    setPaletteQuery: (value) => {
+      if (this.state.popover?.kind === "palette") this.setState({ popover: { ...this.state.popover, query: value } });
+    },
+    closePopover: () => this.setState({ popover: null }),
+    toast: (text) => this.setState({ status: text, error: null }),
+    confirmDialog: (title, message) => this.confirmDialog(title, message),
+    saveCurrentEdit: () => this.keysController?.saveCurrentEdit(),
     setDraft: (key, value) => this.setDraft(key, value),
     setAuthPromptValue: (value) => this.setState({ authPromptValue: value }),
     submitDialog: (value) => this.resolveDialog(value),
@@ -141,12 +183,11 @@ class RendererApp {
     unsealProject: () => { void this.unsealProject(); },
     revealProject: () => { void this.revealProject(); },
     showProjects: (show) => this.setState({ showProjects: show }),
-    showHelp: () => { void this.showHelp(); },
-    continueStory: (mode, instruction) => { void this.continueStory(mode, instruction); },
-    retakeLine: (node) => { void this.retakeLine(node); },
+    continueStory: (mode, instruction, target) => { void this.continueStory(mode, instruction, target); },
+    retakeLine: (node, options) => { void this.retakeLine(node, options); },
     rewriteLine: (node, selection) => { void this.rewriteLine(node, selection); },
     summarizeLine: () => { void this.summarizeLine(); },
-    writeManual: (text) => { void this.writeManual(text); },
+    writeManual: (text, parentId) => { void this.writeManual(text, true, parentId); },
     attachImage: (file) => { void this.attachImage(file); },
     removeImage: (index) => this.removeImage(index),
     stopStream: () => this.stopStream(),
@@ -159,6 +200,7 @@ class RendererApp {
     deleteNode: (node) => { void this.deleteNode(node); },
     switchLine: (node) => { void this.switchLine(node); },
     switchNode: (nodeId) => { void this.switchNode(nodeId); },
+    switchToTaggedLine: (tagName, nodeId) => { void this.switchToTaggedLine(tagName, nodeId); },
     copyLine: (node) => this.copyLine(node),
     pasteLine: (node) => { void this.pasteLine(node); },
     takeFromCut: (node, selection) => { void this.takeFromCut(node, selection); },
@@ -179,14 +221,23 @@ class RendererApp {
     setFactsBudget: (budget) => { void this.setFactsBudget(budget); },
     runFactConsistency: (scope) => { void this.runFactConsistency(scope); },
     showFactConsistency: () => { void this.showFactConsistency(); },
+    dismissFinding: (key) => dismissFinding(this.commandContext(), key),
     createFact: (node, selection) => { void this.createFact(node, selection); },
     editFact: (fact) => { void this.editFact(fact.id); },
     deleteFact: (fact) => { void this.deleteFact(fact.id); },
     moveFact: (fact, direction) => { void this.moveFact(fact.id, direction); },
-    addFactState: (fact) => { void this.addFactState(fact); },
     editFactState: (fact, state) => { void this.editFactState(fact, state); },
     deleteFactState: (fact, state) => { void this.deleteFactState(fact, state); },
-    createChapter: () => { void this.createChapter(); },
+    addFactStateAnchored: (fact) => { void this.addFactStateAt(fact, "anchored"); },
+    addFactStateStoryWide: (fact) => { void this.addFactStateAt(fact, "story-wide"); },
+    addFactStateEnd: (fact) => { void this.addFactStateAt(fact, "end"); },
+    setFactsScope: (scope) => this.setState({ factsScope: scope }),
+    setFactsFilter: (value) => this.setState({ factsFilter: value }),
+    selectFact: (id) => { void selectFact(this.commandContext(), id); },
+    setFactDraft: (patch) => setFactDraft(this.commandContext(), patch),
+    saveFactEditor: () => this.saveFactEditorDraft(),
+    revertFactEditor: () => revertFactEditor(this.commandContext()),
+    createChapter: (partId) => { void this.createChapter(partId); },
     renameChapter: (chapter) => { void this.renameChapter(chapter.id, chapter.title); },
     removeChapter: (chapter) => { void this.removeChapter(chapter.id, chapter.title); },
     summarizeChapter: (chapter) => { void this.summarizeChapter(chapter.id, chapter.title); },
@@ -221,7 +272,8 @@ class RendererApp {
       checkConnection: () => { void this.settingsController.checkConnection(); },
       save: () => { void this.settingsController.save(); },
       reload: () => { void this.settingsController.load(); },
-      discardPending: () => { void this.settingsController.discardPending(); }
+      discardPending: () => { void this.settingsController.discardPending(); },
+      discardDraft: () => this.settingsController.discardDraft()
     },
     refresh: () => { void this.refresh(); },
     acknowledgeRecovery: (warning) => { void this.acknowledgeRecovery(warning); },
@@ -273,32 +325,21 @@ class RendererApp {
     if (desktopShell() === undefined) {
       this.setState({ project: { root: "", directory: "Demo", source: "explicit", exists: true, vault: "unsealed", open: true } });
     }
-    document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && this.state.dialog !== null) {
-        event.preventDefault();
-        this.resolveDialog(null);
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && event.key.toLocaleLowerCase() === "r") {
-        event.preventDefault();
-        const details = renderRoot.querySelector<HTMLDetailsElement>(".request-details");
-        if (details !== null) {
-          details.open = true;
-          details.tabIndex = 0;
-          details.focus({ preventScroll: true });
-          details.scrollIntoView({ block: "nearest" });
-        }
-        return;
-      }
-      if ((event.metaKey || event.ctrlKey) && /^[1-6]$/u.test(event.key)
-      ) {
-        event.preventDefault();
-        const tabs: readonly RendererTab[] = ["write", "facts", "chapters", "map", "settings", "inspect"];
-        this.setTab(tabs[Number(event.key) - 1]!);
-      } else if (event.key === "?" && !(event.target instanceof HTMLInputElement || event.target instanceof HTMLTextAreaElement || event.target instanceof HTMLSelectElement)) {
-        void this.showHelp();
-      }
+    const clearFeedbackOnNextInput = createFeedbackClearHandler(() => this.state, (status, error) => this.clearStaleFeedback(status, error));
+    document.addEventListener("keydown", clearFeedbackOnNextInput, true);
+    document.addEventListener("click", clearFeedbackOnNextInput, true);
+    this.keysController = new RendererKeysController({
+      state: () => this.state,
+      actions: () => this.actions,
+      setTab: (tab) => this.setTab(tab),
+      closeDialog: () => this.resolveDialog(null),
+      saveDirtyPart: (node, text) => { void this.editNode(node, text); },
+      hasDirtySettings: () => this.hasDirtySettings(),
+      saveSettingsDraft: () => { void this.settingsController.save(); },
+      hasDirtyFactEditor: () => this.hasDirtyFactEditor(),
+      saveFactEditorDraft: () => this.saveFactEditorDraft()
     });
+    this.keysController.start();
     document.addEventListener("compositionstart", () => {
       this.compositionActive = true;
     });
@@ -487,6 +528,11 @@ class RendererApp {
     this.setState({ showDirections: show });
   }
 
+  private setInspectorHidden(hidden: boolean): void {
+    persistDesktopInspectorHidden(hidden);
+    this.setState({ inspectorHidden: hidden });
+  }
+
   private setTheme(theme: DesktopTheme): void {
     persistDesktopTheme(theme);
     this.setState({ theme });
@@ -531,7 +577,7 @@ class RendererApp {
   }
 
   private async selectStory(id: string): Promise<void> {
-    await this.loadStory(id);
+    if (await this.loadStory(id)) this.setState({ tab: "write" });
   }
 
   private async openSearchHit(hit: SearchHit): Promise<void> {
@@ -539,6 +585,7 @@ class RendererApp {
     if (hit.kind === "fact") {
       this.setTab("facts");
     } else {
+      this.setState({ tab: "write" });
       await this.switchNode(hit.targetId);
     }
   }
@@ -569,6 +616,7 @@ class RendererApp {
     const originSettings = settingsDirty
       ? JSON.stringify(this.state.settingsEditor?.draft ?? null)
       : null;
+    const originFactEditor = JSON.stringify(this.state.factEditor);
     const isActiveRequest = (): boolean => requestSequence === this.loadStorySequence && this.api === api;
     const isOriginRequest = (): boolean => isActiveRequest() && this.state.story === originStory;
     const hasNewEdits = (): boolean => {
@@ -577,7 +625,8 @@ class RendererApp {
         : this.hasDirtySettings();
       const imagesChanged = this.state.draftImages.length !== originImageLeases.length
         || this.state.draftImages.some((image, index) => image.leaseId !== originImageLeases[index]);
-      return JSON.stringify(this.state.drafts) !== originDrafts || imagesChanged || settingsChanged;
+      const factEditorChanged = JSON.stringify(this.state.factEditor) !== originFactEditor;
+      return JSON.stringify(this.state.drafts) !== originDrafts || imagesChanged || settingsChanged || factEditorChanged;
     };
     let loaded = false;
     await this.run("Loading story", async () => {
@@ -591,7 +640,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, chapterUndo: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, mapCursorId: null, composerWriteTarget: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -611,6 +660,10 @@ class RendererApp {
     await this.discardDrafts();
     const requestSequence = ++this.createStorySequence;
     const originLoadStorySequence = this.loadStorySequence;
+    // Land on Write only when the writer stayed where creation started; a
+    // writer who moved to another destination while the story was created
+    // keeps that destination.
+    const originTab = this.state.tab;
     const originStory = this.state.story;
     const originDrafts = JSON.stringify(this.state.drafts);
     const originImageLeases = this.state.draftImages.map((image) => image.leaseId);
@@ -645,7 +698,7 @@ class RendererApp {
         && this.state.story?.id === story.id;
       await this.replaceStory(story);
       if (!isCurrentStory()) return;
-      this.setState({ aside: emptyAsideState() });
+      this.setState({ aside: emptyAsideState(), tab: this.state.tab === originTab ? "write" : this.state.tab, focusedPartId: null });
       await this.loadAside(story);
       if (!isCurrentStory()) return;
       await this.refresh();
@@ -740,15 +793,6 @@ class RendererApp {
     await this.shellRequest({ type: "project.reveal", path: project.root });
   }
 
-  private async showHelp(): Promise<void> {
-    await this.openDialog({
-      title: "Keyboard help",
-      kind: "notice",
-      value: "",
-      message: "⌘/Ctrl + Enter submits the generation direction. ⌘/Ctrl + 1–6 switches tabs. Escape closes a dialog. Use the focus, take, and map controls to move through branches."
-    });
-  }
-
   private async continueStory(
     mode: StreamMode,
     instruction: string,
@@ -756,6 +800,11 @@ class RendererApp {
   ): Promise<void> {
     const api = this.requireApi();
     const story = this.requireStory();
+    // Advancing focus to the landed take (below) must not clobber a focus
+    // move the writer made *during* the stream (review-fixes-3 #6) — compare
+    // against this snapshot from before the request started, not whatever
+    // `state.focusedPartId` is by the time the response lands.
+    const focusedPartIdAtStart = this.state.focusedPartId;
     if (this.state.stream !== null || this.generationStartInFlight) return;
     if (this.state.stoppedGeneration !== null) {
       const summary = this.state.stoppedGeneration.mode === "summary";
@@ -768,16 +817,27 @@ class RendererApp {
       return;
     }
     const leaf = story.path.at(-1);
-    if (leaf !== undefined && this.state.drafts[`part:${leaf.id}`] !== undefined
-      && this.state.drafts[`part:${leaf.id}`] !== leaf.text) {
+    // Continue/direct can target an earlier seam (`target.parentId`, set by
+    // `seamTarget` when the focused part is not the leaf); the dirty-draft
+    // guard must check that part's own draft, not the leaf's, or a
+    // manuscript that displays the edit still sends the provider the part's
+    // older saved text (review-fixes-4 #2).
+    const dirtyGuardNode = target !== undefined && target.parentId !== null
+      ? story.path.find((candidate) => candidate.id === target.parentId) ?? leaf
+      : leaf;
+    if (dirtyGuardNode !== undefined && this.hasDirtyPart(dirtyGuardNode)) {
       this.setState({ status: "Save the active part first", error: "The active part has unsaved text. Save it before generating so the provider appends to the text you can see." });
       return;
     }
     const submittedInstruction = instruction.trim();
     const initialComposerDraft = mode === "retake" ? undefined : this.state.drafts.composer;
     const draftImages = mode === "retake" ? [] : this.state.draftImages;
+    // `continue`/`direct` pass an explicit seam target when the focused part
+    // is not the leaf (review-fixes-2 #1); retake's own target is unrelated
+    // to the seam and never appends regardless (`mode !== "continue"`).
+    const fromSeam = target !== undefined && mode !== "retake";
     const append = shouldAppendRendererContinuation(
-      story, mode, submittedInstruction, draftImages.length > 0
+      story, mode, submittedInstruction, draftImages.length > 0, fromSeam
     );
     this.generationStartInFlight = true;
     let appendBaseHash: string | undefined;
@@ -845,7 +905,16 @@ class RendererApp {
         && initialComposerDraft.trim() === submittedInstruction) this.setDraft("composer", undefined);
       const submittedImageLeases = new Set(draftImages.map((image) => image.leaseId));
       const remainingImages = this.state.draftImages.filter((image) => !submittedImageLeases.has(image.leaseId));
-      this.setState({ stream: null, stoppedGeneration: null, draftImages: remainingImages, status: result.droppedFacts.length === 0 ? "Saved" : `${result.droppedFacts.length} Fact${result.droppedFacts.length === 1 ? "" : "s"} dropped to fit context` });
+      // Continue/direct advance focus to the take that just landed — the
+      // TUI's own settlement rule — so the next Space or `w` targets it
+      // instead of re-using this same seam (review-fixes-3 #6). Retake
+      // already keeps focus on the part it retook. Skipped when the writer
+      // moved focus while this streamed.
+      const newLeafId = result.payload.path.at(-1)?.id ?? null;
+      const focusSettlement = mode !== "retake" && newLeafId !== null && this.state.focusedPartId === focusedPartIdAtStart
+        ? { focusedPartId: newLeafId }
+        : {};
+      this.setState({ stream: null, stoppedGeneration: null, draftImages: remainingImages, status: result.droppedFacts.length === 0 ? "Saved" : `${result.droppedFacts.length} Fact${result.droppedFacts.length === 1 ? "" : "s"} dropped to fit context`, ...focusSettlement });
     } catch (error) {
       const current = this.currentStream();
       if (current === null || current.id !== streamId) return;
@@ -866,13 +935,13 @@ class RendererApp {
     }
   }
 
-  private async retakeLine(node: StoryPathNode): Promise<void> {
+  private async retakeLine(node: StoryPathNode, options?: { readonly editDirection?: boolean }): Promise<void> {
     if (this.hasDirtyPart(node)) {
       this.setState({ status: "Save the part first", error: "Save the active text before creating a take." });
       return;
     }
     // Existing branch drafts stay editable through Map after a retake.
-    await retakeLine(this.commandContext(), node);
+    await retakeLine(this.commandContext(), node, options);
   }
 
   private async rewriteLine(node: StoryPathNode, selection?: TextSelection): Promise<void> {
@@ -893,10 +962,11 @@ class RendererApp {
     const story = this.state.story;
     const storyDirty = story !== null && storyHasUnsavedDrafts(story, this.state);
     const settingsDirty = this.hasDirtySettings();
-    if (!storyDirty && !settingsDirty) return true;
+    const factDirty = this.hasDirtyFactEditor();
+    if (!storyDirty && !settingsDirty && !factDirty) return true;
     return await this.confirmDialog(
       "Discard unsaved edits?",
-      "This action will discard unsaved part text, notes, brief, direction, staged images, or settings."
+      "This action will discard unsaved part text, notes, brief, direction, staged images, a Fact draft, or settings."
     );
   }
 
@@ -913,8 +983,7 @@ class RendererApp {
     const settings = this.state.settings;
     const editor = this.state.settingsEditor;
     return settings !== null && settings.document !== null && editor !== null
-      && (JSON.stringify(editor.draft.document) !== JSON.stringify(settings.document)
-        || Object.keys(editor.draft.connectionSecrets).length > 0);
+      && settingsDraftDirty(settings.document, editor.draft);
   }
 
   private canNavigateAway(): boolean {
@@ -947,6 +1016,7 @@ class RendererApp {
       || this.state.aside.busy
       || this.asideController !== null) return true;
     if (story !== null && storyHasUnsavedDrafts(story, this.state)) return true;
+    if (this.hasDirtyFactEditor()) return true;
     return this.hasDirtySettings();
   }
 
@@ -956,7 +1026,7 @@ class RendererApp {
     if (story !== null && this.state.draftImages.length > 0) {
       await this.releaseDraftImages(story.id, this.state.draftImages);
     }
-    this.setState({ drafts: {}, draftImages: [], ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+    this.setState({ drafts: {}, draftImages: [], factEditor: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
   }
 
   private resetSettingsEditor(): RendererState["settingsEditor"] {
@@ -1088,19 +1158,33 @@ class RendererApp {
     this.setState({ status: "Stopping…" });
   }
 
-  private async writeManual(text: string, clearComposer = true): Promise<void> {
+  private async writeManual(text: string, clearComposer = true, parentId?: string | null): Promise<void> {
     const api = this.requireApi();
     const story = this.requireStory();
     const value = text;
     if (value.trim().length === 0) return;
+    const focusAtStart = this.state.focusedPartId;
     await this.run("Saving line", async () => {
       const next = await api.createNode(story.id, {
-        parentId: story.path.at(-1)?.id ?? null,
+        parentId: parentId !== undefined ? parentId : story.path.at(-1)?.id ?? null,
         text: value
       });
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (clearComposer && this.state.drafts.composer === value) this.setDraft("composer", undefined);
+      // A manual append (no target) settles focus on the new leaf; a
+      // targeted write settles it on the new take it just created — both are
+      // the same node, `next.path.at(-1)`, so the next Continue or `w`
+      // builds on what was just written instead of the previous seam
+      // (review-fixes-4 #3). A part the writer clicked while the line saved
+      // keeps focus, as after a generated take.
+      const newLeafId = next.path.at(-1)?.id ?? null;
+      const focusMoved = this.state.focusedPartId !== focusAtStart;
+      const focusSettlement: Partial<RendererState> = {
+        ...(this.state.composerWriteTarget !== null ? { composerWriteTarget: null } : {}),
+        ...(newLeafId === null || focusMoved ? {} : { focusedPartId: newLeafId })
+      };
+      if (Object.keys(focusSettlement).length > 0) this.setState(focusSettlement);
     });
   }
 
@@ -1155,7 +1239,8 @@ class RendererApp {
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (this.state.drafts[`part:${node.id}`] === text) this.setDraft(`part:${node.id}`, undefined);
-      this.setState({ status: "Saved" });
+      const editingPartId = this.state.editingPartId === node.id ? null : this.state.editingPartId;
+      this.setState({ status: "Saved", editingPartId });
     });
   }
 
@@ -1173,7 +1258,8 @@ class RendererApp {
       if (this.api !== api || this.state.story?.id !== story.id) return;
       await this.replaceStory(next);
       if (this.state.drafts[`part:${node.id}`] === text) this.setDraft(`part:${node.id}`, undefined);
-      this.setState({ status: "Saved as take" });
+      const editingPartId = this.state.editingPartId === node.id ? null : this.state.editingPartId;
+      this.setState({ status: "Saved as take", editingPartId });
     });
   }
 
@@ -1204,7 +1290,9 @@ class RendererApp {
       const drafts = Object.fromEntries(Object.entries(this.state.drafts).filter(([key]) =>
         !key.startsWith("part:") || remainingIds.has(key.slice("part:".length))
       ));
-      this.setState({ drafts, status: "Part deleted" });
+      const editingPartId = this.state.editingPartId !== null && remainingIds.has(this.state.editingPartId)
+        ? this.state.editingPartId : null;
+      this.setState({ drafts, editingPartId, status: "Part deleted" });
       await this.replaceStory(next);
     });
   }
@@ -1219,10 +1307,27 @@ class RendererApp {
       const next = await api.switchLine(story.id, node.id, { stopAtNode: true });
       for (const key of drafts) this.setDraft(key, undefined);
       await this.replaceStory(next);
+      // "Write from here" (review-fixes-3 #7) must move focus to the part it
+      // just switched to, matching `switchToNode`'s own take-switch — without
+      // it the next continuation still branches from wherever focus was.
+      this.setState({ focusedPartId: node.id });
     });
   }
 
   private async switchNode(nodeId: string): Promise<void> {
+    await this.switchToNode(nodeId, takeSwitchStatus);
+  }
+
+  /** Switching a tagged line from the Library (§7) names the tag, not the
+   * take position, in the toast. */
+  private async switchToTaggedLine(tagName: string, nodeId: string): Promise<void> {
+    await this.switchToNode(nodeId, (story, id) => {
+      const index = story.path.findIndex((node) => node.id === id);
+      return index === -1 ? `Switched to ${tagName}` : `Switched to ${tagName} · ¶ ${index + 1}`;
+    });
+  }
+
+  private async switchToNode(nodeId: string, status: (story: StoryPayload, nodeId: string) => string): Promise<void> {
     const api = this.requireApi();
     const story = this.requireStory();
     if (!story.nodes.some((node) => node.id === nodeId)) return;
@@ -1233,6 +1338,12 @@ class RendererApp {
       const next = await api.switchLine(story.id, nodeId);
       for (const key of drafts) this.setDraft(key, undefined);
       await this.replaceStory(next);
+      // The switch target may not be the new path's leaf (it can carry its
+      // own remembered continuation) — focus the node the writer actually
+      // asked for, not wherever `effectiveFocusedPartId`'s leaf fallback
+      // would otherwise land now that the old focus is off the path.
+      const onNewPath = next.path.some((node) => node.id === nodeId);
+      this.setState({ status: status(next, nodeId), ...(onNewPath ? { focusedPartId: nodeId } : {}) });
     });
   }
 
@@ -1341,6 +1452,10 @@ class RendererApp {
   }
 
   private async createFact(node?: StoryPathNode, selection?: TextSelection): Promise<void> {
+    if (node === undefined && selection === undefined) {
+      await startNewFactDraft(this.commandContext());
+      return;
+    }
     await createFact(this.commandContext(), node, selection);
   }
 
@@ -1357,10 +1472,6 @@ class RendererApp {
     await moveFact(this.commandContext(), factId, direction);
   }
 
-  private async addFactState(fact: Parameters<RendererActions["addFactState"]>[0]): Promise<void> {
-    await addFactState(this.commandContext(), fact);
-  }
-
   private async editFactState(
     fact: Parameters<RendererActions["editFactState"]>[0],
     state: Parameters<RendererActions["editFactState"]>[1]
@@ -1375,8 +1486,24 @@ class RendererApp {
     await deleteFactState(this.commandContext(), fact, state);
   }
 
-  private async createChapter(): Promise<void> {
-    await createChapter(this.commandContext());
+  private async addFactStateAt(fact: StoryFact, mode: "anchored" | "story-wide" | "end"): Promise<void> {
+    await addFactStateAt(this.commandContext(), fact, mode);
+  }
+
+  private hasDirtyFactEditor(): boolean {
+    const editor = this.state.factEditor;
+    const story = this.state.story;
+    if (editor === null || story === null) return false;
+    const fact = editor.factId === null ? null : story.facts.find((candidate) => candidate.id === editor.factId) ?? null;
+    return factEditorDirty(fact, editor.draft);
+  }
+
+  private saveFactEditorDraft(): void {
+    void saveFactEditor(this.commandContext());
+  }
+
+  private async createChapter(partId?: string): Promise<void> {
+    await createChapter(this.commandContext(), partId);
   }
 
   private async renameChapter(id: string, current: string): Promise<void> {
@@ -1468,7 +1595,15 @@ class RendererApp {
       && previousLeaf?.id !== nextLeaf?.id;
     const shouldFollowCurrentAside = leafChanged
       && (this.state.aside.bucket === "current" || this.state.aside.selectedSessionId === null);
-    this.setState({ story });
+    // A genuinely different story: a part mid-edit in the old one must not
+    // reappear in edit mode if its id ever collides with a part here later
+    // (or, more immediately, if the writer navigates back to the old story
+    // without this having been cleared — `editingPartId` has no fallback
+    // like `effectiveFocusedPartId`'s "the id is gone, use the leaf").
+    const storyChanged = previousStory !== null && previousStory.id !== story.id;
+    // A genuinely different story also invalidates the Facts draft (it names
+    // no Fact in the new story), the map cursor, and any pending `w` target.
+    this.setState({ story, ...(storyChanged ? { editingPartId: null, factEditor: null, mapCursorId: null, composerWriteTarget: null } : {}) });
     const stories = this.state.stories.map((summary) => summary.id === story.id ? {
       ...summary,
       title: story.title,
@@ -1533,6 +1668,17 @@ class RendererApp {
     this.setState({ drafts });
   }
 
+  /** D-44 log entries this update adds, oldest first. A `setState` call that
+   * sets both fields (a failure's `status`/`error` pair) logs both — the log
+   * is "every notice", not a single deduplicated line. */
+  private logEntriesFor(update: Partial<RendererState>): LogEntry[] {
+    const entries: LogEntry[] = [];
+    const at = new Date().toISOString();
+    if (typeof update.error === "string" && update.error.length > 0) entries.push({ at, text: update.error, kind: "error" });
+    if (typeof update.status === "string" && update.status.length > 0) entries.push({ at, text: update.status, kind: "status" });
+    return entries;
+  }
+
   private setState(update: Partial<RendererState>): void {
     const previousStream = this.state.stream;
     const nextStream = update.stream;
@@ -1553,7 +1699,12 @@ class RendererApp {
       && nextAside.sessions === this.state.aside.sessions;
     const draftOnly = Object.keys(update).length > 0 && Object.keys(update).every((key) => key === "drafts");
     const searchOnly = Object.keys(update).length > 0 && Object.keys(update).every((key) => key === "search");
-    this.state = { ...this.state, ...update };
+    const logAdditions = this.logEntriesFor(update);
+    this.state = {
+      ...this.state,
+      ...update,
+      ...(logAdditions.length === 0 ? {} : { log: [...this.state.log, ...logAdditions].slice(-200) })
+    };
     if (this.compositionActive) {
       this.compositionRenderPending = true;
     } else if (streamOnly) this.updateStreamDom(nextStream);
@@ -1564,10 +1715,35 @@ class RendererApp {
     this.contextController.notify(this.state, this.api);
   }
 
+  /** Used only to clear a stale toast/error left over from before the
+   * writer's next click or keydown (D-38). A dedicated path, not the general
+   * `setState`, so it never skips the full re-render that every ordinary
+   * status/error update still relies on to resync derived DOM (a <select>
+   * a failed action leaves at a stale native value, for one). */
+  private clearStaleFeedback(previousStatus: string, previousError: string | null): void {
+    if (this.state.status !== previousStatus || this.state.error !== previousError) return;
+    this.state = { ...this.state, status: "", error: null };
+    updateFeedbackDom(renderRoot, this.state);
+    this.contextController.notify(this.state, this.api);
+  }
+
   private updateAsideStreamDom(aside: RendererState["aside"]): void {
+    // The docked inspector section and the popped-out popover (when open)
+    // read the same `state.aside` and each keep their own `.aside-live-answer`
+    // paragraph in step with the stream.
     const sessions = renderRoot.querySelector<HTMLElement>(".aside-sessions");
-    if (sessions === null) return;
-    let live = sessions.querySelector<HTMLElement>(".aside-live-answer");
+    this.syncAsideLiveAnswer(sessions, aside, () => sessions?.querySelector<HTMLElement>(".aside-session-label") ?? null);
+    const popoverTurns = renderRoot.querySelector<HTMLElement>(".aside-popover .aside-turns");
+    this.syncAsideLiveAnswer(popoverTurns, aside, () => null);
+  }
+
+  private syncAsideLiveAnswer(
+    container: HTMLElement | null,
+    aside: RendererState["aside"],
+    anchorFor: () => HTMLElement | null
+  ): void {
+    if (container === null) return;
+    let live = container.querySelector<HTMLElement>(".aside-live-answer");
     if (aside.answer.length === 0) {
       live?.remove();
       return;
@@ -1575,9 +1751,9 @@ class RendererApp {
     if (live === null) {
       live = document.createElement("p");
       live.className = "aside-answer aside-live-answer";
-      const label = sessions.querySelector<HTMLElement>(".aside-session-label");
-      if (label === null) sessions.prepend(live);
-      else label.after(live);
+      const anchor = anchorFor();
+      if (anchor === null) container.prepend(live);
+      else anchor.after(live);
     }
     live.textContent = aside.answer;
   }
@@ -1596,23 +1772,33 @@ class RendererApp {
       if (control !== undefined && (force || document.activeElement !== control) && control.value !== value) control.value = value;
     };
     updateEditable("composer", this.state.drafts.composer ?? "", this.state.drafts.composer === undefined);
+    this.updateComposerTypingState();
     updateEditable("authors-note", this.state.drafts["authors-note"] ?? story.authorsNote ?? "");
     updateEditable("authors-note-depth", this.state.drafts["authors-note-depth"] ?? String(story.authorsNoteDepth ?? 1));
     updateEditable("author-brief", this.state.drafts["author-brief"] ?? story.authorBrief ?? "");
     updateEditable("aside-question", this.state.drafts["aside-question"] ?? this.state.aside.question);
+    updateEditable("aside-question-popover", this.state.drafts["aside-question"] ?? this.state.aside.question);
     for (const article of renderRoot.querySelectorAll<HTMLElement>(".manuscript-part[data-preserve^=\"part-card:\"]")) {
       const id = article.dataset.preserve?.slice("part-card:".length);
       if (id === undefined) continue;
       const node = story.path.find((candidate) => candidate.id === id);
       if (node === undefined) continue;
       const draft = this.state.drafts[`part:${id}`];
-      article.classList.toggle("dirty", draft !== undefined && draft !== node.text);
+      const dirty = draft !== undefined && draft !== node.text;
+      article.classList.toggle("dirty", dirty);
+      const dirtyMark = article.querySelector<HTMLElement>(".part-gutter-dirty");
+      if (dirtyMark !== null) dirtyMark.hidden = !(node.human === true || dirty);
       const text = article.querySelector<HTMLTextAreaElement>(".part-text");
       if (text !== null && document.activeElement !== text) {
         const value = draft ?? node.text ?? "";
         if (text.value !== value) text.value = value;
         text.style.height = "auto";
         text.style.height = `${Math.max(88, text.scrollHeight)}px`;
+      }
+      const prose = article.querySelector<HTMLElement>(".part-prose");
+      if (prose !== null) {
+        const value = draft ?? node.text ?? "";
+        if (prose.textContent !== value) prose.textContent = value;
       }
     }
     const saveState = renderRoot.querySelector<HTMLElement>(".story-save-state");
@@ -1621,6 +1807,28 @@ class RendererApp {
       saveState.className = `story-save-state ${this.state.stream === null ? dirty ? "dirty" : "saved" : "streaming"}`;
       saveState.textContent = this.state.stream === null ? dirty ? "unsaved edits" : "saved" : "writing…";
     }
+  }
+
+  /** The composer's grown/typing look (D-12) is a CSS class computed from
+   * the draft, but every keystroke takes the fast `draftOnly` path in
+   * `setState` — no full render — so nothing else keeps that class, the
+   * eyebrow text, or the submit label in step with what the writer typed.
+   * Left stale, the row's height only ever changes on the next unrelated
+   * full render, which can land mid-click on a footer button (the button
+   * shifts under the pointer between mousedown and mouseup, and the browser
+   * drops the click). Keeping these in sync on every keystroke is what
+   * keeps the row's height stable through a click, not just accurate. */
+  private updateComposerTypingState(): void {
+    const composer = renderRoot.querySelector<HTMLElement>(".composer");
+    if (composer === null) return;
+    const empty = (this.state.drafts.composer ?? "").trim().length === 0;
+    composer.classList.toggle("composer-typing", !empty);
+    const eyebrow = composer.querySelector<HTMLElement>(".composer-eyebrow");
+    if (eyebrow !== null && this.state.stream === null && this.state.stoppedGeneration === null) {
+      eyebrow.textContent = eyebrowFor(this.state.composerMode);
+    }
+    const submit = composer.querySelector<HTMLElement>(".composer-submit");
+    if (submit !== null && this.state.stream === null) submit.textContent = submitLabel(this.state.composerMode, empty);
   }
 
   private render(): void {
@@ -1642,11 +1850,13 @@ class RendererApp {
       const key = details.dataset.preserve;
       if (key !== undefined) openDetails.set(key, details.open);
     }
+    const proseSelection = captureProseSelection();
     renderApp(renderRoot, this.state, this.actions);
     for (const details of renderRoot.querySelectorAll<HTMLDetailsElement>("details[data-preserve]")) {
       const key = details.dataset.preserve;
       if (key !== undefined && openDetails.has(key)) details.open = openDetails.get(key)!;
     }
+    restoreProseSelection(renderRoot, proseSelection);
     if (focusedKey === undefined && focusedClassName === undefined) return;
     const focusedContainer = focusedContainerKey === undefined
       ? renderRoot
@@ -1656,7 +1866,13 @@ class RendererApp {
       ? focusedContainer.querySelector<HTMLElement>(`.${focusedClassName}`)
       : [...renderRoot.querySelectorAll<HTMLElement>("[data-preserve]")]
         .find((candidate) => candidate.dataset.preserve === focusedKey);
-    if (replacement === undefined || replacement === null) return;
+    if (replacement === undefined || replacement === null) {
+      // The focused control's destination changed underneath it (for example,
+      // selecting a story switches Library away for Write). Land keyboard
+      // focus on the newly active destination instead of dropping it to body.
+      renderRoot.querySelector<HTMLElement>(".rail .active")?.focus({ preventScroll: true });
+      return;
+    }
     const editable = replacement instanceof HTMLInputElement
       || replacement instanceof HTMLTextAreaElement;
     if (focusedValue !== undefined && editable) replacement.value = focusedValue;
@@ -1699,6 +1915,18 @@ class RendererApp {
 }
 
 new RendererApp().start();
+
+/** The toast for a take switch (D-38, §7): "take j of k · ¶ n". Falls back to
+ * naming just the part when the switched-to node has no sibling takes. */
+function takeSwitchStatus(story: StoryPayload, nodeId: string): string {
+  const index = story.path.findIndex((node) => node.id === nodeId);
+  if (index === -1) return "Focused";
+  const node = story.path[index]!;
+  const siblings = story.nodes.filter((candidate) => candidate.parentId === node.parentId && candidate.role !== "summary");
+  const takeIndex = siblings.findIndex((candidate) => candidate.id === node.id);
+  if (siblings.length < 2 || takeIndex === -1) return `¶ ${index + 1}`;
+  return `take ${takeIndex + 1} of ${siblings.length} · ¶ ${index + 1}`;
+}
 
 async function rewriteStreamDigest(text: string): Promise<string> {
   const input = new TextEncoder().encode(`1667-partial-rewrite\0${text}`);

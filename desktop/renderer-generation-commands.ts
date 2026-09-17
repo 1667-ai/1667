@@ -2,9 +2,20 @@ import type { StoryPathNode } from "../shared/types.js";
 import type { RendererCommandContext } from "./renderer-command-context.js";
 import { makeMutationId, type StreamMode, type TextSelection } from "./renderer-model.js";
 
-export async function retakeLine(ctx: RendererCommandContext, node: StoryPathNode): Promise<void> {
-  const instruction = await ctx.textDialog("Retake direction", node.instruction ?? "", "Write a new take from this part.");
-  if (instruction === null) return;
+export async function retakeLine(
+  ctx: RendererCommandContext,
+  node: StoryPathNode,
+  options: { readonly editDirection?: boolean } = {}
+): Promise<void> {
+  let instruction: string;
+  if (options.editDirection === false) {
+    // `r` (regenerate): skip the dialog and reuse the part's own direction.
+    instruction = node.instruction ?? "";
+  } else {
+    const edited = await ctx.textDialog("Retake direction", node.instruction ?? "", "Write a new take from this part.");
+    if (edited === null) return;
+    instruction = edited;
+  }
   if (ctx.continueStory === undefined) {
     ctx.setState({ status: "Retake unavailable", error: "This desktop surface cannot start a retake." });
     return;
@@ -34,6 +45,17 @@ export async function summarizeLine(ctx: RendererCommandContext): Promise<void> 
   const story = ctx.story();
   const leaf = story.path.at(-1);
   if (leaf === undefined) return;
+  // A manual append or a continuation now settles focus onto the leaf they
+  // just created (review-fixes-4 #3); a summary take is another
+  // leaf-creating generation, so it must follow the same rule, or a
+  // `focusedPartId` left pointing at the old leaf survives — still a valid
+  // part, so `effectiveFocusedPartId` keeps using it — and the next Continue
+  // branches off that stale seam instead of the summary. Compare against
+  // this snapshot from before the request started, not whatever
+  // `state.focusedPartId` is by the time the response lands, so a focus move
+  // made *during* the stream is not clobbered (mirrors `continueStory`'s own
+  // guard).
+  const focusedPartIdAtStart = ctx.state().focusedPartId;
   await stream(ctx, "summary", "Summarizing the current line", async (controller, streamId) => {
     const result = await ctx.api().createSummaryTake(
       story.id,
@@ -52,6 +74,8 @@ export async function summarizeLine(ctx: RendererCommandContext): Promise<void> 
     const switched = await ctx.api().switchLine(story.id, result.nodeId, { stopAtNode: true });
     if (ctx.state().stream?.id !== streamId || ctx.state().story?.id !== story.id) return false;
     await ctx.replaceStory(switched);
+    const newLeafId = switched.path.at(-1)?.id ?? null;
+    if (newLeafId !== null && ctx.state().focusedPartId === focusedPartIdAtStart) ctx.setState({ focusedPartId: newLeafId });
     return true;
   }, { parentId: leaf.id });
 }

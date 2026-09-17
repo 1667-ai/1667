@@ -14,6 +14,7 @@ import type { AsideAnchor } from "../shared/aside-session.js";
 import type { SettingsView } from "../shared/settings-v2-view.js";
 import type { DiscoveredModelV2 } from "../shared/settings-v2-types.js";
 import type { FactConsistencyRun } from "../shared/fact-consistency-contract.js";
+import type { FactDraft, FactEditorState, FactsListScope } from "./renderer-facts-model.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import type { ProviderRecoveryContext } from "../shared/provider-recovery.js";
 import type { SearchHit } from "../shared/story-search.js";
@@ -26,10 +27,34 @@ import type {
   DesktopUpdaterState
 } from "./renderer-shell-contract.js";
 import type { SettingsEditorActions } from "./renderer-settings-controls.js";
-import type { SettingsEditorDraft } from "./renderer-settings-model.js";
+import type { SettingsEditorDraft, SettingsSectionId } from "./renderer-settings-model.js";
 
-export type RendererTab = "write" | "facts" | "chapters" | "map" | "settings" | "inspect";
+export type RendererTab = "library" | "write" | "facts" | "chapters" | "map" | "settings" | "inspect";
 export type StreamMode = "continue" | "direct" | "retake" | "rewrite" | "summary";
+/** The composer's own mode select. `"write"` never streams — it hands the
+ * typed text straight to `writeManual` — so it stays out of `StreamMode`,
+ * which only names modes that can own a `stream`/`stoppedGeneration`. */
+export type ComposerMode = "continue" | "direct" | "write";
+/** Palette groups (D-43), fixed order Story · Take · Facts · Chapters · Map ·
+ * Project · Desktop. Lives here, not in `renderer-commands.ts`, so a popover
+ * view can name a group without importing the whole command registry. */
+export type DesktopCommandGroup = "Story" | "Take" | "Facts" | "Chapters" | "Map" | "Project" | "Desktop";
+/** One popover open at a time (D-05): the keys sheet, the command palette
+ * with its own query and optional group pre-filter (`x` opens it on `Take`),
+ * or a part's `···` overflow menu (D-11). */
+export type DesktopPopover =
+  | { readonly kind: "keys" }
+  | { readonly kind: "palette"; readonly query: string; readonly group: DesktopCommandGroup | null }
+  | { readonly kind: "part-menu"; readonly partId: string }
+  | { readonly kind: "aside" }
+  | { readonly kind: "log" };
+/** The last chapter-break operation `u` (TUI-mirrored undo) can reverse:
+ * a removal (today's shape — `restoreChapterBreak` needs the removed
+ * record) or an addition from `C`/`+ Break` (only the id `removeChapterBreak`
+ * needs). `u` toggles between the two, like the TUI's own undo. */
+export type ChapterUndo =
+  | { readonly kind: "removed"; readonly breakId: string; readonly removed: RemovedChapterBreak }
+  | { readonly kind: "added"; readonly breakId: string };
 export const DESKTOP_THEMES = [
   "lantern",
   "iron gall",
@@ -51,14 +76,15 @@ export function asideAnchorKey(anchor: Pick<AsideAnchor, "partId" | "takeId">): 
 
 const DESKTOP_THEME_STORAGE_KEY = "1667.desktop.theme";
 const DESKTOP_DIRECTIONS_STORAGE_KEY = "1667.desktop.show-directions";
+const DESKTOP_INSPECTOR_HIDDEN_STORAGE_KEY = "1667.desktop.inspector-hidden";
 
 export function savedDesktopTheme(): DesktopTheme {
-  if (typeof localStorage === "undefined") return "parchment";
+  if (typeof localStorage === "undefined") return "graphite";
   try {
     const value = localStorage.getItem(DESKTOP_THEME_STORAGE_KEY);
-    return DESKTOP_THEMES.includes(value as DesktopTheme) ? value as DesktopTheme : "parchment";
+    return DESKTOP_THEMES.includes(value as DesktopTheme) ? value as DesktopTheme : "graphite";
   } catch {
-    return "parchment";
+    return "graphite";
   }
 }
 
@@ -73,6 +99,15 @@ export function persistDesktopTheme(theme: DesktopTheme): void {
 
 export function persistDesktopDirections(show: boolean): void {
   try { localStorage.setItem(DESKTOP_DIRECTIONS_STORAGE_KEY, show ? "1" : "0"); } catch { /* private mode */ }
+}
+
+export function savedDesktopInspectorHidden(): boolean {
+  if (typeof localStorage === "undefined") return false;
+  try { return localStorage.getItem(DESKTOP_INSPECTOR_HIDDEN_STORAGE_KEY) === "1"; } catch { return false; }
+}
+
+export function persistDesktopInspectorHidden(hidden: boolean): void {
+  try { localStorage.setItem(DESKTOP_INSPECTOR_HIDDEN_STORAGE_KEY, hidden ? "1" : "0"); } catch { /* private mode */ }
 }
 
 export interface StoryStream {
@@ -117,11 +152,29 @@ export interface AsideState {
   readonly v2: boolean;
 }
 
+/** One line of the log (D-44, `!`): every notice the app gave this session,
+ * newest last in storage (the popover reverses it). Appended once, inside
+ * `setState` itself, whenever an update sets a non-empty `status` or
+ * `error` — never from a command's own call site. */
+export interface LogEntry {
+  readonly at: string;
+  readonly text: string;
+  readonly kind: "status" | "error";
+}
+
 export interface LineClipboard {
   readonly storyId: string;
   readonly sourceNodeId: string;
   readonly expectedLeafId: string;
   readonly parts: number;
+}
+
+/** `w`'s target (review-fixes-2 #4): a human take saved as a sibling of the
+ * part that was focused when `w` ran, not a child of the leaf. `parentId` is
+ * that part's own `parentId` — the same parent the new sibling take needs. */
+export interface ComposerWriteTarget {
+  readonly partId: string;
+  readonly parentId: string | null;
 }
 
 /** A native textarea selection captured before a toolbar action takes focus. */
@@ -190,7 +243,10 @@ export interface RendererState {
   readonly tab: RendererTab;
   readonly stream: StoryStream | null;
   readonly stoppedGeneration: StoppedGenerationDraft | null;
-  readonly composerMode: Extract<StreamMode, "continue" | "direct">;
+  readonly composerMode: ComposerMode;
+  /** Set by `w` (review-fixes-2 #4); read once by the write-mode submit, then
+   * cleared. `null` means write-mode saves at the leaf, as it always did. */
+  readonly composerWriteTarget: ComposerWriteTarget | null;
   readonly lineClipboard: LineClipboard | null;
   readonly draftImages: readonly DraftImage[];
   readonly recoveryWarnings: readonly RendererRecoveryWarning[];
@@ -201,7 +257,19 @@ export interface RendererState {
   readonly settingsEditor: RendererSettingsEditorState | null;
   readonly factConsistency: FactConsistencyRun | null;
   readonly factConsistencyBusy: boolean;
-  readonly chapterUndo: { readonly breakId: string; readonly removed: RemovedChapterBreak } | null;
+  readonly factConsistencySeen: boolean;
+  /** Keys of findings the writer dismissed from view this run (§3); never
+   * sent anywhere — a finding is machine output, not story data. */
+  readonly factConsistencyDismissed: readonly string[];
+  /** The Facts sheet's inline draft (2a); `null` shows the D-29 empty state. */
+  readonly factEditor: FactEditorState | null;
+  readonly factsScope: FactsListScope;
+  readonly factsFilter: string;
+  readonly focusedPartId: string | null;
+  /** The one part currently showing `textarea.part-text` in place of its
+   * `.part-prose` (D-09). At most one part edits at a time. */
+  readonly editingPartId: string | null;
+  readonly chapterUndo: ChapterUndo | null;
   readonly search: string;
   readonly searchHits: readonly SearchHit[];
   readonly searchBusy: boolean;
@@ -224,15 +292,25 @@ export interface RendererState {
   readonly updater: DesktopUpdaterState | null;
   readonly showDirections: boolean;
   readonly theme: DesktopTheme;
+  readonly inspectorHidden: boolean;
+  readonly mapCursorId: string | null;
+  readonly popover: DesktopPopover | null;
+  /** Which Settings 2c left-nav sheet is showing. Not persisted; a fresh
+   * launch always opens on Routes. */
+  readonly settingsSection: SettingsSectionId;
+  /** D-44: every notice this session gave, oldest first, capped to the last
+   * 200. See `LogEntry`. */
+  readonly log: readonly LogEntry[];
 }
 
 export const INITIAL_STATE: RendererState = {
   stories: [],
   story: null,
-  tab: "write",
+  tab: "library",
   stream: null,
   stoppedGeneration: null,
   composerMode: "continue",
+  composerWriteTarget: null,
   lineClipboard: null,
   draftImages: [],
   recoveryWarnings: [],
@@ -243,6 +321,13 @@ export const INITIAL_STATE: RendererState = {
   settingsEditor: null,
   factConsistency: null,
   factConsistencyBusy: false,
+  factConsistencySeen: false,
+  factConsistencyDismissed: [],
+  factEditor: null,
+  factsScope: "all",
+  factsFilter: "",
+  focusedPartId: null,
+  editingPartId: null,
   chapterUndo: null,
   search: "",
   searchHits: [],
@@ -265,16 +350,41 @@ export const INITIAL_STATE: RendererState = {
   authLinks: [],
   updater: null,
   showDirections: savedDesktopDirections(),
-  theme: savedDesktopTheme()
+  theme: savedDesktopTheme(),
+  inspectorHidden: savedDesktopInspectorHidden(),
+  mapCursorId: null,
+  popover: null,
+  settingsSection: "routes",
+  log: []
 };
 
 export interface RendererActions {
   readonly setTab: (tab: RendererTab) => void;
+  readonly setSettingsSection: (section: SettingsSectionId) => void;
+  readonly focusPart: (id: string) => void;
+  /** Enters edit mode on a part (also focusing it), or `null` leaves edit
+   * mode and keeps whatever draft is there (D-09; `esc` and a completed save
+   * both call this with `null`). */
+  readonly editPart: (id: string | null) => void;
+  readonly acknowledgeFactConsistencySeen: () => void;
   readonly setSearch: (value: string) => void;
   readonly openSearchHit: (hit: SearchHit) => void;
-  readonly setComposerMode: (mode: Extract<StreamMode, "continue" | "direct">) => void;
+  readonly setComposerMode: (mode: ComposerMode) => void;
+  readonly setComposerWriteTarget: (target: ComposerWriteTarget | null) => void;
   readonly setDirections: (show: boolean) => void;
   readonly setTheme: (theme: DesktopTheme) => void;
+  readonly setInspectorHidden: (hidden: boolean) => void;
+  readonly setMapCursor: (id: string | null) => void;
+  readonly openKeys: () => void;
+  readonly openPalette: (group?: DesktopCommandGroup) => void;
+  readonly openPartMenu: (partId: string) => void;
+  readonly openAsidePopover: () => void;
+  readonly openLog: () => void;
+  readonly setPaletteQuery: (value: string) => void;
+  readonly closePopover: () => void;
+  readonly toast: (text: string) => void;
+  readonly confirmDialog: (title: string, message: string) => Promise<boolean>;
+  readonly saveCurrentEdit: () => void;
   readonly setDraft: (key: string, value: string | undefined) => void;
   readonly setAuthPromptValue: (value: string) => void;
   readonly submitDialog: (value: string) => void;
@@ -290,12 +400,11 @@ export interface RendererActions {
   readonly unsealProject: () => void;
   readonly revealProject: () => void;
   readonly showProjects: (show: boolean) => void;
-  readonly showHelp: () => void;
-  readonly continueStory: (mode: StreamMode, instruction: string) => void;
-  readonly retakeLine: (node: StoryPathNode) => void;
+  readonly continueStory: (mode: StreamMode, instruction: string, target?: { readonly parentId: string | null }) => void;
+  readonly retakeLine: (node: StoryPathNode, options?: { readonly editDirection?: boolean }) => void;
   readonly rewriteLine: (node: StoryPathNode, selection?: TextSelection) => void;
   readonly summarizeLine: () => void;
-  readonly writeManual: (text: string) => void;
+  readonly writeManual: (text: string, parentId?: string | null) => void;
   readonly attachImage: (file: File) => void;
   readonly removeImage: (index: number) => void;
   readonly stopStream: () => void;
@@ -308,6 +417,7 @@ export interface RendererActions {
   readonly deleteNode: (node: StoryPathNode) => void;
   readonly switchLine: (node: StoryPathNode) => void;
   readonly switchNode: (nodeId: string) => void;
+  readonly switchToTaggedLine: (tagName: string, nodeId: string) => void;
   readonly copyLine: (node: StoryPathNode) => void;
   readonly pasteLine: (node: StoryPathNode) => void;
   readonly takeFromCut: (node: StoryPathNode, selection?: TextSelection) => void;
@@ -328,14 +438,23 @@ export interface RendererActions {
   readonly setFactsBudget: (budget: number | null) => void;
   readonly runFactConsistency: (scope: "chapter" | "story-line") => void;
   readonly showFactConsistency: () => void;
+  readonly dismissFinding: (key: string) => void;
   readonly createFact: (node?: StoryPathNode, selection?: TextSelection) => void;
   readonly editFact: (fact: StoryFact) => void;
   readonly deleteFact: (fact: StoryFact) => void;
   readonly moveFact: (fact: StoryFact, direction: -1 | 1) => void;
-  readonly addFactState: (fact: StoryFact) => void;
   readonly editFactState: (fact: StoryFact, state: FactState) => void;
   readonly deleteFactState: (fact: StoryFact, state: FactState) => void;
-  readonly createChapter: () => void;
+  readonly addFactStateAnchored: (fact: StoryFact) => void;
+  readonly addFactStateStoryWide: (fact: StoryFact) => void;
+  readonly addFactStateEnd: (fact: StoryFact) => void;
+  readonly setFactsScope: (scope: FactsListScope) => void;
+  readonly setFactsFilter: (value: string) => void;
+  readonly selectFact: (id: string | null) => void;
+  readonly setFactDraft: (patch: Partial<FactDraft>) => void;
+  readonly saveFactEditor: () => void;
+  readonly revertFactEditor: () => void;
+  readonly createChapter: (partId?: string) => void;
   readonly renameChapter: (chapter: ChapterBreak) => void;
   readonly removeChapter: (chapter: ChapterBreak) => void;
   readonly summarizeChapter: (chapter: ChapterBreak) => void;
@@ -378,6 +497,16 @@ export function visibleStories(state: RendererState): readonly StorySummary[] {
 
 export function activeLeaf(story: StoryPayload): StoryPathNode | null {
   return story.path.at(-1) ?? null;
+}
+
+/** The part the inspector (D-03) is contextual to. Defaults to the active
+ * leaf whenever the story loads, the path changes, or nothing was clicked
+ * yet, so the field only needs to hold the writer's explicit choice. */
+export function effectiveFocusedPartId(state: Pick<RendererState, "focusedPartId">, story: StoryPayload): string | null {
+  if (state.focusedPartId !== null && story.path.some((node) => node.id === state.focusedPartId)) {
+    return state.focusedPartId;
+  }
+  return activeLeaf(story)?.id ?? null;
 }
 
 export function storyChapters(story: StoryPayload) {

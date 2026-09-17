@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -32,6 +32,7 @@ test("Electron retains nonfirst item focus across activation and dialogs", { tim
     await createStory(page, "Focus second");
     await createStory(page, "Focus third");
 
+    await goToLibrary(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     const channel = page.locator(".updater-channel");
@@ -46,14 +47,22 @@ test("Electron retains nonfirst item focus across activation and dialogs", { tim
     await page.getByRole("button", { name: "Back to story" }).click();
     await waitForStory(page, "Focus third");
 
+    // Selecting a story switches Library away for Write, so the row itself
+    // is gone once the switch lands; focus should move to the new
+    // destination's entry point instead of dropping to the document body.
     const secondStory = page.locator(".story-row").filter({ hasText: "Focus second" });
     await secondStory.focus();
     await secondStory.press("Enter");
     await waitForStory(page, "Focus second");
-    assert.equal(await page.locator(":focus").getAttribute("data-preserve"), await secondStory.getAttribute("data-preserve"));
+    await page.waitForFunction(() => document.activeElement?.classList.contains("tab-write") === true, undefined, { timeout: 15_000 });
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("active")), true);
+
+    await goToLibrary(page);
+    await secondStory.focus();
     await secondStory.press("Enter");
     await waitForStory(page, "Focus second");
-    assert.equal(await page.locator(":focus").getAttribute("data-preserve"), await secondStory.getAttribute("data-preserve"));
+    await page.waitForFunction(() => document.activeElement?.classList.contains("tab-write") === true, undefined, { timeout: 15_000 });
+    assert.equal(await page.evaluate(() => document.activeElement?.classList.contains("active")), true);
 
     await page.locator(".composer-input").fill("A passage for the focus proof.");
     await page.locator(".composer-manual").click();
@@ -80,6 +89,7 @@ test("Electron retains nonfirst item focus across activation and dialogs", { tim
 });
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.locator(".modal-input").fill(title);

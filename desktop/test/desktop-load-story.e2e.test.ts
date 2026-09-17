@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -36,16 +36,19 @@ test("Electron keeps edits made while a story load is delayed", { timeout: 120_0
       (window as Window & { __delayNextStoryLoad?: boolean }).__delayNextStoryLoad = true;
     });
 
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Load destination" }).click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Loading story") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Loading story") === true,
       undefined,
       { timeout: 15_000 }
     );
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
     const draft = "Typed while the destination story was loading.";
     await page.locator(".composer-input").fill(draft);
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("newer edits kept") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("newer edits kept") === true,
       undefined,
       { timeout: 30_000 }
     );
@@ -53,6 +56,7 @@ test("Electron keeps edits made while a story load is delayed", { timeout: 120_0
     assert.equal(await page.locator(".composer-input").inputValue(), draft);
     assert.match(await page.locator(".error-banner").innerText(), /retry/u);
 
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Load destination" }).click();
     const discard = page.locator('.modal-card[aria-label="Discard unsaved edits?"]');
     await discard.waitFor({ state: "visible", timeout: 15_000 });
@@ -66,9 +70,10 @@ test("Electron keeps edits made while a story load is delayed", { timeout: 120_0
     await page.evaluate(() => {
       (window as Window & { __delayNextStoryLoad?: boolean }).__delayNextStoryLoad = true;
     });
+    await goToLibrary(page);
     await page.locator(".story-row").filter({ hasText: "Load origin" }).click();
     await page.waitForFunction(
-      () => document.querySelector(".topbar-status")?.textContent?.includes("Loading story") === true,
+      () => document.querySelector(".toast")?.textContent?.includes("Loading story") === true,
       undefined,
       { timeout: 15_000 }
     );
@@ -108,6 +113,7 @@ async function installDelayedStoryLoad(page: Page): Promise<void> {
 }
 
 async function createStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".new-story-button").click();
   await page.waitForSelector(".modal-card", { timeout: 15_000 });
   await page.locator(".modal-input").fill(title);
@@ -116,6 +122,7 @@ async function createStory(page: Page, title: string): Promise<void> {
 }
 
 async function selectStory(page: Page, title: string): Promise<void> {
+  await goToLibrary(page);
   await page.locator(".story-row").filter({ hasText: title }).click();
   await page.waitForFunction((expected) => document.querySelector(".story-title")?.textContent === expected, title, { timeout: 30_000 });
 }
