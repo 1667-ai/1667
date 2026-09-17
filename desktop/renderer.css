@@ -458,6 +458,12 @@ option { background: var(--paper); color: var(--ink); }
 .composer-input { grid-area: input; min-width: 0; min-height: 34px; padding: 8px 10px; resize: none; font: 15px/1.4 var(--serif); }
 .composer-input:focus { border-color: var(--amber); }
 .composer.composer-typing .composer-input { min-height: 72px; border-color: var(--amber); resize: vertical; }
+/* On a short window the grown composer keeps a smaller field and no hint row,
+   so the manuscript above it keeps room to read and edit. */
+@media (max-height: 720px) {
+  .composer.composer-typing .composer-input { min-height: 40px; }
+  .composer.composer-typing .composer-hint { display: none; }
+}
 .composer-footer { grid-area: footer; justify-content: flex-end; gap: 8px; padding: 0; }
 .composer-footer .button { padding: 6px 8px; font-size: 10px; }
 .composer-submit { border-color: var(--amber); background: var(--amber); color: var(--on-amber); font-weight: 600; }
@@ -925,7 +931,8 @@ option { background: var(--paper); color: var(--ink); }
   .inspector {
     grid-column: 2;
     grid-row: 3;
-    height: 300px;
+    /* A 300px band would leave a 640px-tall window almost no manuscript. */
+    height: min(300px, 30vh);
     border-left: 0;
     border-top: var(--hairline);
   }

@@ -100,11 +100,15 @@ async function test960Geometry(app: ElectronApplication, page: Page): Promise<vo
   await app.evaluate(({ BrowserWindow }) => {
     const window = BrowserWindow.getAllWindows()[0];
     window?.setMinimumSize(900, 600);
-    window?.setContentSize(944, 640);
+    window?.setContentSize(944, 601);
   });
-  await page.waitForFunction(() => document.documentElement.clientWidth <= 944, undefined, { timeout: 5_000 });
+  await page.waitForFunction(() => document.documentElement.clientWidth <= 944 && window.innerHeight <= 601, undefined, { timeout: 5_000 });
   const narrowOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth + 1);
   assert.ok(!narrowOverflow, "nothing must horizontal-scroll when the page is narrower than the 960px window");
+  // The docked inspector must leave the manuscript room to read and edit above
+  // the sticky composer at the smallest window.
+  const manuscriptHeight = await page.evaluate(() => document.querySelector(".workspace")?.clientHeight ?? 0);
+  assert.ok(manuscriptHeight >= 340, `the manuscript must keep at least 340px at the smallest window (was ${manuscriptHeight})`);
   // Between 961 and 1180px the inspector still sits beside the manuscript, so
   // the manuscript must shrink to its column instead of spilling under the rail.
   for (const width of [1024, 1180, 1264]) {
