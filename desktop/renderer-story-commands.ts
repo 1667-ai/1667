@@ -502,6 +502,12 @@ export async function restoreChapter(ctx: RendererCommandContext): Promise<void>
       return;
     }
     const movingFrom = current.parentPartId;
+    // The chapter can have been summarized since the move; moving back
+    // removes that summary too, so ask exactly like a forward move does.
+    if (story.nodes.some((node) => node.chapterBreakId === undo.breakId)) {
+      const chapterNumber = storyChapters(story).find((chapter) => chapter.closedBy?.id === undo.breakId)?.number ?? "?";
+      if (!await ctx.confirmDialog("Move chapter break", `Moving this break removes the summary of chapter ${chapterNumber}.`)) return;
+    }
     await ctx.run("Moving chapter break", async () => {
       await ctx.replaceStory(await ctx.api().moveChapterBreak(story.id, undo.breakId, undo.fromPartId));
       ctx.setState({ chapterUndo: { kind: "moved", breakId: undo.breakId, fromPartId: movingFrom }, status: "Chapter break moved back · u moves it again" });

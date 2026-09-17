@@ -72,6 +72,21 @@ test("Electron Chapters: the break handle drags, undoes with u, and steps with t
       undefined,
       { timeout: 15_000 }
     );
+    // `u` still holds the last move; replaying it would remove the new
+    // summary, so it asks too, and Cancel keeps everything.
+    await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+    await page.keyboard.press("u");
+    await page.waitForSelector(".modal-card", { timeout: 15_000 });
+    assert.equal(await page.locator(".modal-card h2").innerText(), "Move chapter break");
+    await page.click(".modal-cancel");
+    await page.waitForSelector(".modal-card", { state: "detached", timeout: 15_000 });
+    assert.ok((await firstChapterMeta(page)).includes("¶ 1–2"), "cancelled undo leaves the break after ¶ 2");
+    assert.equal(
+      await page.locator(".chapter-card").first().locator(".chapter-summary-preview").count(),
+      1,
+      "cancelled undo keeps the summary"
+    );
+
     await page.locator(".chapter-ruler-handle").focus();
     await page.keyboard.press("ArrowRight");
     await page.waitForSelector(".modal-card", { timeout: 15_000 });
