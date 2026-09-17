@@ -16,6 +16,7 @@ import { parseJsonRejectingDuplicateKeys } from "../shared/strict-json.js";
 import { releaseArchiveFileName } from "./release-archive.js";
 import {
   boundedGhExecutable,
+  MAX_GH_ASSET_TIMEOUT_MS,
   runReleaseGh as runGh,
   type GitHubReleaseEnvironment
 } from "./release-github-client.js";
@@ -91,6 +92,11 @@ export async function publishOrVerifyGitHubRelease(
   }
 }
 
+/** Creating a release and uploading to it both move every asset — more than
+ *  a gigabyte — in one command, so they get the asset deadline instead of
+ *  the short default every metadata call keeps. */
+const ASSET_TRANSFER_LIMITS = Object.freeze({ timeoutMs: MAX_GH_ASSET_TIMEOUT_MS });
+
 /** Creates or verifies the release state before the immutable transition. */
 async function prepareReleaseState(context: ReleaseContext): Promise<ReleaseState> {
   const { assets, gh, notes, prerelease, repository, tag, title, verifyTag } = context;
@@ -102,7 +108,8 @@ async function prepareReleaseState(context: ReleaseContext): Promise<ReleaseStat
       await runGh(
         gh,
         ["release", "upload", tag, ...assets, "--clobber", "--repo", repository],
-        context.environment
+        context.environment,
+        ASSET_TRANSFER_LIMITS
       );
     }
     return await preparedReleaseState(context);
@@ -123,7 +130,7 @@ async function prepareReleaseState(context: ReleaseContext): Promise<ReleaseStat
     title,
     "--notes-file",
     notes
-  ], context.environment);
+  ], context.environment, ASSET_TRANSFER_LIMITS);
   return await preparedReleaseState(context);
 }
 
