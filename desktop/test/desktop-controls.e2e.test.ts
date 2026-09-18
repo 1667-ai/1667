@@ -199,6 +199,58 @@ test("Electron controls: Chapters breaks at the focused part, then removes and r
   }
 });
 
+// Phase D (scratchpad/spec3/D-layout-and-details.md): the inspector is
+// contextual to a story destination — it is absent on Library and Settings,
+// which own the full width instead. A section header still toggles its own
+// section. At the 960px floor the composer joins the manuscript's own flow
+// rather than docking (sticky) over it.
+test("Electron controls: the inspector hides on Library and Settings, a section header collapses its section, and the composer joins the flow at 960", async () => {
+  const app = await launch();
+  try {
+    const page = app.page;
+    await createStory(page, "Inspector visibility proof");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    await page.locator(".composer-input").fill("A part to measure the composer and inspector against.");
+    await page.locator(".composer-manual").click();
+    await page.waitForSelector(".part-prose", { timeout: 15_000 });
+
+    const takesHeader = page.locator('[data-inspector-section="takes"] .inspector-section-header');
+    const takesBody = page.locator('[data-inspector-section="takes"] .inspector-section-body');
+    const before = await takesHeader.getAttribute("aria-expanded");
+    await takesHeader.click();
+    await page.waitForFunction(
+      (expected) => document.querySelector('[data-inspector-section="takes"] .inspector-section-header')?.getAttribute("aria-expanded") !== expected,
+      before,
+      { timeout: 15_000 }
+    );
+    const collapsedNow = (await takesHeader.getAttribute("aria-expanded")) === "false";
+    assert.equal(await takesBody.evaluate((element) => (element as HTMLElement).hidden), collapsedNow, "the section body's hidden state must follow its own header's toggle");
+
+    await goToLibrary(page);
+    assert.equal(await page.locator(".inspector").count(), 0, "the inspector must not render on Library");
+    await page.locator(".tab-settings").click();
+    await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    assert.equal(await page.locator(".inspector").count(), 0, "the inspector must not render on Settings");
+
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".part-prose", { timeout: 15_000 });
+    await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(960, 640));
+    await page.waitForFunction(() => window.innerWidth <= 960, undefined, { timeout: 5_000 });
+    const overlap = await page.evaluate(() => {
+      const composer = document.querySelector(".composer")?.getBoundingClientRect();
+      if (composer === undefined) return true;
+      return [...document.querySelectorAll(".part-prose")].some((part) => {
+        const box = part.getBoundingClientRect();
+        return composer.top < box.bottom && composer.bottom > box.top;
+      });
+    });
+    assert.equal(overlap, false, "the composer must never overlap a .part-prose box at 960px");
+  } finally {
+    await teardown(app);
+  }
+});
+
 async function assertNoRawControls(page: Page): Promise<void> {
   const counts = await page.evaluate(() => ({
     range: document.querySelectorAll("input[type=range]").length,

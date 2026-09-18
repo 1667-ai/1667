@@ -25,6 +25,11 @@ import { effectiveFocusedPartId, factLabel, type RendererActions, type RendererS
 
 const SVG_NS = "http://www.w3.org/2000/svg";
 const MIN_VIEWPORT_FRACTION = 0.02;
+/** R-19: the viewport rectangle never grows to the strip's full width, even
+ * when every part is on screen — a visible margin on each side is what
+ * keeps it reading as a rectangle sitting on the strip rather than as the
+ * whole bar. */
+const MAX_VIEWPORT_FRACTION = 0.92;
 
 function svgEl<K extends keyof SVGElementTagNameMap>(tag: K, attrs: Readonly<Record<string, string | number>> = {}): SVGElementTagNameMap[K] {
   const element = document.createElementNS(SVG_NS, tag);
@@ -42,14 +47,26 @@ function clamp(value: number, min: number, max: number): number {
  * an unrelated re-render (a keystroke elsewhere, a popover opening) skip
  * recomputing the layout entirely. Keyed on `lensIndex` too (D-34), so a
  * pointer hover recomputing the same index repeatedly (it moves within the
- * same lens far more often than it crosses out of it) is also free. */
-let cached: { readonly nodes: readonly NodeStub[]; readonly path: readonly StoryPathNode[]; readonly focusedId: string | null; readonly centerPartId: string | null; readonly lensIndex: number | null; readonly layout: MapLayout } | null = null;
+ * same lens far more often than it crosses out of it) is also free. Keyed on
+ * `paneWidth` too (R-17) — a window resize is its own re-render. */
+let cached: { readonly nodes: readonly NodeStub[]; readonly path: readonly StoryPathNode[]; readonly focusedId: string | null; readonly centerPartId: string | null; readonly lensIndex: number | null; readonly paneWidth: number | undefined; readonly layout: MapLayout } | null = null;
 
-function layoutFor(story: StoryPayload, focusedId: string | null, centerPartId: string | null, lensIndex: number | null): MapLayout {
-  if (cached !== null && cached.nodes === story.nodes && cached.path === story.path && cached.focusedId === focusedId && cached.centerPartId === centerPartId && cached.lensIndex === lensIndex) return cached.layout;
-  const layout = computeMapLayout(story, focusedId, { centerPartId, lensIndex });
-  cached = { nodes: story.nodes, path: story.path, focusedId, centerPartId, lensIndex, layout };
+function layoutFor(story: StoryPayload, focusedId: string | null, centerPartId: string | null, lensIndex: number | null, paneWidth: number | undefined): MapLayout {
+  if (cached !== null && cached.nodes === story.nodes && cached.path === story.path && cached.focusedId === focusedId && cached.centerPartId === centerPartId && cached.lensIndex === lensIndex && cached.paneWidth === paneWidth) return cached.layout;
+  const layout = computeMapLayout(story, focusedId, { centerPartId, lensIndex, paneWidth });
+  cached = { nodes: story.nodes, path: story.path, focusedId, centerPartId, lensIndex, paneWidth, layout };
   return layout;
+}
+
+/** R-17: the pane the spine scales to. Reads the stage still live from the
+ * previous render (`renderApp` swaps in the new tree only once it is fully
+ * built, so the old one — including its measured width — is still mounted
+ * here); `undefined` on the very first entry into Map, when there is no
+ * previous stage to measure yet, falls back to `computeMapLayout`'s
+ * pre-R-17 fixed scale for that one frame. */
+function currentPaneWidth(): number | undefined {
+  const stage = document.querySelector<HTMLElement>(".map-stage");
+  return stage !== null && stage.clientWidth > 0 ? stage.clientWidth : undefined;
 }
 
 /** D-34: which spine index the pointer has pinned the lens to on the
@@ -119,10 +136,19 @@ function edgePath(from: { x: number; y: number }, to: { x: number; y: number }, 
   return `M ${from.x} ${from.y} C ${from.x} ${midY}, ${to.x} ${midY}, ${to.x} ${to.y}`;
 }
 
-function renderStemma(state: RendererState, layout: MapLayout, actions: RendererActions): SVGSVGElement {
+/** `lensPartId` is the id `story.path[lensIndex]` resolved to for the layout
+ * being drawn right now — `null` when there is no lens. A click on the wash
+ * pins the lens there (a second click, on an already-pinned wash, unpins
+ * it); Escape unpins it too (`renderer-keys-controller.ts`). */
+function renderStemma(state: RendererState, layout: MapLayout, actions: RendererActions, lensPartId: string | null): SVGSVGElement {
   const svg = svgEl("svg", { class: "stemma", viewBox: `0 0 ${layout.width} ${layout.height}`, width: layout.width, height: layout.height });
   if (layout.lens !== null) {
-    svg.append(svgEl("rect", { class: "map-lens", x: layout.lens.x, y: 0, width: layout.lens.width, height: layout.height }));
+    const pinned = lensPartId !== null && state.mapLensPinnedPartId === lensPartId;
+    const lensRect = svgEl("rect", { class: pinned ? "map-lens pinned" : "map-lens", x: layout.lens.x, y: 0, width: layout.lens.width, height: layout.height });
+    if (lensPartId !== null) {
+      lensRect.addEventListener("click", () => actions.pinMapLens(pinned ? null : lensPartId));
+    }
+    svg.append(lensRect);
   }
   const edges = svgEl("g", { class: "map-edges" });
   for (const edge of layout.edges) {
@@ -179,6 +205,13 @@ function renderStemma(state: RendererState, layout: MapLayout, actions: Renderer
       mark.textContent = "✕";
       nodes.append(mark);
     }
+    if (node.label !== undefined && node.label.length > 0) {
+      // R-18: a lensed node's own short label, under the node so it never
+      // collides with the spine line above it.
+      const label = svgEl("text", { class: "map-node-label", x: node.x, y: node.y + node.r + 12, "text-anchor": "middle" });
+      label.textContent = node.label;
+      nodes.append(label);
+    }
   }
   svg.append(nodes);
   return svg;
@@ -195,14 +228,21 @@ function renderStemma(state: RendererState, layout: MapLayout, actions: Renderer
  * stage's SVG for a new (differently windowed-by-fisheye) layout without a
  * full re-render, and `refresh` is how the caller keeps this control's own
  * node positions — and so the rectangle it draws from them — in sync with
- * that swap. */
-function renderMinimap(story: StoryPayload, layout: MapLayout, stage: HTMLElement, actions: RendererActions): { readonly element: HTMLElement; readonly refresh: (layout: MapLayout) => void } {
+ * that swap. `currentPartIndex` (R-19) marks the part the writer is on. */
+function renderMinimap(story: StoryPayload, layout: MapLayout, stage: HTMLElement, actions: RendererActions, currentPartIndex: number | null): { readonly element: HTMLElement; readonly refresh: (layout: MapLayout) => void } {
   const geometry = minimapGeometryFor(story);
   let currentLayout = layout;
   const minimap = el("div", "map-minimap");
   const strip = svgEl("svg", { class: "map-minimap-strip", viewBox: "0 0 1000 20", preserveAspectRatio: "none" });
   strip.setAttribute("aria-hidden", "true");
-  strip.append(svgEl("rect", { class: "map-minimap-line", x: 0, y: 8, width: 1000, height: 4 }));
+  // R-19: the hairline itself, thin rather than a filled bar, plus one short
+  // notch per part so a short story reads as a line with parts on it instead
+  // of an empty accent-outlined box.
+  strip.append(svgEl("rect", { class: "map-minimap-line", x: 0, y: 9, width: 1000, height: 2 }));
+  if (geometry.partFractions.length > 0) {
+    const d = geometry.partFractions.map((fraction) => `M ${(fraction * 1000).toFixed(2)} 7 L ${(fraction * 1000).toFixed(2)} 13`).join(" ");
+    strip.append(svgEl("path", { class: "map-minimap-parts", d }));
+  }
   if (geometry.forkFractions.length > 0) {
     const d = geometry.forkFractions.map((fraction) => `M ${(fraction * 1000).toFixed(2)} 3 L ${(fraction * 1000).toFixed(2)} 17`).join(" ");
     strip.append(svgEl("path", { class: "map-minimap-forks", d }));
@@ -216,6 +256,11 @@ function renderMinimap(story: StoryPayload, layout: MapLayout, stage: HTMLElemen
       line.append(title);
     }
     strip.append(line);
+  }
+  if (currentPartIndex !== null && currentPartIndex >= 0 && currentPartIndex < geometry.partFractions.length) {
+    // R-19: the current part, marked distinctly from the rest of the line.
+    const x = (geometry.partFractions[currentPartIndex]! * 1000).toFixed(2);
+    strip.append(svgEl("circle", { class: "map-minimap-current", cx: x, cy: 10, r: 3 }));
   }
   minimap.append(strip);
 
@@ -236,7 +281,7 @@ function renderMinimap(story: StoryPayload, layout: MapLayout, stage: HTMLElemen
   const applyRange = (start: number, end: number): void => {
     range = { start, end };
     const fractions = minimapFractionRange(geometry, start, end);
-    widthFraction = Math.max(fractions.end - fractions.start, MIN_VIEWPORT_FRACTION);
+    widthFraction = clamp(fractions.end - fractions.start, MIN_VIEWPORT_FRACTION, MAX_VIEWPORT_FRACTION);
     placeRectangle(fractions.start);
     viewport.setAttribute("aria-label", `Map view shows ¶ ${start + 1}–${end + 1} of ${story.path.length}. Drag it, or press Left and Right to move it.`);
   };
@@ -331,15 +376,30 @@ function renderMinimap(story: StoryPayload, layout: MapLayout, stage: HTMLElemen
   };
 }
 
+/** R-20: a row for a part already on the line is a status, not a button —
+ * the whole list used to repeat the word "current" once per row. Only a row
+ * for a take off the line still acts, and its button says what it does
+ * (`Show this take`) instead of the old bare "focus". Every row keeps the
+ * `.map-focus` class the e2e tests hook, and stays reachable by keyboard: a
+ * status row is a focusable `<span>` instead of a `<button>`, since it does
+ * nothing when activated. */
 function renderAccessibleList(layout: MapLayout, actions: RendererActions): HTMLElement {
   const list = el("ul", "map-list");
   for (const node of layout.nodes) {
     const item = el("li", "map-list-item");
-    const label = node.onPath ? `¶ ${node.partNumber ?? "?"} · shown` : node.preview || "Untitled part";
-    const focus = actionButton("map-focus", node.onPath ? "current" : "focus", () => actions.switchNode(node.id));
-    focus.setAttribute("aria-label", node.onPath ? `${label}, current` : `Focus ${label}`);
-    focus.dataset.preserve = `map:${node.id}`;
-    item.append(el("span", "map-list-label", label), focus);
+    if (node.onPath) {
+      const label = `¶ ${node.partNumber ?? "?"} · shown`;
+      const status = el("span", "map-focus map-focus-status", `◉ ${label}`);
+      status.tabIndex = 0;
+      status.dataset.preserve = `map:${node.id}`;
+      item.append(status);
+    } else {
+      const label = node.preview || "Untitled part";
+      const focus = actionButton("map-focus", "Show this take", () => actions.switchNode(node.id));
+      focus.setAttribute("aria-label", `Show this take: ${label}`);
+      focus.dataset.preserve = `map:${node.id}`;
+      item.append(el("span", "map-list-label", label), focus);
+    }
     list.append(item);
   }
   for (const run of layout.collapsedRuns) {
@@ -391,27 +451,41 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
   hoverLens = null;
   const focusedId = effectiveFocusedPartId(state, story);
   const centerId = state.mapCenterPartId ?? focusedId;
+  const currentPartIndex = story.path.findIndex((node) => node.id === focusedId);
 
+  // R-18: a pinned lens (a click on the wash) overrides both the map
+  // cursor's lens and the pointer until a second click or Escape unpins it
+  // (only if the pinned part is still on the drawn line — a pruned or
+  // switched-away-from part quietly falls back to the normal behaviour
+  // instead of pinning nothing).
+  const pinnedIndex = state.mapLensPinnedPartId === null ? -1 : story.path.findIndex((node) => node.id === state.mapLensPinnedPartId);
+  const pinned = pinnedIndex >= 0;
   // D-34: a render starts with the map cursor's lens (keyboard navigation);
   // the pointer handlers below take the lens over while the pointer moves
-  // over the stage.
-  const lensIndex = lensIndexForCursor(story, state.mapCursorId);
+  // over the stage, unless the lens is pinned.
+  const lensIndex = pinned ? pinnedIndex : lensIndexForCursor(story, state.mapCursorId);
+  const lensPartIdFor = (index: number | null): string | null => (index === null ? null : story.path[index]?.id ?? null);
 
-  const layout = layoutFor(story, focusedId, state.mapCenterPartId, lensIndex);
+  // R-17: the stage the previous render left mounted (if any) is still the
+  // best guess for how wide this one will be — measuring `stage` itself
+  // this early would always read 0, since it has not been attached yet.
+  const paneWidth = currentPaneWidth();
+  const layout = layoutFor(story, focusedId, state.mapCenterPartId, lensIndex, paneWidth);
   // Tracks whichever layout is currently drawn in `stage` — the pointer
   // handlers below replace this (and only this) when a hover swaps the SVG
   // locally, without going through `renderMap` again.
   let layoutRef = layout;
   let minimapControl: { readonly element: HTMLElement; readonly refresh: (layout: MapLayout) => void } | null = null;
 
-  const stage = el("div", "map-stage", renderStemma(state, layout, actions));
+  const stage = el("div", "map-stage", renderStemma(state, layout, actions, lensPartIdFor(lensIndex)));
   stage.addEventListener("scroll", () => {
-    scrollMemo = { key: stageScrollKey(story, layout), scrollLeft: stage.scrollLeft };
+    scrollMemo = { key: stageScrollKey(story, layoutRef), scrollLeft: stage.scrollLeft };
   });
   // A local lens move never calls `setState` (a `pointermove` fires far too
   // often for a full re-render) — it recomputes the layout, swaps only the
   // stage's `<svg>`, and resyncs the minimap rectangle by hand instead.
   stage.addEventListener("pointermove", (event) => {
+    if (pinned) return; // R-18: a pinned lens ignores the pointer entirely.
     const svg = stage.querySelector<SVGSVGElement>("svg.stemma");
     if (svg === null) return;
     const rect = svg.getBoundingClientRect();
@@ -424,19 +498,21 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
     if (hovering && layoutRef.lens !== null && pointerX >= layoutRef.lens.x && pointerX <= layoutRef.lens.x + layoutRef.lens.width) return;
     const newIndex = nearestSpineIndex(layoutRef, pointerX);
     if (newIndex === null || (hovering && hoverLens!.index === newIndex)) return;
-    const newLayout = layoutFor(story, focusedId, state.mapCenterPartId, newIndex);
-    svg.replaceWith(renderStemma(state, newLayout, actions));
+    const newLayout = layoutFor(story, focusedId, state.mapCenterPartId, newIndex, paneWidth);
+    svg.replaceWith(renderStemma(state, newLayout, actions, lensPartIdFor(newIndex)));
     layoutRef = newLayout;
     hoverLens = { storyId: story.id, index: newIndex };
     minimapControl?.refresh(newLayout);
   });
   stage.addEventListener("pointerleave", () => {
+    if (pinned) return; // R-18: leaving the stage must not disturb a pin.
     if (hoverLens === null || hoverLens.storyId !== story.id) return;
     hoverLens = null;
     // Give the lens back to the map cursor, if it holds one.
-    const newLayout = layoutFor(story, focusedId, state.mapCenterPartId, lensIndexForCursor(story, state.mapCursorId));
+    const cursorIndex = lensIndexForCursor(story, state.mapCursorId);
+    const newLayout = layoutFor(story, focusedId, state.mapCenterPartId, cursorIndex, paneWidth);
     const svg = stage.querySelector<SVGSVGElement>("svg.stemma");
-    if (svg !== null) svg.replaceWith(renderStemma(state, newLayout, actions));
+    if (svg !== null) svg.replaceWith(renderStemma(state, newLayout, actions, lensPartIdFor(cursorIndex)));
     layoutRef = newLayout;
     minimapControl?.refresh(newLayout);
   });
@@ -445,20 +521,34 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
     panel.append(el("p", "map-window-note", `Showing ¶ ${layout.windowStart + 1}–${layout.windowEnd} of ${layout.totalParts}.`));
   }
   if (story.path.length >= 2) {
-    minimapControl = renderMinimap(story, layout, stage, actions);
+    minimapControl = renderMinimap(story, layout, stage, actions, currentPartIndex === -1 ? null : currentPartIndex);
     panel.append(minimapControl.element);
   }
   panel.append(renderAccessibleList(layout, actions));
   panel.append(renderFactLens(story, actions));
 
-  const key = stageScrollKey(story, layout);
-  const restoreScrollLeft = !enteringMap && scrollMemo !== null && scrollMemo.key === key ? scrollMemo.scrollLeft : null;
   queueMicrotask(() => {
     if (!stage.isConnected) return;
+    // R-17: now that the stage is mounted, its real width is known — redo
+    // the layout with it if the guess above was missing or off enough to
+    // matter, exactly like the pointer-hover swap above but for the pane
+    // itself instead of the lens.
+    const measuredWidth = stage.clientWidth;
+    if (measuredWidth > 0 && (paneWidth === undefined || Math.abs(measuredWidth - paneWidth) > 1)) {
+      const corrected = layoutFor(story, focusedId, state.mapCenterPartId, lensIndex, measuredWidth);
+      if (corrected !== layoutRef) {
+        const svg = stage.querySelector<SVGSVGElement>("svg.stemma");
+        if (svg !== null) svg.replaceWith(renderStemma(state, corrected, actions, lensPartIdFor(lensIndex)));
+        layoutRef = corrected;
+        minimapControl?.refresh(corrected);
+      }
+    }
+    const key = stageScrollKey(story, layoutRef);
+    const restoreScrollLeft = !enteringMap && scrollMemo !== null && scrollMemo.key === key ? scrollMemo.scrollLeft : null;
     if (restoreScrollLeft !== null) {
       stage.scrollLeft = restoreScrollLeft;
     } else {
-      const node = layout.nodes.find((candidate) => candidate.id === centerId);
+      const node = layoutRef.nodes.find((candidate) => candidate.id === centerId);
       if (node !== undefined) {
         const max = Math.max(0, stage.scrollWidth - stage.clientWidth);
         stage.scrollLeft = clamp(node.x - stage.clientWidth / 2, 0, max);

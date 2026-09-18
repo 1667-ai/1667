@@ -1,6 +1,7 @@
 /** Owns the one document-level keydown listener: the desktop-only ⌘ chords
- * (§4), Escape's peel order — popover, dialog, focused field, then Map back
- * to Write (§5) — and the TUI keymap dispatch (§2-3). Extracted from
+ * (§4), Escape's peel order — popover, dialog, focused field, a pinned Map
+ * lens (R-18), then Map back to Write (§5) — and the TUI keymap dispatch
+ * (§2-3). Extracted from
  * `RendererApp` so `renderer.ts` does not grow further; mirrors the existing
  * `RendererShellController`/`RendererSettingsController` hook pattern. */
 import type { StoryPathNode } from "../shared/types.js";
@@ -124,7 +125,9 @@ export class RendererKeysController {
    * layer — it stops even under an open popover or dialog), then an open
    * popover, then a dialog, then a part mid-edit (leaves edit mode, keeps
    * the draft), then a focused field (blur it — the toast already clears on
-   * any keydown), then, in Map, back to Write at the same focused part. */
+   * any keydown), then, in Map, a pinned lens (R-18: unpins it and gives it
+   * back to the pointer, same as a second click on the wash), then, in Map,
+   * back to Write at the same focused part. */
   private peelEscape(): void {
     const state = this.hooks.state();
     if (state.stream !== null) {
@@ -158,6 +161,10 @@ export class RendererKeysController {
       // writer backed out, so the next write must not silently still target
       // whatever part `w` last recorded.
       if (isComposerWithTarget) this.hooks.actions().setComposerWriteTarget(null);
+      return;
+    }
+    if (state.tab === "map" && state.mapLensPinnedPartId !== null) {
+      this.hooks.actions().pinMapLens(null);
       return;
     }
     if (state.tab === "map") this.hooks.setTab("write");

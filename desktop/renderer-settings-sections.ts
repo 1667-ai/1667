@@ -4,7 +4,7 @@
  * alone. `renderer-settings-view.ts` holds the six document-only sections. */
 import type { SettingsActivationOutcomeV2 } from "../shared/settings-v2-types.js";
 import { DESKTOP_THEMES, type DesktopTheme, type RendererActions, type RendererState } from "./renderer-model.js";
-import { el } from "./renderer-dom.js";
+import { actionButton, el } from "./renderer-dom.js";
 import { button as controlButton, scalar } from "./renderer-controls.js";
 import {
   button,
@@ -155,10 +155,34 @@ function renderDesktopSettingsSection(state: RendererState, actions: RendererAct
   directions.setAttribute("aria-pressed", String(state.showDirections));
   directions.title = state.showDirections ? "Hide part directions" : "Show part directions";
   directions.addEventListener("click", () => actions.setDirections(!state.showDirections));
-  return section("Desktop", "Display only; this does not change story data.",
-    swatches,
-    el("label", "settings-field", "Directions", directions)
+  return el("div", "settings-desktop-sections",
+    section("Desktop", "Display only; this does not change story data.",
+      swatches,
+      el("label", "settings-field", "Directions", directions)
+    ),
+    renderProjectSection(state, actions)
   );
+}
+
+/** R-12: the Project block (path, Reveal, Switch project, Seal/Unseal,
+ * Refresh) moved here from the Library, which now keeps only the story
+ * search and the current story's own Story section. Every one of these
+ * commands stays reachable from the palette exactly as before — this only
+ * changes where the writer clicks them. */
+function renderProjectSection(state: RendererState, actions: RendererActions): HTMLElement {
+  const buttons = el("div", "settings-story-tools-actions");
+  buttons.append(actionButton("project-reveal", "Reveal folder", actions.revealProject));
+  buttons.append(actionButton("project-browser", "Switch project", () => actions.showProjects(true)));
+  if (state.project?.open === true) {
+    buttons.append(
+      state.project.vault === "sealed"
+        ? actionButton("project-unseal", "Unseal", actions.unsealProject)
+        : actionButton("project-seal", "Seal", actions.sealProject)
+    );
+  }
+  buttons.append(actionButton("refresh-button", "Refresh library", actions.refresh));
+  const pathLine = state.project === null ? "" : el("p", "project-path", state.project.root);
+  return section("Project", "The open project's files on disk.", pathLine, buttons);
 }
 
 function renderThemeSwatch(theme: DesktopTheme, active: boolean, actions: RendererActions): HTMLElement {
@@ -208,7 +232,7 @@ function renderSettingsPendingBar(props: SettingsEditorProps, actions: SettingsE
   const save = controlButton("primary", saveLabel, undefined, actions.save);
   save.classList.add("settings-save");
   save.disabled = props.busy !== null || invalidFieldCount > 0;
-  const discardDraft = dirty ? controlButton("quiet", "Discard", undefined, actions.discardDraft) : "";
+  const discardDraft = dirty ? controlButton("tertiary", "Discard", undefined, actions.discardDraft) : "";
   if (typeof discardDraft !== "string") discardDraft.classList.add("settings-discard-draft");
   const discardPending = props.pendingRevision === null
     ? ""

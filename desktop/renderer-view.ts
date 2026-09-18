@@ -27,14 +27,19 @@ export function renderApp(root: HTMLElement, state: RendererState, actions: Rend
     root.replaceChildren(launcher);
     return;
   }
-  const shell = el("div", `app-shell${state.inspectorHidden ? " inspector-hidden" : ""}`);
+  // R-05: Library and Settings own the full width — the inspector is
+  // contextual to a story destination, and neither of these has a focused
+  // part, Fact, or Aside to show. The rail's own inspector toggle still
+  // works normally on every other destination.
+  const inspectorVisible = !state.inspectorHidden && state.tab !== "library" && state.tab !== "settings";
+  const shell = el("div", `app-shell${inspectorVisible ? "" : " inspector-hidden"}`);
   const hadDialog = root.querySelector(".modal-card") !== null;
   const hadPopover = root.querySelector(".popover") !== null;
   shell.append(
     renderTitlebar(state, actions),
     renderRail(state, actions),
     renderWorkspace(state, actions),
-    ...(state.inspectorHidden ? [] : [renderInspector(state, actions)])
+    ...(inspectorVisible ? [renderInspector(state, actions)] : [])
   );
   if (state.popover?.kind === "keys") {
     const sheet = renderKeysSheet(actions);
@@ -158,7 +163,7 @@ function renderDialog(state: RendererState, actions: RendererActions, focusIniti
     }
     actions.submitDialog(spec.kind === "confirm" ? "confirm" : spec.value);
   };
-  const submitButton = actionButton("modal-submit", spec.kind === "confirm" ? "Confirm" : spec.kind === "notice" ? "Close" : "Save", submit);
+  const submitButton = actionButton("modal-submit primary", spec.kind === "confirm" ? "Confirm" : spec.kind === "notice" ? "Close" : "Save", submit);
   controls.append(submitButton);
   form.addEventListener("submit", (event) => {
     event.preventDefault();
@@ -197,7 +202,7 @@ function renderWorkspace(state: RendererState, actions: RendererActions): HTMLEl
   } else if (state.tab === "settings") {
     content.append(renderSettings(state, actions));
   } else if (state.story === null) {
-    content.append(el("div", "welcome", el("span", "eyebrow", "No story open"), el("h1", "", "Make a place for the next sentence."), el("p", "", "Choose a story from the Library, or create one."), actionButton("welcome-create", "Create story", actions.createStory)));
+    content.append(el("div", "welcome", el("span", "eyebrow", "No story open"), el("h1", "", "Make a place for the next sentence."), el("p", "", "Choose a story from the Library, or create one."), actionButton("welcome-create primary", "Create story", actions.createStory)));
   } else {
     const story = state.story;
     if (state.tab === "write") content.append(renderWriting(story, state, actions));

@@ -43,8 +43,10 @@ test("Electron Map: the stemma, an off-path focus, and the braid strip", { timeo
     assert.ok(circles >= 3, `expected >= 3 circles in the stemma, got ${circles}`);
 
     // Click the accessible focus button for the off-path (tagged) take —
-    // the same list the pre-stemma map exposed under `.map-focus`.
-    const offPathFocus = page.locator(".map-focus", { hasText: /^focus$/u }).first();
+    // the same list the pre-stemma map exposed under `.map-focus` (R-20: a
+    // row already on the line is a status, not a button, so only the
+    // off-path row's "Show this take" button matches here).
+    const offPathFocus = page.locator(".map-focus", { hasText: "Show this take" }).first();
     await offPathFocus.waitFor({ state: "visible", timeout: 15_000 });
     await offPathFocus.click();
     await page.waitForFunction(() => document.querySelector(".toast")?.textContent?.includes("take 2 of 2") === true, undefined, { timeout: 15_000 });

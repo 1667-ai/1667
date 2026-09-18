@@ -1,6 +1,7 @@
 import type { StoryPayload, StorySummary } from "../shared/types.js";
 import type { SearchHit } from "../shared/story-search.js";
 import { actionButton, bindDraftInput, el } from "./renderer-dom.js";
+import { chip } from "./renderer-controls.js";
 import {
   visibleStories,
   type RendererActions,
@@ -13,8 +14,8 @@ export function renderLibraryDestination(state: RendererState, actions: Renderer
   const library = el("div", "library");
   const heading = el("div", "section-heading");
   heading.append(
-    actionButton("new-story-button", "+ new story", actions.createStory),
-    actionButton("library-import", "Import", actions.importMarkdown)
+    actionButton("new-story-button primary", "+ new story", actions.createStory),
+    actionButton("library-import tertiary", "Import", actions.importMarkdown)
   );
   const search = document.createElement("input");
   search.className = "library-search";
@@ -37,7 +38,6 @@ export function renderLibraryDestination(state: RendererState, actions: Renderer
   if (state.searchBusy) library.append(el("p", "library-hint", "Searching the vault…"));
   if (state.searchHits.length > 0) library.append(renderSearchResults(state.searchHits, actions));
   if (state.story !== null) library.append(renderStorySection(state.story, actions));
-  library.append(renderProjectSection(state, actions));
   return library;
 }
 
@@ -46,10 +46,15 @@ function renderStoryRow(story: StorySummary, active: boolean, actions: RendererA
   row.type = "button";
   row.dataset.preserve = `story-row:${story.id}`;
   row.addEventListener("click", () => actions.selectStory(story.id));
+  const titleRow = el("div", "story-row-title-row", el("span", "story-row-title", story.title));
+  if (story.forked) {
+    const forkedBadge = chip("forked", "wash");
+    forkedBadge.classList.add("story-row-mark");
+    titleRow.append(forkedBadge);
+  }
   row.append(
-    el("span", "story-row-title", story.title),
-    el("span", "story-row-meta", `${story.words.toLocaleString()} words · ${story.partCount} part${story.partCount === 1 ? "" : "s"}`),
-    story.forked ? el("span", "story-row-mark", "forked") : ""
+    titleRow,
+    el("span", "story-row-meta", `${story.words.toLocaleString()} words · ${story.partCount} part${story.partCount === 1 ? "" : "s"}`)
   );
   return row;
 }
@@ -71,13 +76,13 @@ function renderStorySection(story: StoryPayload, actions: RendererActions): HTML
   section.append(el("span", "eyebrow", "Story"));
   const buttons = el("div", "library-section-actions");
   buttons.append(
-    actionButton("rename-story", "Rename", actions.renameStory),
-    actionButton("autoname-story", "Autoname", actions.autonameStory),
-    actionButton("export-story", "Export", actions.exportMarkdown),
-    actionButton("export-archive", "Export archive", () => { void exportArchive(story.id, actions); }),
-    actionButton("import-archive", "Import archive", () => { void importArchive(actions); }),
-    actionButton("import-card", "Import card", actions.importCard),
-    actionButton("import-lorebook", "Import lorebook", actions.importLorebook),
+    actionButton("rename-story tertiary", "Rename", actions.renameStory),
+    actionButton("autoname-story tertiary", "Autoname", actions.autonameStory),
+    actionButton("export-story tertiary", "Export", actions.exportMarkdown),
+    actionButton("export-archive tertiary", "Export archive", () => { void exportArchive(story.id, actions); }),
+    actionButton("import-archive tertiary", "Import archive", () => { void importArchive(actions); }),
+    actionButton("import-card tertiary", "Import card", actions.importCard),
+    actionButton("import-lorebook tertiary", "Import lorebook", actions.importLorebook),
     actionButton("delete-story", "Delete story…", actions.deleteStory, "Delete this story")
   );
   section.append(buttons);
@@ -86,32 +91,13 @@ function renderStorySection(story: StoryPayload, actions: RendererActions): HTML
     tagged.append(el("span", "eyebrow", "Tagged lines"));
     const chips = el("div", "library-section-actions");
     for (const tag of story.tags) {
-      const chip = actionButton("line-tag", `${tag.status || "tag"} · ${tag.name}`, () => actions.switchToTaggedLine(tag.name, tag.nodeId), "Open tagged line");
-      chip.dataset.preserve = `line-tag:${tag.nodeId}`;
-      chips.append(chip);
+      const tagChip = actionButton("line-tag", `${tag.status || "tag"} · ${tag.name}`, () => actions.switchToTaggedLine(tag.name, tag.nodeId), "Open tagged line");
+      tagChip.dataset.preserve = `line-tag:${tag.nodeId}`;
+      chips.append(tagChip);
     }
     tagged.append(chips);
     section.append(tagged);
   }
-  return section;
-}
-
-function renderProjectSection(state: RendererState, actions: RendererActions): HTMLElement {
-  const section = el("section", "library-section");
-  section.append(el("span", "eyebrow", "Project"));
-  if (state.project !== null) section.append(el("p", "project-path", state.project.root));
-  const buttons = el("div", "library-section-actions");
-  buttons.append(actionButton("project-reveal", "Reveal folder", actions.revealProject));
-  buttons.append(actionButton("project-browser", "Projects", () => actions.showProjects(true)));
-  if (state.project?.open === true) {
-    buttons.append(
-      state.project.vault === "sealed"
-        ? actionButton("project-unseal", "Unseal", actions.unsealProject)
-        : actionButton("project-seal", "Seal", actions.sealProject)
-    );
-  }
-  buttons.append(actionButton("refresh-button", "Refresh library", actions.refresh));
-  section.append(buttons);
   return section;
 }
 

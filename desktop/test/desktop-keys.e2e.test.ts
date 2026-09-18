@@ -136,6 +136,21 @@ interface PaletteRow { readonly label: string; readonly key: string }
 async function testPalette(page: Page): Promise<void> {
   await page.keyboard.press(`${shortcut}+k`);
   await page.waitForSelector(".palette", { timeout: 15_000 });
+  // R-24/R-25: the card caps at 640px and the input is the header — no
+  // heading element sits above it.
+  const geometry = await page.evaluate(() => {
+    const card = document.querySelector(".palette-card");
+    const input = card?.querySelector(".palette-input");
+    const heading = card?.querySelector("h1, h2, h3, h4, h5, h6, .popover-title");
+    return {
+      width: card?.getBoundingClientRect().width ?? 0,
+      firstChildIsInput: card?.firstElementChild === input,
+      headingCount: heading === null || heading === undefined ? 0 : 1
+    };
+  });
+  assert.ok(geometry.width <= 640, `the palette card must cap at 640px (was ${geometry.width})`);
+  assert.equal(geometry.headingCount, 0, "the palette card must carry no heading element above the input");
+  assert.ok(geometry.firstChildIsInput, "the palette input must be the card's first element — its own header");
   await page.locator(".palette-input").fill("reta");
   const rows: readonly PaletteRow[] = await page.$$eval(".palette-row", (elements) => elements.map((el) => ({
     label: el.querySelector(".palette-label")?.textContent?.trim() ?? "",

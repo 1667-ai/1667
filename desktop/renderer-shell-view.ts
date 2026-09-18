@@ -1,5 +1,6 @@
 import { rememberedLeafId } from "../shared/story-model.js";
 import { actionButton, el } from "./renderer-dom.js";
+import { RAIL_ICONS } from "./renderer-icons.js";
 import {
   activeLeaf,
   storyChapters,
@@ -89,21 +90,25 @@ function renderTitlebarActions(state: RendererState, actions: RendererActions): 
 
 interface RailEntry {
   readonly tab: RendererTab;
-  readonly glyph: string;
   readonly label: string;
   readonly shortcut: string;
 }
 
 const RAIL_ENTRIES: readonly RailEntry[] = [
-  { tab: "library", glyph: "≡", label: "Library", shortcut: "⌘1" },
-  { tab: "write", glyph: "¶", label: "Write", shortcut: "⌘2" },
-  { tab: "facts", glyph: "F", label: "Facts", shortcut: "⌘3" },
-  { tab: "chapters", glyph: "§", label: "Chapters", shortcut: "⌘4" },
-  { tab: "map", glyph: "⑂", label: "Map", shortcut: "⌘5" },
-  { tab: "inspect", glyph: "⊙", label: "Inspect", shortcut: "⌘6" }
+  { tab: "library", label: "Library", shortcut: "⌘1" },
+  { tab: "write", label: "Write", shortcut: "⌘2" },
+  { tab: "facts", label: "Facts", shortcut: "⌘3" },
+  { tab: "chapters", label: "Chapters", shortcut: "⌘4" },
+  { tab: "map", label: "Map", shortcut: "⌘5" },
+  { tab: "inspect", label: "Inspect", shortcut: "⌘6" }
 ];
 
-const SETTINGS_ENTRY: RailEntry = { tab: "settings", glyph: ",", label: "Settings", shortcut: "⌘," };
+const SETTINGS_ENTRY: RailEntry = { tab: "settings", label: "Settings", shortcut: "⌘," };
+
+/** Every destination the rail draws, top group then Settings. The icon
+ * coverage guard in `desktop-rail-icons.test.ts` checks this against
+ * `RAIL_ICONS`'s keys. */
+export const RAIL_DESTINATIONS: readonly RendererTab[] = [...RAIL_ENTRIES, SETTINGS_ENTRY].map((entry) => entry.tab);
 
 /** Destination rail D-02: icons only, fixed order, Settings pinned bottom. */
 export function renderRail(state: RendererState, actions: RendererActions): HTMLElement {
@@ -115,8 +120,15 @@ export function renderRail(state: RendererState, actions: RendererActions): HTML
   return rail;
 }
 
+/** Each button carries its icon as an inline SVG (R-03) instead of the old
+ * uniform-size text glyph — `actionButton` sets `textContent`, so the button
+ * is built directly here and the icon appended after. */
 function renderRailButton(entry: RailEntry, state: RendererState, actions: RendererActions): HTMLButtonElement {
-  const button = actionButton(`tab-${entry.tab}`, entry.glyph, () => actions.setTab(entry.tab));
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = `button tab-${entry.tab}`;
+  button.append(RAIL_ICONS[entry.tab]());
+  button.addEventListener("click", () => actions.setTab(entry.tab));
   button.classList.toggle("active", state.tab === entry.tab);
   button.setAttribute("aria-label", `${entry.label} ${entry.shortcut}`);
   button.title = `${entry.label} ${entry.shortcut}`;

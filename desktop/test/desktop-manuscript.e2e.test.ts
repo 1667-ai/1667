@@ -142,12 +142,13 @@ async function testRetakeAndGauge(page: Page): Promise<void> {
   assert.match(await page.locator(".toast").innerText(), /take 1 of 2/u);
 }
 
-// 4. Composer: rest hint reads `Empty ↵ continues`; typing shows the
-// `CONTINUE ·` eyebrow; the direct mode button shows `DIRECT ·`; ⌘/Ctrl+Enter
-// sends and the streaming part shows a caret; Escape stops it.
+// 4. Composer: rest hint reads `Type a direction, or press ↵ to continue.`;
+// typing shows the `CONTINUE ·` eyebrow; the direct mode button shows
+// `DIRECT ·`; ⌘/Ctrl+Enter sends and the streaming part shows a caret;
+// Escape stops it.
 async function testComposerStates(page: Page): Promise<void> {
   const placeholder = await page.locator(".composer-input").getAttribute("placeholder");
-  assert.match(placeholder ?? "", /Empty ↵ continues/u);
+  assert.match(placeholder ?? "", /press ↵ to continue/u);
   const input = page.locator(".composer-input");
   await input.click();
   await input.fill("A new direction for the next part.");

@@ -25,6 +25,10 @@ export interface MinimapGeometry {
   /** Fractions, at each part's midpoint, where that part has at least one
    * off-path take (another take that left the line). */
   readonly forkFractions: readonly number[];
+  /** R-19: one mark per part, at its midpoint — draws the current line
+   * itself along the strip (a hairline with a notch per part) instead of a
+   * bar that reads as empty for a short story. Length always `totalParts`. */
+  readonly partFractions: readonly number[];
 }
 
 function clamp01(value: number): number {
@@ -62,7 +66,9 @@ export function computeMinimapGeometry(story: StoryPayload): MinimapGeometry {
   }
 
   const forkFractions: number[] = [];
+  const partFractions: number[] = [];
   for (let index = 0; index < path.length; index += 1) {
+    partFractions.push(fractionMid(index));
     const kids = childrenByParent.get(path[index]!.id) ?? [];
     // Index 0 also collects root-level siblings (an alternate root take has
     // `parentId: null`, the same key `path[0]` itself sits under) — mirrors
@@ -72,7 +78,7 @@ export function computeMinimapGeometry(story: StoryPayload): MinimapGeometry {
     if (hasOffPath) forkFractions.push(fractionMid(index));
   }
 
-  return { totalParts: path.length, cumulative, chapterTicks, forkFractions };
+  return { totalParts: path.length, cumulative, chapterTicks, forkFractions, partFractions };
 }
 
 /** The part index (0-based, into `story.path`) at a fraction along the

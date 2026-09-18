@@ -307,6 +307,13 @@ export interface RendererState {
    * and whenever the writer enters Map, so entering always centres on the
    * focused part. */
   readonly mapCenterPartId: string | null;
+  /** D-34/R-18: the part id a click on the lens wash pinned it to — a pinned
+   * lens ignores the pointer and the map cursor until a second click on the
+   * wash or Escape unpins it (`renderer-keys-controller.ts`'s peel order).
+   * `null` (the default) is the normal "follows the pointer" lens. Resets
+   * wherever `mapCursorId` already resets, and whenever the writer enters
+   * Map, so a pin never survives to a story or window it was not made in. */
+  readonly mapLensPinnedPartId: string | null;
   readonly popover: DesktopPopover | null;
   /** Which Settings 2c left-nav sheet is showing. Not persisted; a fresh
    * launch always opens on Routes. */
@@ -367,6 +374,7 @@ export const INITIAL_STATE: RendererState = {
   inspectorHidden: savedDesktopInspectorHidden(),
   mapCursorId: null,
   mapCenterPartId: null,
+  mapLensPinnedPartId: null,
   popover: null,
   settingsSection: "routes",
   log: []
@@ -390,6 +398,7 @@ export interface RendererActions {
   readonly setInspectorHidden: (hidden: boolean) => void;
   readonly setMapCursor: (id: string | null) => void;
   readonly setMapCenter: (id: string | null) => void;
+  readonly pinMapLens: (partId: string | null) => void;
   readonly openKeys: () => void;
   readonly openPalette: (group?: DesktopCommandGroup) => void;
   readonly openPartMenu: (partId: string) => void;

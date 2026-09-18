@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, editPart, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary, goToProjectSettings, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -46,7 +46,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await page.locator(".stream-stop").click();
     await page.waitForSelector(".stopped-generation", { timeout: 30_000 });
 
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.waitForSelector(".recent-project", { timeout: 15_000 });
@@ -87,7 +87,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await part.fill("Unsaved part text");
     await page.locator(".composer-input").fill("Unsaved composer direction");
 
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     assert.equal(await page.getByRole("button", { name: "Back to story" }).count(), 1);
@@ -102,7 +102,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     assert.equal(await page.locator(".part-text").last().inputValue(), "Unsaved part text");
     assert.equal(await page.locator(".composer-input").inputValue(), "Unsaved composer direction");
 
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-seal").click();
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });
     await page.locator(".modal-cancel").click();
@@ -128,7 +128,7 @@ test("Electron guards active generation, seal cancellation, and display choices"
     await openSettingsSection(page, "output");
     const settingsDraft = page.locator('[data-settings-field="profile.maxOutputTokens"]');
     await settingsDraft.fill("654");
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.waitForSelector(".recent-project", { timeout: 15_000 });
@@ -251,7 +251,7 @@ test("Electron keeps a new direction typed during successful generation", { time
     await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".composer-input").inputValue(), "Write the next passage after this one.");
 
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.locator(".recent-project").first().click();
@@ -421,7 +421,7 @@ test("Electron keeps newer part text after a delayed save and rerender", { timeo
     await page.waitForSelector(".composer-input", { timeout: 15_000 });
     assert.equal(await page.locator(".manuscript-part").last().locator(".part-prose").innerText(), newer);
 
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.waitForSelector(".recent-project", { timeout: 15_000 });
@@ -602,7 +602,7 @@ test("Electron retains drafts after a refused project open and guards hidden par
     await app.evaluate(({ dialog }, selected) => {
       dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [selected] });
     }, plainDir);
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.getByRole("button", { name: "Open project folder" }).click();
     await page.waitForSelector('.modal-card[aria-label="Discard unsaved edits?"]', { timeout: 15_000 });

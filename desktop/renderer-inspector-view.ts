@@ -1,7 +1,7 @@
 import type { StoryPathNode, StoryPayload } from "../shared/types.js";
 import { effectiveFactAtPath } from "../shared/fact-state.js";
 import { rememberedLeafId } from "../shared/story-model.js";
-import { actionButton, bindDraftInput, el } from "./renderer-dom.js";
+import { actionButton, bindDraftInput, el, resizeTextarea } from "./renderer-dom.js";
 import { scalar } from "./renderer-controls.js";
 import { renderRequestContext } from "./renderer-context.js";
 import {
@@ -16,11 +16,21 @@ import {
 
 const COLLAPSED_STORAGE_KEY = "1667.desktop.inspector-collapsed";
 
+/** R-33/34: the docked inspector (<= 960px, DESIGN_SPEC.md §9) opens only
+ * Takes and Facts in force; the rest starts collapsed until a writer opens
+ * one, at which point that choice is what persists (this default never
+ * overwrites a saved choice — it only fills in when there is none yet). */
+const DOCKED_DEFAULT_COLLAPSED: readonly string[] = ["aside", "authors-note", "author-brief", "context"];
+
 function loadCollapsedSections(): Set<string> {
   if (typeof localStorage === "undefined") return new Set();
   try {
     const raw = localStorage.getItem(COLLAPSED_STORAGE_KEY);
-    const parsed: unknown = raw === null ? [] : JSON.parse(raw);
+    if (raw === null) {
+      const docked = typeof window !== "undefined" && window.innerWidth <= 960;
+      return new Set(docked ? DOCKED_DEFAULT_COLLAPSED : []);
+    }
+    const parsed: unknown = JSON.parse(raw);
     return new Set(Array.isArray(parsed) ? parsed.filter((value): value is string => typeof value === "string") : []);
   } catch {
     return new Set();
@@ -148,14 +158,23 @@ function renderFactsInForceSection(story: StoryPayload, focusedIndex: number, ac
   return inspectorSection("facts", "Facts in force", chips.length, chips);
 }
 
+/** The question field starts at one line and grows with its content to a
+ * sensible cap (`.aside-question`'s own `max-height`, scrolling beyond it),
+ * rather than opening at a fixed multi-line height regardless of content. */
+const ASIDE_QUESTION_MIN_HEIGHT = 38;
+
 function renderAsideSection(state: RendererState, actions: RendererActions): HTMLElement {
   const asideQuestion = document.createElement("textarea");
   asideQuestion.className = "rail-textarea aside-question";
   asideQuestion.dataset.preserve = "aside-question";
   asideQuestion.value = state.drafts["aside-question"] ?? state.aside.question;
   asideQuestion.placeholder = "Ask about the manuscript…";
-  asideQuestion.rows = 3;
-  bindDraftInput(asideQuestion, () => actions.setDraft("aside-question", asideQuestion.value));
+  asideQuestion.rows = 1;
+  bindDraftInput(asideQuestion, () => {
+    actions.setDraft("aside-question", asideQuestion.value);
+    resizeTextarea(asideQuestion, ASIDE_QUESTION_MIN_HEIGHT);
+  });
+  queueMicrotask(() => resizeTextarea(asideQuestion, ASIDE_QUESTION_MIN_HEIGHT));
   const asideAction = state.aside.busy
     ? actionButton("aside-stop", "Stop", actions.stopAside)
     : actionButton("aside-ask", "Ask Aside", () => actions.askAside(asideQuestion.value));
@@ -244,7 +263,11 @@ function renderAsideSessions(state: RendererState, actions: RendererActions): HT
   picker.addEventListener("change", () => {
     actions.selectAsideSession(picker.value);
   });
-  wrapper.append(el("label", "aside-anchor-label", "History", anchorPicker), el("label", "aside-session-label", "Session", picker));
+  // R-05: two compact selects on one row, not two stacked full-width ones.
+  wrapper.append(el("div", "aside-history-row",
+    el("label", "aside-anchor-label", "History", anchorPicker),
+    el("label", "aside-session-label", "Session", picker)
+  ));
   const session = state.aside.sessions.find((candidate) => candidate.id === state.aside.selectedSessionId);
   const lastAnswer = session?.turns.at(-1)?.a;
   if (state.aside.answer.length > 0 && (state.aside.busy || state.aside.answer !== lastAnswer)) {

@@ -347,3 +347,113 @@ test("a windowed story with many deep off-path chains and a lens still stays wit
   const withoutLens = computeMapLayout(fixture, "p200");
   assert.deepEqual([withoutLens.windowStart, withoutLens.windowEnd], [layout.windowStart, layout.windowEnd], "the lens does not change the drawn window");
 });
+
+// Phase C: the map reads at pane size (R-17…R-19).
+
+function onPathXs(layout: ReturnType<typeof computeMapLayout>): number[] {
+  return layout.nodes.filter((node) => node.onPath).sort((a, b) => a.x - b.x).map((node) => node.x);
+}
+
+test("the spine sits centred vertically in the drawn height, with or without a pane width (R-17)", () => {
+  const nodes: OrdinaryNodeStub[] = [stub("p1", null, 5, { childCount: 6 })];
+  for (let index = 0; index < 6; index += 1) nodes.push(stub(`sib${index}`, "p1", 2, { childCount: 0 }));
+  const fixture = story({ nodes, path: [pathNode("p1", null, 5), pathNode("sib0", "p1", 2)] });
+  for (const layout of [computeMapLayout(fixture, "sib0"), computeMapLayout(fixture, "sib0", { paneWidth: 900 })]) {
+    const spineY = layout.nodes.find((node) => node.onPath)!.y;
+    assert.equal(spineY, layout.height - spineY, "the spine must sit exactly halfway between the top and bottom of the drawn height");
+  }
+});
+
+test("a pane width scales a short story's spine to fill the pane (R-17)", () => {
+  const nodes: OrdinaryNodeStub[] = [];
+  const path: StoryPathNode[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < 10; index += 1) {
+    const id = `p${index}`;
+    nodes.push(stub(id, parent, 20, { childCount: index === 9 ? 0 : 1 }));
+    path.push(pathNode(id, parent, 20));
+    parent = id;
+  }
+  const fixture = story({ nodes, path });
+  const paneWidth = 900;
+  const layout = computeMapLayout(fixture, "p9", { paneWidth });
+  assert.equal(layout.windowed, false, "a 10-part story fits the ≤120 budget unwindowed");
+  assert.ok(Math.abs(layout.width - paneWidth) < 30, `expected the drawn width (${layout.width}) close to the pane (${paneWidth})`);
+  const xs = onPathXs(layout);
+  for (let index = 1; index < xs.length; index += 1) {
+    const gap = xs[index]! - xs[index - 1]!;
+    assert.ok(gap >= 48 - 1e-6 && gap <= 120 + 1e-6, `expected the per-part gap (${gap}) clamped to [48, 120]`);
+  }
+});
+
+test("a pane width still windows a long story, with every drawn gap clamped to [48, 120] (R-17)", () => {
+  const nodes: OrdinaryNodeStub[] = [];
+  const path: StoryPathNode[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < 400; index += 1) {
+    const id = `p${index}`;
+    nodes.push(stub(id, parent, 3 + (index % 5), { childCount: index === 399 ? 0 : 1 }));
+    path.push(pathNode(id, parent, 3 + (index % 5)));
+    parent = id;
+  }
+  const fixture = story({ nodes, path });
+  const layout = computeMapLayout(fixture, "p200", { paneWidth: 900 });
+  assert.equal(layout.windowed, true);
+  assert.ok(layout.nodes.length + layout.collapsedRuns.length <= DEFAULT_MAP_NODE_BUDGET);
+  const xs = onPathXs(layout);
+  for (let index = 1; index < xs.length; index += 1) {
+    const gap = xs[index]! - xs[index - 1]!;
+    assert.ok(gap >= 48 - 1e-6 && gap <= 120 + 1e-6, `expected the per-part gap (${gap}) clamped to [48, 120]`);
+  }
+});
+
+test("a node inside the lens is magnified and labelled; the same node outside the lens is neither (R-18)", () => {
+  const p1 = pathNode("p1", null, 64);
+  const p2 = pathNode("p2", "p1", 64);
+  const fixture = story({ nodes: [stub("p1", null, 64, { childCount: 1 }), stub("p2", "p1", 64, { childCount: 0 })], path: [p1, p2] });
+  const plain = computeMapLayout(fixture, "p2");
+  const lensed = computeMapLayout(fixture, "p2", { lensIndex: 0 });
+  const plainNode = plain.nodes.find((node) => node.id === "p1")!;
+  const lensedNode = lensed.nodes.find((node) => node.id === "p1")!;
+  assert.ok(lensedNode.r > plainNode.r, `expected the lensed radius (${lensedNode.r}) larger than the plain one (${plainNode.r})`);
+  assert.equal(plainNode.label, undefined, "a node outside any lens carries no label");
+  assert.ok(lensedNode.label !== undefined && lensedNode.label.length > 0, "a node inside the lens carries a short label");
+});
+
+test("the lens widens the gap it spans and compresses the gaps outside it (R-18)", () => {
+  const nodes: OrdinaryNodeStub[] = [];
+  const path: StoryPathNode[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < 6; index += 1) {
+    const id = `p${index}`;
+    nodes.push(stub(id, parent, 20, { childCount: index === 5 ? 0 : 1 }));
+    path.push(pathNode(id, parent, 20));
+    parent = id;
+  }
+  const fixture = story({ nodes, path });
+  // Lens centred on p0: the lens's core span covers indices 0 and 1, so the
+  // p0→p1 gap widens while every later gap (outside the lens) compresses.
+  const layout = computeMapLayout(fixture, "p5", { paneWidth: 900, lensIndex: 0 });
+  const xs = onPathXs(layout);
+  const lensedGap = xs[1]! - xs[0]!;
+  const compressedGap = xs[2]! - xs[1]!;
+  assert.ok(lensedGap > compressedGap, `expected the lensed gap (${lensedGap}) wider than a compressed one (${compressedGap})`);
+  for (let index = 2; index < xs.length; index += 1) {
+    const gap = xs[index]! - xs[index - 1]!;
+    assert.ok(gap >= 48 - 1e-6, `expected the compressed gap (${gap}) to still floor at 48`);
+  }
+});
+
+test("the minimap geometry carries one mark per part (R-19)", () => {
+  const p0 = pathNode("p0", null, 10);
+  const p1 = pathNode("p1", "p0", 10);
+  const p2 = pathNode("p2", "p1", 10);
+  const fixture = story({
+    nodes: [stub("p0", null, 10, { childCount: 1 }), stub("p1", "p0", 10, { childCount: 1 }), stub("p2", "p1", 10, { childCount: 0 })],
+    path: [p0, p1, p2]
+  });
+  const geometry = computeMinimapGeometry(fixture);
+  assert.equal(geometry.partFractions.length, 3, "one mark per part");
+  assert.deepEqual([...geometry.partFractions], [...geometry.partFractions].sort((a, b) => a - b), "the marks run in part order along the strip");
+  for (const fraction of geometry.partFractions) assert.ok(fraction >= 0 && fraction <= 1);
+});

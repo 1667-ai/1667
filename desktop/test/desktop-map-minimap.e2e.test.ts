@@ -33,11 +33,14 @@ test("Electron Map: the minimap drags the stage, keeps scroll across an unrelate
     await createStory(page, "Minimap story");
 
     // A short first part (so centering it later clamps the stage to
-    // scrollLeft 0, regardless of the panel's exact width) plus 5 long ones,
-    // so the spine is wider than the stage (0.6px/word * ~3 000 words).
-    const longText = "Word ".repeat(650).trim();
+    // scrollLeft 0, regardless of the panel's exact width) plus enough short
+    // ones that the spine still overflows the stage. R-17 scales the spine
+    // to the pane and clamps every gap to at most 120px, so a handful of
+    // long parts no longer forces horizontal scroll the way it used to —
+    // only the part count reliably does, at the 48px minimum gap, 34 gaps
+    // is 1 632px, comfortably past `main.ts`'s 1280px default window.
     await saveManualPart(page, "Start.");
-    for (let index = 1; index < 6; index += 1) await saveManualPart(page, `${longText} ${index}.`);
+    for (let index = 1; index < 35; index += 1) await saveManualPart(page, `Part ${index}.`);
 
     // Focus the first part before entering Map, so entering centres the
     // stage near the start of the line instead of the leaf at the far end —
@@ -61,7 +64,7 @@ test("Electron Map: the minimap drags the stage, keeps scroll across an unrelate
         clientWidth: stage?.clientWidth ?? 0
       };
     });
-    assert.ok(initial.strip !== null, "the minimap strip must render for a 6-part story");
+    assert.ok(initial.strip !== null, "the minimap strip must render for this story");
     assert.ok(initial.rect !== null, "the minimap viewport rectangle must render");
     const strip = initial.strip as Box;
     const rect = initial.rect as Box;
