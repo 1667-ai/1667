@@ -94,6 +94,16 @@ test("Electron controls: a Desktop theme swatch sets the theme and its own type"
     await page.waitForSelector(".part-prose", { timeout: 15_000 });
     const fontFamily = await page.evaluate(() => getComputedStyle(document.querySelector(".part-prose")!).fontFamily);
     assert.match(fontFamily, /Georgia/u);
+
+    // The three named families ship with the application. Without them a
+    // machine that lacks them falls back to a system face and every theme
+    // renders the same type.
+    const loaded = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return ["IBM Plex Sans", "Literata", "JetBrains Mono"]
+        .filter((family) => !document.fonts.check(`16px "${family}"`));
+    });
+    assert.deepEqual(loaded, [], "every bundled family must load in the packaged app");
   } finally {
     await teardown(app);
   }

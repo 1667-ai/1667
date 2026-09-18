@@ -19,6 +19,7 @@ export function buildApp(): void {
     "renderer/index.html",
     "renderer/renderer.js",
     "renderer/renderer.css",
+    "renderer/fonts",
     "docs/assets/1667-rainbow.svg",
     "LICENSE",
     "NOTICE",
@@ -30,7 +31,8 @@ export function buildApp(): void {
   ]) {
     const target = path.join(DESKTOP_ROOT, "app", relative);
     const stat = lstatOrNull(target);
-    const directory = relative === "host" || relative === "client" || relative === "shared";
+    const directory = relative === "host" || relative === "client" || relative === "shared"
+      || relative === "renderer/fonts";
     if (stat === null || stat.isDirectory() !== directory) {
       throw new Error(`Desktop application is missing app/${relative}`);
     }

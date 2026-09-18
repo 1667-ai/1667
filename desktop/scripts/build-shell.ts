@@ -77,6 +77,15 @@ export function buildShell(): void {
     logLevel: "warning"
   });
 
+  // The bundled woff2 faces sit beside the stylesheet that names them, so
+  // `url("fonts/...")` resolves the same in the app tree as in source.
+  const fontsSource = path.join(DESKTOP_ROOT, "fonts");
+  const fontsTarget = path.join(RENDERER_ROOT, "fonts");
+  mkdirSync(fontsTarget, { recursive: true });
+  for (const file of readdirSync(fontsSource)) {
+    copyFileSync(path.join(fontsSource, file), path.join(fontsTarget, file));
+  }
+
   copyFileSync(html, path.join(RENDERER_ROOT, "index.html"));
   copyFileSync(css, path.join(RENDERER_ROOT, "renderer.css"));
   copyFileSync(mark, path.join(APP_ROOT, "docs", "assets", "1667-rainbow.svg"));
