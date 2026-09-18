@@ -246,6 +246,22 @@ test("Electron controls: the inspector hides on Library and Settings, a section 
       });
     });
     assert.equal(overlap, false, "the composer must never overlap a .part-prose box at 960px");
+
+    // The gap between parts is the part toolbar's own band: a smaller gap
+    // puts the toolbar over the prose above or below it, which is what the
+    // design review caught.
+    await page.locator(".manuscript-part").first().locator(".part-prose").click();
+    await page.waitForFunction(() => document.querySelector(".manuscript-part.focused .part-toolbar") !== null, undefined, { timeout: 10_000 });
+    const toolbarOverlap = await page.evaluate(() => {
+      const toolbar = document.querySelector(".manuscript-part.focused .part-toolbar")?.getBoundingClientRect();
+      if (toolbar === undefined) return true;
+      return [...document.querySelectorAll(".part-prose")].some((part) => {
+        const box = part.getBoundingClientRect();
+        return toolbar.top < box.bottom && toolbar.bottom > box.top
+          && toolbar.left < box.right && toolbar.right > box.left;
+      });
+    });
+    assert.equal(toolbarOverlap, false, "the focused part's toolbar must never cover prose");
   } finally {
     await teardown(app);
   }
