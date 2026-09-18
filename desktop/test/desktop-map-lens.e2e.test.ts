@@ -155,13 +155,19 @@ test("Electron Map: a click pins the fisheye lens; a re-render and the pointer l
       const rect = circle.getBoundingClientRect();
       return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
     });
-    await hoverUntilLens(page, forkBox);
+    // A hover lens lasts until the next full re-render, and a background
+    // story refresh can land between the hover and the measurement, so hover
+    // again until the wash is actually there to measure.
+    let lensBox: { x: number; y: number; width: number; height: number } | null = null;
+    for (let attempt = 0; attempt < 4 && lensBox === null; attempt += 1) {
+      await hoverUntilLens(page, forkBox);
+      lensBox = await page.locator("rect.map-lens").boundingBox();
+    }
+    assert.ok(lensBox !== null, "the lens wash must have a bounding box");
     const openedCount = await page.evaluate(() => document.querySelectorAll("circle.map-node.off-path").length);
 
     // Click near the top edge of the wash — inside it, but clear of any node
     // or edge drawn over its middle — to pin the lens.
-    const lensBox = await page.locator("rect.map-lens").boundingBox();
-    assert.ok(lensBox !== null, "the lens wash must have a bounding box");
     await page.mouse.click(lensBox!.x + lensBox!.width / 2, lensBox!.y + 4);
     await page.waitForSelector("rect.map-lens.pinned", { timeout: 15_000 });
 
