@@ -478,3 +478,23 @@ test("the lens anchors the part under the pointer instead of sliding it away", (
   assert.equal(xOf(lensed, "p12"), xOf(plain, "p12"));
   assert.equal(xOf(lensed, "p5"), xOf(plain, "p5"));
 });
+
+test("a pane-scaled spine never draws wider than its pane", () => {
+  const nodes: OrdinaryNodeStub[] = [];
+  const path: StoryPathNode[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < 12; index += 1) {
+    const id = `p${index}`;
+    nodes.push(stub(id, parent, 400, { childCount: index === 11 ? 0 : 1 }));
+    path.push(pathNode(id, parent, 400));
+    parent = id;
+  }
+  const fixture = story({ nodes, path });
+  for (const paneWidth of [640, 900, 1200]) {
+    const layout = computeMapLayout(fixture, "p6", { paneWidth });
+    assert.ok(
+      layout.width <= paneWidth + 0.5,
+      `a ${paneWidth}px pane drew ${layout.width}px, which leaves a permanent scrollbar`
+    );
+  }
+});

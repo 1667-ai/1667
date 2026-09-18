@@ -34,6 +34,9 @@ const PANE_MAX_GAP = 120;
 const ROW_HEIGHT = 34;
 const COLD_MS = 21 * 24 * 60 * 60 * 1000;
 const MARGIN_X = 24;
+/** `nodeRadius` clamps to this, so it is the widest a node draws past its
+ *  own centre. */
+const MAX_NODE_RADIUS = 14;
 const MARGIN_Y = 24;
 /** Where a shown branch's own node (or the first node of an opened chain)
  * sits, right of its spine parent. */
@@ -160,7 +163,7 @@ function clamp(value: number, min: number, max: number): number {
 }
 
 function nodeRadius(words: number): number {
-  return Math.min(14, Math.max(4, Math.sqrt(Math.max(0, words))));
+  return Math.min(MAX_NODE_RADIUS, Math.max(4, Math.sqrt(Math.max(0, words))));
 }
 
 /** D-34: a node inside the lens reads legibly larger than the rest (R-18).
@@ -355,7 +358,10 @@ export function computeMapLayout(
     let paneScale = 0;
     if (paneWidth !== undefined) {
       const boundaryOffset = (lo > 0 ? 40 : 0) + (hi < path.length ? 40 : 0);
-      const available = Math.max(0, paneWidth - MARGIN_X * 2 - boundaryOffset);
+      // The rightmost node draws its own radius past its centre, so the pane
+      // has to hold that too; otherwise the stage keeps a few-pixel
+      // horizontal scrollbar on platforms with classic scrollbars.
+      const available = Math.max(0, paneWidth - MARGIN_X * 2 - boundaryOffset - MAX_NODE_RADIUS);
       let totalGapWords = 0;
       for (let index = lo + 1; index < hi; index += 1) totalGapWords += Math.max(1, nodeStubById.get(path[index]!.id)?.words ?? 0);
       paneScale = totalGapWords > 0 ? available / totalGapWords : 0;
