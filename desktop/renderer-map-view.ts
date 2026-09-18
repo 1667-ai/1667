@@ -469,7 +469,10 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
   // R-17: the stage the previous render left mounted (if any) is still the
   // best guess for how wide this one will be — measuring `stage` itself
   // this early would always read 0, since it has not been attached yet.
-  const paneWidth = currentPaneWidth();
+  // Mutable: the post-mount measurement below corrects this guess, and the
+  // pointer handlers must draw at the corrected width too. Leaving them on
+  // the guess redraws the whole spine at another scale on the first hover.
+  let paneWidth = currentPaneWidth();
   const layout = layoutFor(story, focusedId, state.mapCenterPartId, lensIndex, paneWidth);
   // Tracks whichever layout is currently drawn in `stage` — the pointer
   // handlers below replace this (and only this) when a hover swaps the SVG
@@ -535,6 +538,7 @@ export function renderMap(story: StoryPayload, state: RendererState, actions: Re
     // itself instead of the lens.
     const measuredWidth = stage.clientWidth;
     if (measuredWidth > 0 && (paneWidth === undefined || Math.abs(measuredWidth - paneWidth) > 1)) {
+      paneWidth = measuredWidth;
       const corrected = layoutFor(story, focusedId, state.mapCenterPartId, lensIndex, measuredWidth);
       if (corrected !== layoutRef) {
         const svg = stage.querySelector<SVGSVGElement>("svg.stemma");

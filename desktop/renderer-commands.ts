@@ -339,8 +339,7 @@ const TAKE_COMMANDS: readonly DesktopCommand[] = [
     id: "take.open-aside", group: "Take", label: "Ask Aside", binding: "navAside",
     available: hasStory, handles: { mode: "NAV", action: "open-aside" },
     run: (ctx) => {
-      if (ctx.state.inspectorHidden) ctx.actions.setInspectorHidden(false);
-      ctx.focusInspectorSection("aside");
+      revealInspectorFrom(ctx, "aside");
       document.querySelector<HTMLTextAreaElement>(".aside-question")?.focus();
     }
   },
@@ -425,11 +424,19 @@ const TAKE_COMMANDS: readonly DesktopCommand[] = [
     id: "take.toggle-context", group: "Take", label: "Show context details", binding: "navToggleContext",
     available: hasStory, handles: { mode: "NAV", action: "toggle-context-meter" },
     run: (ctx) => {
-      if (ctx.state.inspectorHidden) ctx.actions.setInspectorHidden(false);
-      ctx.focusInspectorSection("context");
+      revealInspectorFrom(ctx, "context");
     }
   }
 ];
+
+/** The inspector does not exist on Library or Settings (R-05), so a command
+ * that reveals one of its sections has to leave those destinations first.
+ * Without this the command runs, closes the palette, and nothing happens. */
+function revealInspectorFrom(ctx: DesktopCommandContext, key: string): void {
+  if (ctx.state.tab === "library" || ctx.state.tab === "settings") ctx.actions.setTab("write");
+  if (ctx.state.inspectorHidden) ctx.actions.setInspectorHidden(false);
+  ctx.focusInspectorSection(key);
+}
 
 const KEY_COMMANDS: readonly DesktopCommand[] = [...NAV_COMMANDS, ...TAKE_COMMANDS];
 

@@ -262,6 +262,17 @@ test("Electron controls: the inspector hides on Library and Settings, a section 
       });
     });
     assert.equal(toolbarOverlap, false, "the focused part's toolbar must never cover prose");
+
+    // The inspector is gone on Library, so a command that opens one of its
+    // sections has to bring the writer back to a destination that has one.
+    await page.locator(".tab-library").click();
+    await page.waitForSelector(".tab-content.library", { timeout: 15_000 });
+    await page.keyboard.press("a");
+    await page.waitForFunction(
+      () => document.querySelector(".tab-content.write") !== null && document.querySelector(".aside-question") !== null,
+      undefined,
+      { timeout: 15_000 }
+    );
   } finally {
     await teardown(app);
   }
