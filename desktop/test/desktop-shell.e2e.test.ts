@@ -41,6 +41,7 @@ test("Electron shell: grid geometry, breadcrumb truncation, themes, shortcuts, a
     await testShortcuts(page);
     await testSettingsAttention(page);
     await testFocusedPart(page);
+    await testRailIcons(page);
   } finally {
     await closeDesktopApp(app);
     await rm(directory, { recursive: true, force: true });
@@ -57,13 +58,13 @@ async function createStory(page: Page, title: string): Promise<void> {
 }
 
 // 1. At 1440x900 the titlebar is 44px tall, the rail 56px wide, the inspector
-// 320px wide.
+// 360px wide.
 async function test1440Geometry(app: ElectronApplication, page: Page): Promise<void> {
   await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1440, 900));
   const { titlebar, rail, inspector } = await measure(page, 1440, [".titlebar", ".rail", ".inspector"]);
   assert.equal(Math.round(titlebar!.height), 44, "titlebar must be 44px tall");
   assert.equal(Math.round(rail!.width), 56, "rail must be 56px wide");
-  assert.equal(Math.round(inspector!.width), 320, "inspector must be 320px wide at 1440");
+  assert.equal(Math.round(inspector!.width), 360, "inspector must be 360px wide at 1440");
 }
 
 type Box = { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
@@ -268,4 +269,20 @@ async function testFocusedPart(page: Page): Promise<void> {
     { timeout: 15_000 }
   );
   assert.match(await eyebrow.innerText(), /takes at ¶ 1/iu);
+}
+
+// 8. Every rail button draws its destination as an SVG icon (R-03), not the
+// old text glyph.
+async function testRailIcons(page: Page): Promise<void> {
+  const buttons = await page.evaluate(() => {
+    return [...document.querySelectorAll(".rail button")].map((button) => ({
+      hasSvg: button.querySelector("svg") !== null,
+      text: (button.textContent ?? "").trim()
+    }));
+  });
+  assert.ok(buttons.length >= 7, `expected at least 7 rail buttons, found ${buttons.length}`);
+  for (const button of buttons) {
+    assert.ok(button.hasSvg, "every rail button must contain an svg icon");
+    assert.equal(button.text, "", `a rail button must carry no text glyph (found "${button.text}")`);
+  }
 }

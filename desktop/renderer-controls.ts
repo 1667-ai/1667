@@ -8,11 +8,12 @@
 
 import { el } from "./renderer-dom.js";
 
-export type ButtonKind = "primary" | "secondary" | "quiet" | "destructive";
+export type ButtonKind = "primary" | "secondary" | "tertiary" | "destructive";
 
 /** D-15 button — primary (amber fill, one per surface), secondary (outline),
- * quiet (text), destructive (`--ember` text). The key hint renders inside in
- * `--faint`; a disabled button states its reason beside it. */
+ * tertiary (text, `--muted`), destructive (tertiary in `--danger`). The key
+ * hint renders inside as a bordered `--type-meta` chip; a disabled button
+ * states its reason beside it. */
 export function button(
   kind: ButtonKind,
   label: string,
@@ -83,6 +84,13 @@ export interface ScalarConfig {
   /** Shown in the input when blank. Defaults to "provider default", right
    * for a sampling knob; pass something else ("no limit", say) elsewhere. */
   readonly placeholder?: string;
+  /** Law 1 still applies once a scalar's range is wide enough (a token cap
+   * in the hundreds of thousands, say) that a positional handle cannot show
+   * a meaningful position — the track becomes a second, uninformative
+   * "slider" beside the chevrons rather than the shape the law intends.
+   * `false` keeps the stepper (chevrons + typed value) and drops the track.
+   * Defaults to `true` — every other scalar keeps its track unchanged. */
+  readonly track?: boolean;
 }
 
 const DEFAULT_SCALAR_FORMAT = (value: number): string => String(value);
@@ -119,7 +127,7 @@ export function scalar(config: ScalarConfig): HTMLElement {
     input.value = format(steppedScalarValue(currentNumeric(), direction * amount, min, max, step));
     config.onChange(input.value);
   };
-  const stepDown = button("quiet", "‹", undefined, () => step_(-1, false));
+  const stepDown = button("tertiary", "‹", undefined, () => step_(-1, false));
   stepDown.classList.add("scalar-step", "scalar-step-down");
   stepDown.setAttribute("aria-label", "Decrease");
   stepDown.disabled = disabled;
@@ -129,7 +137,7 @@ export function scalar(config: ScalarConfig): HTMLElement {
   // press causes, landing back on itself rather than the first same-class
   // control anywhere on the page.
   stepDown.dataset.preserve = `scalar:${config.id}:down`;
-  const stepUp = button("quiet", "›", undefined, () => step_(1, false));
+  const stepUp = button("tertiary", "›", undefined, () => step_(1, false));
   stepUp.classList.add("scalar-step", "scalar-step-up");
   stepUp.setAttribute("aria-label", "Increase");
   stepUp.disabled = disabled;
@@ -142,6 +150,7 @@ export function scalar(config: ScalarConfig): HTMLElement {
     });
   }
 
+  const showTrack = config.track !== false;
   const track = el("div", "scalar-track");
   const fill = el("div", "scalar-track-fill");
   const tick = el("div", "scalar-track-tick");
@@ -154,6 +163,7 @@ export function scalar(config: ScalarConfig): HTMLElement {
   track.append(fill, tick, handle);
 
   const positionTrack = (): void => {
+    if (!showTrack) return;
     const raw = input.value.trim();
     const parsedRaw = raw.length === 0 ? null : Number(raw);
     const parsed = parsedRaw !== null && Number.isFinite(parsedRaw) ? parsedRaw : null;
@@ -213,7 +223,8 @@ export function scalar(config: ScalarConfig): HTMLElement {
     step_(event.key === "ArrowRight" ? 1 : -1, event.shiftKey);
   });
 
-  wrapper.append(stepDown, input, stepUp, track);
+  wrapper.append(stepDown, input, stepUp, ...(showTrack ? [track] : []));
+  if (!showTrack) wrapper.classList.add("scalar-no-track");
   return wrapper;
 }
 

@@ -85,10 +85,12 @@ function renderPartGutter(
   const draft = state.drafts[`part:${node.id}`];
   const dirty = draft !== undefined && draft !== node.text;
   const waymark = `¶ ${index + 1}${siblings.length > 1 ? ` ×${siblings.length}` : ""}`;
-  gutter.append(el("span", "part-gutter-waymark", waymark));
+  // R-06: the gutter reads as one --type-meta line at rest — the human/edit
+  // pencil shares that line (revealed on hover or focus, see renderer.css)
+  // instead of adding a permanent second row.
   const dirtyMark = el("span", "part-gutter-dirty", "✎");
   dirtyMark.hidden = !(node.human === true || dirty);
-  gutter.append(dirtyMark);
+  gutter.append(el("div", "part-gutter-line", el("span", "part-gutter-waymark", waymark), dirtyMark));
   if (node.role === "summary") gutter.append(el("span", "part-gutter-summary", "◈"));
   if (!focused) return gutter;
   const siblingIndex = siblings.findIndex((candidate) => candidate.id === node.id);
@@ -235,16 +237,16 @@ function renderPartToolbar(story: StoryPayload, state: RendererState, node: Stor
     if (command !== undefined && command.available(ctx)) command.run(ctx);
   };
   const busyTitle = "Writing… · esc stops";
-  const retake = actionButton("part-retake", "Retake r", () => run("take.retake"));
+  const retake = actionButton("part-retake", "Retake", () => run("take.retake"), undefined, "r");
   retake.disabled = state.stream !== null;
   if (retake.disabled) retake.title = busyTitle;
   const rewrite = actionButton("part-rewrite", "Rewrite", () => run("take.rewrite", null, capturedSelectionFor(node.id)));
   rewrite.addEventListener("mousedown", (event) => { event.preventDefault(); captureSelection(node, prose, state); });
   rewrite.disabled = state.stream !== null;
   if (rewrite.disabled) rewrite.title = busyTitle;
-  const direct = actionButton("part-direct", "Direct i", () => run("take.compose", REFERENCE_BINDINGS.navComposeI));
+  const direct = actionButton("part-direct", "Direct", () => run("take.compose", REFERENCE_BINDINGS.navComposeI), undefined, "i");
   const tag = story.tags.find((candidate) => candidate.nodeId === rememberedLeafId(story, node.id));
-  const tagButton = actionButton("part-tag", tag === undefined ? "Tag t" : `tag: ${tag.name}`, () => run("take.tag"));
+  const tagButton = actionButton("part-tag", tag === undefined ? "Tag" : `tag: ${tag.name}`, () => run("take.tag"), undefined, tag === undefined ? "t" : undefined);
   const more = actionButton("part-more", "···", () => actions.openPartMenu(node.id));
   more.setAttribute("aria-label", "More part actions");
   more.addEventListener("mousedown", (event) => { event.preventDefault(); captureSelection(node, prose, state); });

@@ -71,11 +71,18 @@ gives the Renderer one `MessagePort` for the active project. The Renderer builds
 one Client facade for that port.
 
 `renderer-controls.ts` holds the shared controls every destination uses: a
-button (four kinds — primary, secondary, quiet, destructive), a segmented
-choice of up to four options, a settable number with chevrons and a track, a
-labeled field, a text area, a select, a chip, and a two-word boolean toggle.
-Pick a control by the kind of value it holds, not by how you want it to
-look. The desktop never shows a checkbox, a switch, or a range slider.
+button, a segmented choice of up to four options, a settable number with
+chevrons and a track, a labeled field, a text area, a select, a chip, and a
+two-word boolean toggle. Pick a control by the kind of value it holds, not by
+how you want it to look. The desktop never shows a checkbox, a switch, or a
+range slider.
+
+A button has one of three levels: primary (filled, one per view, the main
+action), secondary (a plain outline, the default), and tertiary (text only).
+A destructive action, such as Remove or Delete story, is a tertiary button in
+the danger color. A mode switch, such as the composer's Continue, Direct, and
+Write it myself, or the Facts scope filter, is a segmented control, not a set
+of buttons.
 
 ### Shell
 
@@ -93,14 +100,19 @@ destination that needs attention: Facts when a consistency check has fresh
 findings, Settings when a revision is pending, and Library when an update is
 available.
 
-A 320px inspector sits at the right. It stays contextual to the focused
-manuscript part and shows six sections in a fixed order: takes at the focused
-part, Facts in force at that part, Aside, Author's Note, Author Brief, and
-the request context. Click a section's header to collapse it to its count;
-a section never disappears completely. In the Takes section, click a take to
-switch to it. ⌥-click a take to compare it with your line instead (see
-"Compare popover" below). Below 960px window width, the
-inspector docks under the main column instead of beside it.
+A 360px inspector sits at the right on Write, Facts, Chapters, Map, and
+Inspect. It stays contextual to the focused manuscript part and shows six
+sections in a fixed order: takes at the focused part, Facts in force at that
+part, Aside, Author's Note, Author Brief, and the request context. Click a
+section's header to collapse it to its count; a section never disappears
+completely, and your open-or-closed choice for each section stays for the
+rest of the session. In the Takes section, click a take to switch to it.
+⌥-click a take to compare it with your line instead (see "Compare popover"
+below). The inspector is hidden on Library and Settings, since those
+destinations use the full width; the rail's own toggle still works on every
+other destination. Below 960px window width, the inspector docks under the
+main column instead of beside it and opens only the Takes and Facts in force
+sections by default.
 
 A toast shows the last status message at the bottom-left of the window. It
 has no timeout. The next click or key press clears it, unless you click the
@@ -139,8 +151,8 @@ Type to filter the list. Use the arrow keys to move through it, `Enter` to
 run the selected command, and `Escape` to close it.
 
 `Escape` peels one layer at a time. It closes an open popover first, then a
-dialog, then a focused field. In Map, it then returns to Write at the same
-focused part.
+dialog, then a focused field. In Map, it then releases a pinned lens. After
+that, it returns to Write at the same focused part.
 
 These chords use `⌘` on macOS and `Ctrl` on Windows and Linux: `⌘1` through
 `⌘6` for the destinations, `⌘,` for Settings, `⌘K` for the command palette,
@@ -150,10 +162,10 @@ focused edit.
 ### Library
 
 The Library destination (`⌘`/`Ctrl` plus `1`) opens, searches, creates,
-imports, renames, exports, and deletes stories. It also holds the project
-path and the Reveal folder, Projects, Seal, Unseal, and Refresh library
-controls. Opening a project with no story selected lands on Library.
-Selecting or creating a story switches to Write.
+imports, renames, exports, and deletes stories. Opening a project with no
+story selected lands on Library. Selecting or creating a story switches to
+Write. The project's own path and its Reveal folder, Switch project, Seal,
+Unseal, and Refresh library controls live in Settings, under Desktop.
 
 ### Write
 
@@ -204,7 +216,7 @@ three nearest tagged lines by where they forked from your line, and a count
 of the rest; click the count to open Map at the focused part.
 
 The composer sits at the bottom of Write. At rest it shows one line: a
-placeholder direction hint, the mode buttons (**Continue**, **Direct**,
+placeholder direction hint, the mode switch (**Continue**, **Direct**,
 **Write it myself**), and the primary button. Typing grows the field and
 shows a title naming the mode. In Continue mode, `↵` sends an empty field.
 `⇧↵` always inserts a newline. Once you type text, `⌘↵` sends it. `Escape`
@@ -217,6 +229,11 @@ focused part is an earlier part, they start a new take there instead. They
 never add text after the last part in that case. When they start a new take,
 focus moves to it, so your next Continue, Direct, or `w` builds on that new
 take instead of starting another one from the same earlier part.
+
+The composer docks at the bottom of the manuscript column above 960px window
+width, so it stays visible while you scroll. Below 960px, it sits in the
+normal flow at the bottom of the column instead, so it never overlaps the
+manuscript above it.
 
 Use the Aside **History** control to select a story position or **Unanchored**
 history. Then select a conversation with **Session**. **New session** starts
@@ -333,6 +350,11 @@ circle's size shows the part's word count. A ring around a circle marks the
 shown take at a fork with more than one take. A diamond marks a summary
 part.
 
+Map spaces the parts to fill the width of the stage, instead of a fixed
+distance per word. A part with more words gets more space before it. The
+space between two parts never drops below 48 pixels or rises above 120
+pixels.
+
 Every other take leaves the spine on a curved, amber-soft line. A take with
 no words and no further takes shows small and faint, with a `✕` label. A
 take untouched for more than three weeks shows faint. A run of takes with
@@ -344,22 +366,33 @@ The map draws at most 120 circles and bars at once. When the story has more
 parts than fit, it shows a window of parts around the focused part and folds
 the parts outside the window into one bar at each end.
 
-Move the pointer over the stage to open a lens. The lens is a dashed band
-that follows the pointer along the spine. Where the lens sits, a folded run
-opens into its separate takes. You can then see and click each take. The
-lens does not move again until the pointer leaves it; this stops the newly
-opened takes from pushing the run out from under the pointer. Move the
-pointer off the stage to close the lens and fold the runs again.
+Move the pointer over the stage to open a lens. The lens is a band that
+follows the pointer along the spine. Where the lens sits, a folded run opens
+into its separate takes, and every part and take in the lens grows larger
+and moves further apart so you can read it. A short label shows under each
+part and take in the lens. The space outside the lens shrinks toward the
+48-pixel minimum, so opening the lens does not make the stage much wider.
+
+Click the lens to pin it in place. A pinned lens stays open when you move
+the pointer away, and it stays open when 1667 redraws the screen for an
+unrelated reason. Click the pinned lens again, or press `Escape`, to release
+it; the lens then follows the pointer again. An unpinned lens does not move
+again until the pointer leaves it; this stops the newly opened takes from
+pushing the run out from under the pointer. Move the pointer off the stage
+to close an unpinned lens and fold the runs again.
 
 While the pointer is off the stage, the arrow keys move a map cursor across
 every part and take instead. When the map cursor lands on a take that has
 left your line, the lens opens where that take's line leaves your line.
 
 Click a circle to focus that take. ⌥-click a circle to compare that take
-with your line instead (see "Compare popover" below). `Escape` returns to
-Write at the same part. Below the map, an accessible list repeats every
-drawn circle and bar as a button, and a Fact lens list repeats every
-anchored Fact State as a button.
+with your line instead (see "Compare popover" below). `Escape` releases a
+pinned lens first; press it again to return to Write at the same part.
+Below the map, an accessible list repeats every drawn circle and bar. A row
+for a part already on your line shows a status glyph and its text, not a
+button. A row for a take that has left your line keeps a button labelled
+"Show this take". A Fact lens list repeats every anchored Fact State as a
+button.
 
 The stage keeps its own scroll position. If you scroll the stage and then
 do something unrelated, Map does not reset your view. When you open Map,
@@ -367,9 +400,10 @@ or when the shown window of parts changes, the stage scrolls so the
 current part sits in the middle.
 
 For a story with 2 or more parts, a minimap strip sits under the stage. The
-strip shows the whole story line to scale by word count. A tick on the
-strip marks a chapter break. A small mark on the strip shows a part with
-other takes. A rectangle on the strip shows which part of the stage you
+strip draws your story line as a thin line, to scale by word count, with a
+small mark for every part. A tick on the strip marks a chapter break. A
+small mark on the strip shows a part with other takes. A larger mark shows
+the current part. A rectangle on the strip shows which part of the stage you
 can see.
 
 Drag the rectangle to move your view. Click the strip outside the
@@ -428,7 +462,9 @@ limit, reasoning effort and display, and the prompt cache policy. Writing
 prompts holds the prompts the Renderer sends for prose, titles, summaries,
 rewrites, and Aside. Story tools holds the story's Facts budget and the
 buttons that open phrase bias and banned strings for the open story. Desktop
-holds the theme picker and the directions toggle.
+holds the theme picker, the directions toggle, and the Project block: the
+open project's path, and its Reveal folder, Switch project, Seal or Unseal,
+and Refresh library controls.
 
 A settable number — temperature, a token limit, a timeout — shows as
 `‹ value ›` with a track underneath. Click the chevrons, or press the arrow

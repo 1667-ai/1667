@@ -6,7 +6,7 @@
  * only adds the popped-out chrome (header, hop strip, per-turn "Use…"). */
 import type { AsidePresenceAnchorResponse } from "../shared/aside-transport.js";
 import type { AsideAnchorView, AsideSessionAnchor } from "../tui/src/aside-surface.js";
-import { actionButton, bindDraftInput, el } from "./renderer-dom.js";
+import { actionButton, bindDraftInput, el, resizeTextarea } from "./renderer-dom.js";
 import { expandInspectorSection } from "./renderer-inspector-view.js";
 import {
   asideHopEntries,
@@ -230,12 +230,16 @@ function renderQuestionRow(state: RendererState, actions: RendererActions): HTML
   // instead of typing. The draft VALUE still comes from the shared
   // "aside-question" key so both fields show the same text.
   const question = document.createElement("textarea");
-  question.className = "aside-question";
+  question.className = "rail-textarea aside-question";
   question.dataset.preserve = "aside-question-popover";
   question.value = state.drafts["aside-question"] ?? state.aside.question;
   question.placeholder = "Ask about the manuscript…";
-  question.rows = 3;
-  bindDraftInput(question, () => actions.setDraft("aside-question", question.value));
+  question.rows = 1;
+  bindDraftInput(question, () => {
+    actions.setDraft("aside-question", question.value);
+    resizeTextarea(question, 38);
+  });
+  queueMicrotask(() => resizeTextarea(question, 38));
   const ask = state.aside.busy
     ? actionButton("aside-stop", "Stop", actions.stopAside)
     : actionButton("aside-ask", "Ask ⌘↵", () => actions.askAside(question.value));

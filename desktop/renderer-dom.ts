@@ -37,12 +37,15 @@ export function focusPopoverCard(popover: HTMLElement): void {
   queueMicrotask(() => card.focus());
 }
 
-export function actionButton(className: string, label: string, action: () => void, title?: string): HTMLButtonElement {
+/** `key`, when given, renders as a bordered `.key-hint` chip after the label
+ * (R-26) instead of being folded into the label text (a stray "Retake r"). */
+export function actionButton(className: string, label: string, action: () => void, title?: string, key?: string): HTMLButtonElement {
   const button = document.createElement("button");
   button.type = "button";
   button.className = `button ${className}`;
   button.textContent = label;
   if (title !== undefined) button.title = title;
+  if (key !== undefined) button.append(el("span", "key-hint", key));
   button.addEventListener("click", action);
   return button;
 }
@@ -55,10 +58,10 @@ export function bindDraftInput(control: HTMLInputElement | HTMLTextAreaElement, 
   control.addEventListener("compositionend", commit);
 }
 
-export function resizeTextarea(text: HTMLTextAreaElement): void {
+export function resizeTextarea(text: HTMLTextAreaElement, minHeight = 88): void {
   if (!text.isConnected) return;
   text.style.height = "auto";
-  text.style.height = `${Math.max(88, text.scrollHeight)}px`;
+  text.style.height = `${Math.max(minHeight, text.scrollHeight)}px`;
 }
 
 /** The eyebrow + serif title + description heading every list-style

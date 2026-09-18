@@ -148,6 +148,7 @@ class RendererApp {
     setInspectorHidden: (hidden) => this.setInspectorHidden(hidden),
     setMapCursor: (id) => this.setState({ mapCursorId: id }),
     setMapCenter: (id) => this.setState({ mapCenterPartId: id }),
+    pinMapLens: (partId) => this.setState({ mapLensPinnedPartId: partId }),
     openKeys: () => this.setState({ popover: { kind: "keys" } }),
     openPalette: (group) => this.setState({ popover: { kind: "palette", query: "", group: group ?? null } }),
     openPartMenu: (partId) => this.setState({ popover: { kind: "part-menu", partId } }),
@@ -528,7 +529,7 @@ class RendererApp {
     // (D-35): a stale minimap target from a previous visit must not carry
     // over and silently window somewhere else.
     const enteringMap = tab === "map" && this.state.tab !== "map";
-    this.setState({ tab, ...(enteringMap ? { mapCenterPartId: null } : {}) });
+    this.setState({ tab, ...(enteringMap ? { mapCenterPartId: null, mapLensPinnedPartId: null } : {}) });
     if (tab === "settings" && (this.state.settings === null || this.state.settingsEditor === null)) void this.loadSettings();
   }
 
@@ -649,7 +650,7 @@ class RendererApp {
         return;
       }
       if (!this.canNavigateAway()) return;
-      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, mapCursorId: null, mapCenterPartId: null, composerWriteTarget: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
+      this.setState({ story, error: null, status: "Story loaded", drafts: {}, lineClipboard: null, draftImages: [], searchHits: [], searchBusy: false, aside: emptyAsideState(), factConsistency: null, factConsistencyBusy: false, factConsistencySeen: false, factConsistencyDismissed: [], factEditor: null, focusedPartId: null, editingPartId: null, chapterUndo: null, mapCursorId: null, mapCenterPartId: null, mapLensPinnedPartId: null, composerWriteTarget: null, ...(settingsDirty ? { settingsEditor: this.resetSettingsEditor() } : {}) });
       if (originStory !== null && originImages.length > 0) {
         await this.releaseDraftImages(originStory.id, originImages, api);
       }
@@ -1616,7 +1617,7 @@ class RendererApp {
     const storyChanged = previousStory !== null && previousStory.id !== story.id;
     // A genuinely different story also invalidates the Facts draft (it names
     // no Fact in the new story), the map cursor, and any pending `w` target.
-    this.setState({ story, ...(storyChanged ? { editingPartId: null, factEditor: null, mapCursorId: null, mapCenterPartId: null, composerWriteTarget: null } : {}) });
+    this.setState({ story, ...(storyChanged ? { editingPartId: null, factEditor: null, mapCursorId: null, mapCenterPartId: null, mapLensPinnedPartId: null, composerWriteTarget: null } : {}) });
     const stories = this.state.stories.map((summary) => summary.id === story.id ? {
       ...summary,
       title: story.title,

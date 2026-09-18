@@ -8,6 +8,15 @@ export async function goToLibrary(page: Page): Promise<void> {
   await page.waitForSelector(".tab-content.library", { timeout: 15_000 });
 }
 
+/** The Project block (path, Reveal, Switch project, Seal/Unseal, Refresh
+ * library) moved from the Library to Settings › Desktop (R-12). Tests that
+ * reach `.project-*` controls go here first instead of `goToLibrary`. */
+export async function goToProjectSettings(page: Page): Promise<void> {
+  await page.locator(".tab-settings").click();
+  await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+  await openSettingsSection(page, "desktop");
+}
+
 /** Creates a story from Library and waits for Write to show its title. Used
  * by every Map e2e test that needs a fresh story to build a stemma on. */
 export async function createStory(page: Page, title: string): Promise<void> {

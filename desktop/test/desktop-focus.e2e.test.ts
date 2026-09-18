@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary, goToProjectSettings } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -32,7 +32,7 @@ test("Electron retains nonfirst item focus across activation and dialogs", { tim
     await createStory(page, "Focus second");
     await createStory(page, "Focus third");
 
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     const channel = page.locator(".updater-channel");
@@ -50,6 +50,7 @@ test("Electron retains nonfirst item focus across activation and dialogs", { tim
     // Selecting a story switches Library away for Write, so the row itself
     // is gone once the switch lands; focus should move to the new
     // destination's entry point instead of dropping to the document body.
+    await goToLibrary(page);
     const secondStory = page.locator(".story-row").filter({ hasText: "Focus second" });
     await secondStory.focus();
     await secondStory.press("Enter");

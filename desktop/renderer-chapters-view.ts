@@ -287,13 +287,13 @@ function renderChapterRow(
 
   const streaming = state.stream !== null && hereNow;
   const controls = el("div", "chapter-controls");
-  const rename = button("quiet", "Rename", undefined, () => actions.renameChapter(renameTarget));
+  const rename = button("tertiary", "Rename", undefined, () => actions.renameChapter(renameTarget));
   rename.classList.add("chapter-rename");
   controls.append(rename);
   if (chapter.closedBy !== null) {
     const closedBy = chapter.closedBy;
     const summarize = button(
-      "quiet",
+      "tertiary",
       chapter.summary === null ? "Summarize" : "Resummarize",
       undefined,
       () => actions.summarizeChapter({ ...renameTarget, id: closedBy.id }),

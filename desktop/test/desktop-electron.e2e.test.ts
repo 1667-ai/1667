@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is a required dependency of the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type ElectronApplication, type Locator, type Page } from "playwright";
-import { closeDesktopApp, editPart, goToLibrary, openSettingsSection } from "./electron-test-helpers.js";
+import { closeDesktopApp, editPart, goToLibrary, goToProjectSettings, openSettingsSection } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -125,7 +125,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
       { timeout: 30_000 }
     );
     assert.equal(await page.locator(".story-title").innerText(), "The keeper of the quiet sea");
-    await goToLibrary(page);
+    await goToProjectSettings(page);
     await page.locator(".project-browser").click();
     await page.waitForSelector(".launcher-page", { timeout: 15_000 });
     await page.getByRole("button", { name: "Check for updates", exact: true }).click();
@@ -150,6 +150,7 @@ test("Electron Renderer drives a dry-run story through the Host", async () => {
     await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(1280, 900));
     await page.waitForTimeout(150);
 
+    await goToLibrary(page);
     const search = page.locator(".library-search");
     await search.focus();
     await search.pressSequentially("Desk", { delay: 20 });

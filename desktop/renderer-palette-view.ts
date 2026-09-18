@@ -122,7 +122,9 @@ export function renderPalette(state: RendererState, actions: RendererActions, fo
       row.type = "button";
       row.className = "palette-row";
       row.dataset.preserve = `palette-row:${command.id}`;
-      row.append(highlightLabel(command.label, indices), el("span", "palette-key", commandKeyDisplay(command)));
+      const keyDisplay = commandKeyDisplay(command);
+      // R-26: the key hint is a bordered chip — only when there is a key to show.
+      row.append(highlightLabel(command.label, indices), keyDisplay.length === 0 ? "" : el("span", "palette-key key-hint", keyDisplay));
       row.addEventListener("click", () => {
         actions.closePopover();
         command.run(ctx);
@@ -152,7 +154,8 @@ export function renderPalette(state: RendererState, actions: RendererActions, fo
     }
   });
 
-  card.append(el("h2", "popover-title", "Commands"), input, list);
+  // R-25: no "Commands" heading — the input is the header.
+  card.append(input, list);
   outer.append(card);
   if (focusInitial) queueMicrotask(() => input.focus());
   return outer;

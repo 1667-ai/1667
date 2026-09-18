@@ -94,6 +94,16 @@ test("Electron controls: a Desktop theme swatch sets the theme and its own type"
     await page.waitForSelector(".part-prose", { timeout: 15_000 });
     const fontFamily = await page.evaluate(() => getComputedStyle(document.querySelector(".part-prose")!).fontFamily);
     assert.match(fontFamily, /Georgia/u);
+
+    // The three named families ship with the application. Without them a
+    // machine that lacks them falls back to a system face and every theme
+    // renders the same type.
+    const loaded = await page.evaluate(async () => {
+      await document.fonts.ready;
+      return ["IBM Plex Sans", "Literata", "JetBrains Mono"]
+        .filter((family) => !document.fonts.check(`16px "${family}"`));
+    });
+    assert.deepEqual(loaded, [], "every bundled family must load in the packaged app");
   } finally {
     await teardown(app);
   }
@@ -184,6 +194,85 @@ test("Electron controls: Chapters breaks at the focused part, then removes and r
     await page.waitForSelector(".restore-chapter", { timeout: 15_000 });
     await page.click(".restore-chapter");
     await page.waitForFunction(() => document.querySelectorAll(".chapter-card").length === 2, undefined, { timeout: 15_000 });
+  } finally {
+    await teardown(app);
+  }
+});
+
+// Phase D (scratchpad/spec3/D-layout-and-details.md): the inspector is
+// contextual to a story destination — it is absent on Library and Settings,
+// which own the full width instead. A section header still toggles its own
+// section. At the 960px floor the composer joins the manuscript's own flow
+// rather than docking (sticky) over it.
+test("Electron controls: the inspector hides on Library and Settings, a section header collapses its section, and the composer joins the flow at 960", async () => {
+  const app = await launch();
+  try {
+    const page = app.page;
+    await createStory(page, "Inspector visibility proof");
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".composer-input", { timeout: 15_000 });
+    await page.locator(".composer-input").fill("A part to measure the composer and inspector against.");
+    await page.locator(".composer-manual").click();
+    await page.waitForSelector(".part-prose", { timeout: 15_000 });
+
+    const takesHeader = page.locator('[data-inspector-section="takes"] .inspector-section-header');
+    const takesBody = page.locator('[data-inspector-section="takes"] .inspector-section-body');
+    const before = await takesHeader.getAttribute("aria-expanded");
+    await takesHeader.click();
+    await page.waitForFunction(
+      (expected) => document.querySelector('[data-inspector-section="takes"] .inspector-section-header')?.getAttribute("aria-expanded") !== expected,
+      before,
+      { timeout: 15_000 }
+    );
+    const collapsedNow = (await takesHeader.getAttribute("aria-expanded")) === "false";
+    assert.equal(await takesBody.evaluate((element) => (element as HTMLElement).hidden), collapsedNow, "the section body's hidden state must follow its own header's toggle");
+
+    await goToLibrary(page);
+    assert.equal(await page.locator(".inspector").count(), 0, "the inspector must not render on Library");
+    await page.locator(".tab-settings").click();
+    await page.waitForSelector(".settings-editor", { timeout: 15_000 });
+    assert.equal(await page.locator(".inspector").count(), 0, "the inspector must not render on Settings");
+
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".part-prose", { timeout: 15_000 });
+    await app.app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows()[0]?.setSize(960, 640));
+    await page.waitForFunction(() => window.innerWidth <= 960, undefined, { timeout: 5_000 });
+    const overlap = await page.evaluate(() => {
+      const composer = document.querySelector(".composer")?.getBoundingClientRect();
+      if (composer === undefined) return true;
+      return [...document.querySelectorAll(".part-prose")].some((part) => {
+        const box = part.getBoundingClientRect();
+        return composer.top < box.bottom && composer.bottom > box.top;
+      });
+    });
+    assert.equal(overlap, false, "the composer must never overlap a .part-prose box at 960px");
+
+    // The gap between parts is the part toolbar's own band: a smaller gap
+    // puts the toolbar over the prose above or below it, which is what the
+    // design review caught.
+    await page.locator(".manuscript-part").first().locator(".part-prose").click();
+    await page.waitForFunction(() => document.querySelector(".manuscript-part.focused .part-toolbar") !== null, undefined, { timeout: 10_000 });
+    const toolbarOverlap = await page.evaluate(() => {
+      const toolbar = document.querySelector(".manuscript-part.focused .part-toolbar")?.getBoundingClientRect();
+      if (toolbar === undefined) return true;
+      return [...document.querySelectorAll(".part-prose")].some((part) => {
+        const box = part.getBoundingClientRect();
+        return toolbar.top < box.bottom && toolbar.bottom > box.top
+          && toolbar.left < box.right && toolbar.right > box.left;
+      });
+    });
+    assert.equal(toolbarOverlap, false, "the focused part's toolbar must never cover prose");
+
+    // The inspector is gone on Library, so a command that opens one of its
+    // sections has to bring the writer back to a destination that has one.
+    await page.locator(".tab-library").click();
+    await page.waitForSelector(".tab-content.library", { timeout: 15_000 });
+    await page.keyboard.press("a");
+    await page.waitForFunction(
+      () => document.querySelector(".tab-content.write") !== null && document.querySelector(".aside-question") !== null,
+      undefined,
+      { timeout: 15_000 }
+    );
   } finally {
     await teardown(app);
   }

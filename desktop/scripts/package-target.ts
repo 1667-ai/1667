@@ -88,6 +88,7 @@ function assertApplicationFiles(): void {
     "renderer/index.html",
     "renderer/renderer.js",
     "renderer/renderer.css",
+    "renderer/fonts",
     "server/worker.js",
     "server/image-normalize-child.js",
     "host",
@@ -98,7 +99,8 @@ function assertApplicationFiles(): void {
     const file = path.join(DESKTOP_ROOT, "app", relative);
     try {
       const stat = lstatSync(file);
-      const directory = relative === "host" || relative === "client" || relative === "shared";
+      const directory = relative === "host" || relative === "client" || relative === "shared"
+        || relative === "renderer/fonts";
       if (directory ? !stat.isDirectory() : stat.isDirectory()) {
         throw new Error(`Desktop application path has the wrong type: app/${relative}`);
       }

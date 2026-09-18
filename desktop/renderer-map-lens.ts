@@ -11,12 +11,20 @@ import type { NodeStub } from "../shared/types.js";
 export const LENS_BUDGET = 32;
 /** The lens starts at `lensIndex ± 1` and never grows past `lensIndex ± 4`. */
 export const LENS_MAX_RADIUS = 4;
-/** Horizontal spacing between consecutive nodes of an opened chain. */
+/** Horizontal spacing between consecutive nodes of an opened chain, before
+ * `LENS_MAGNIFY_SCALE` widens it — every opened chain sits inside the lens,
+ * so its own gap grows by the same factor as the spine's (R-18). */
 export const LENS_CHAIN_GAP = 20;
 /** Gap from an opened chain's last node to its "rest of the subtree" bar. */
 export const LENS_REST_GAP = 14;
 /** Padding around the opened span the lens wash draws. */
 export const LENS_PAD = 16;
+/** R-18: how much larger a node's radius and its neighbouring spine/chain gap
+ * get inside the lens — "roughly 1.6x" per the brief, applied to both so a
+ * bigger node never crowds the node beside it. Outside the lens (once a lens
+ * is open at all) a gap compresses by the same factor instead, so the total
+ * width the windowed spine draws stays close to what it was without a lens. */
+export const LENS_MAGNIFY_SCALE = 1.6;
 
 /** D-34: the dashed wash the view draws under the nodes, and the spine span
  * it opened runs across. `[startIndex, endIndex]` is inclusive. */

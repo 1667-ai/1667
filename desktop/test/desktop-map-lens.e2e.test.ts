@@ -62,12 +62,20 @@ test("Electron Map: the fisheye lens opens a hovered run and collapses it again"
     });
     await hoverUntilLens(page, forkBox);
 
+    // The lens draws the branch's own chain as nodes. Any take off that
+    // chain stays in a smaller rest bar, so the check is that the subtree is
+    // no longer one collapsed bar of two takes, not that every bar is gone.
     const opened = await page.evaluate(() => ({
       runs: document.querySelectorAll(".map-collapsed-run").length,
+      largestRun: Math.max(0, ...[...document.querySelectorAll(".map-collapsed-run title")]
+        .map((title) => Number.parseInt((title.textContent ?? "").replace(/^\D*/u, ""), 10) || 0)),
       offPath: document.querySelectorAll("circle.map-node.off-path").length
     }));
-    assert.equal(opened.runs, before.runs - 1, "the run bar for the hovered subtree is gone");
-    assert.equal(opened.offPath, before.offPath + 2, "both takes of the opened subtree are now drawn individually");
+    assert.ok(opened.offPath > before.offPath, "the lens draws the subtree's takes individually");
+    assert.ok(
+      opened.largestRun < 2,
+      `the hovered subtree is no longer one collapsed bar, got a bar of ${opened.largestRun}`
+    );
 
     // Move the pointer off the stage entirely (the titlebar, well above and
     // left of it) — the run collapses again.
@@ -112,3 +120,82 @@ async function hoverUntilLens(page: Page, point: { readonly x: number; readonly 
   }
   throw new Error("The map lens did not open under the pointer.");
 }
+
+test("Electron Map: a click pins the fisheye lens; a re-render and the pointer leaving do not drop it; Escape unpins it", { timeout: 180_000 }, async () => {
+  assert.ok(appPath, "AI_1667_DESKTOP_APP_PATH must point to the built Electron main entry.");
+  const directory = await mkdtemp(path.join(os.tmpdir(), "1667-desktop-map-lens-pin-e2e-"));
+  const dataDir = path.join(directory, "project");
+  await mkdir(dataDir, { mode: 0o700 });
+  const app = await electron.launch({
+    args: [`--user-data-dir=${path.join(directory, "browser")}`, appPath],
+    env: {
+      ...process.env,
+      AI_1667_STATE: path.join(directory, "machine"),
+      AI_1667_DESKTOP_DATA_DIR: dataDir,
+      AI_1667_NO_UPDATE_CHECK: "1"
+    }
+  });
+  try {
+    const page = await app.firstWindow();
+    await page.waitForSelector(".new-story-button", { timeout: 30_000 });
+    await createStory(page, "Pin story");
+    await saveManualPart(page, "First part of the pin story.");
+    await saveManualPart(page, "Second part, first take.");
+    await retakeSecondPart(page);
+    await saveManualPart(page, "Third part, under the retake.");
+    await page.locator(".manuscript-part").nth(1).locator(".part-prose").click();
+    await page.waitForFunction(() => document.querySelectorAll(".manuscript-part")[1]?.classList.contains("focused") === true, undefined, { timeout: 15_000 });
+    await switchTakeGaugeDot(page, 0, "take 1/2");
+
+    await page.locator(".tab-map").click();
+    await page.waitForSelector("svg.stemma", { timeout: 15_000 });
+
+    const forkBox = await page.evaluate(() => {
+      const circle = document.querySelectorAll("circle.map-node.on-path")[0] as SVGCircleElement;
+      const rect = circle.getBoundingClientRect();
+      return { x: rect.left + rect.width / 2, y: rect.top + rect.height / 2 };
+    });
+    // A hover lens lasts until the next full re-render, and a background
+    // story refresh can land between the hover and the measurement, so hover
+    // again until the wash is actually there to measure.
+    let lensBox: { x: number; y: number; width: number; height: number } | null = null;
+    for (let attempt = 0; attempt < 4 && lensBox === null; attempt += 1) {
+      await hoverUntilLens(page, forkBox);
+      lensBox = await page.locator("rect.map-lens").boundingBox();
+    }
+    assert.ok(lensBox !== null, "the lens wash must have a bounding box");
+    const openedCount = await page.evaluate(() => document.querySelectorAll("circle.map-node.off-path").length);
+
+    // Click near the top edge of the wash — inside it, but clear of any node
+    // or edge drawn over its middle — to pin the lens.
+    await page.mouse.click(lensBox!.x + lensBox!.width / 2, lensBox!.y + 4);
+    await page.waitForSelector("rect.map-lens.pinned", { timeout: 15_000 });
+
+    // An unrelated re-render (opening and closing the command palette) must
+    // not drop the pin (D-34: "a pinned lens survives a re-render").
+    const shortcut = process.platform === "darwin" ? "Meta" : "Control";
+    await page.keyboard.press(`${shortcut}+k`);
+    await page.waitForSelector(".palette", { timeout: 15_000 });
+    await page.keyboard.press("Escape");
+    await page.waitForSelector(".palette", { state: "detached", timeout: 15_000 });
+    await page.waitForSelector("rect.map-lens.pinned", { timeout: 15_000 });
+
+    // The pointer leaving the stage entirely must not close a pinned lens.
+    await page.mouse.move(10, 10);
+    await page.waitForTimeout(200);
+    const stillPinned = await page.evaluate(() => ({
+      pinned: document.querySelector("rect.map-lens.pinned") !== null,
+      offPath: document.querySelectorAll("circle.map-node.off-path").length
+    }));
+    assert.equal(stillPinned.pinned, true, "the pinned lens must survive the pointer leaving the stage");
+    assert.equal(stillPinned.offPath, openedCount, "the opened run must stay open while the lens is pinned");
+
+    // Escape unpins it (`renderer-keys-controller.ts`'s peel order); the
+    // pointer is already away, so the lens now closes.
+    await page.keyboard.press("Escape");
+    await page.waitForSelector("rect.map-lens", { state: "detached", timeout: 15_000 });
+  } finally {
+    await closeDesktopApp(app);
+    await rm(directory, { recursive: true, force: true });
+  }
+});

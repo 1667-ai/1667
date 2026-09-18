@@ -50,22 +50,34 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
 
   composer.append(el("p", "composer-eyebrow", blocked ? "writing… · esc stops" : eyebrowFor(state.composerMode, writeTargetPartNumber)));
 
-  const modeGroup = el("div", "composer-mode");
+  // R-04/R-13: a mode switch is not a button hierarchy level — it is one
+  // segmented control, same shell as the Facts scope picker (a plain
+  // `.segmented-option`, never also a `.button`, so it never picks up the
+  // button hover lift). The per-mode `composer-mode-<mode>` class stays so
+  // the e2e lane can keep targeting it.
+  const modeGroup = el("div", "composer-mode segmented");
+  modeGroup.setAttribute("role", "group");
   for (const entry of MODES) {
-    const button = actionButton(`composer-mode-${entry.mode}`, entry.label, () => {
+    const active = state.composerMode === entry.mode;
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = `composer-mode-${entry.mode} segmented-option${active ? " active" : ""}`;
+    button.textContent = entry.label;
+    button.setAttribute("aria-pressed", String(active));
+    button.disabled = blocked;
+    button.addEventListener("click", () => {
       // Clicking into Write directly (not via `w`) writes at the end, same
       // as before this fix — only `w` itself sets a target.
       if (entry.mode === "write") actions.setComposerWriteTarget(null);
       actions.setComposerMode(entry.mode);
     });
-    button.classList.toggle("active", state.composerMode === entry.mode);
-    button.disabled = blocked;
     modeGroup.append(button);
   }
 
   const prompt = document.createElement("textarea");
   prompt.className = "composer-input";
-  prompt.placeholder = "› Empty ↵ continues · type a direction for a new take";
+  // R-08: one glyph run, not a mix of "›" and "↵" chevrons.
+  prompt.placeholder = "Type a direction, or press ↵ to continue.";
   prompt.setAttribute("aria-label", "Generation direction");
   prompt.dataset.preserve = "composer";
   prompt.value = draftValue;
@@ -76,7 +88,7 @@ export function renderComposer(state: RendererState, actions: RendererActions): 
     resizeTextarea(prompt);
   });
 
-  const submit = actionButton("composer-submit", submitLabel(state.composerMode, empty), () => {
+  const submit = actionButton("composer-submit primary", submitLabel(state.composerMode, empty), () => {
     if (blocked) return;
     if (state.composerMode === "write") {
       if (prompt.value.trim().length > 0) actions.writeManual(prompt.value, state.composerWriteTarget?.parentId);

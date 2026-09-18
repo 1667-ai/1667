@@ -46,6 +46,8 @@ const STORY_COMMANDS: readonly DesktopCommand[] = [
     id: "story.open-authors-note", group: "Story", label: "Edit Author's Note", binding: "navAuthorsNote",
     available: hasStory, handles: { mode: "NAV", action: "open-authors-note" },
     run: (ctx) => {
+      // The inspector is absent on Library and Settings, so leave first.
+      if (ctx.state.tab === "library" || ctx.state.tab === "settings") ctx.actions.setTab("write");
       if (ctx.state.inspectorHidden) ctx.actions.setInspectorHidden(false);
       ctx.focusInspectorSection("authors-note");
       document.querySelector<HTMLTextAreaElement>('[data-preserve="authors-note"]')?.focus();

@@ -15,7 +15,7 @@
  * budget easy to prove, at the cost of detail a writer would only reach by
  * hovering (or moving the map cursor to) the fork that grows it. */
 import type { NodeStub, StoryPayload } from "../shared/types.js";
-import { LENS_BUDGET, LENS_CHAIN_GAP, LENS_MAX_RADIUS, LENS_PAD, LENS_REST_GAP, walkActiveChain, type MapLensLayout } from "./renderer-map-lens.js";
+import { LENS_BUDGET, LENS_CHAIN_GAP, LENS_MAGNIFY_SCALE, LENS_MAX_RADIUS, LENS_PAD, LENS_REST_GAP, walkActiveChain, type MapLensLayout } from "./renderer-map-lens.js";
 
 export const DEFAULT_MAP_NODE_BUDGET = 120;
 /** A single fork can carry far more sibling takes than the whole budget (the
@@ -25,9 +25,18 @@ export const DEFAULT_MAP_NODE_BUDGET = 120;
  * takes are the ones kept visible. */
 const MAX_BRANCHES_PER_FORK = 8;
 const MIN_SPINE_GAP = 28;
+/** R-17: with a pane width given, the per-part gap is scaled so the drawn
+ * window fills the pane, words as the relative weight, clamped to this
+ * range — never so tight the story reads as a jumble, never so loose a
+ * three-part story stretches to fill a wide monitor. */
+const PANE_MIN_GAP = 48;
+const PANE_MAX_GAP = 120;
 const ROW_HEIGHT = 34;
 const COLD_MS = 21 * 24 * 60 * 60 * 1000;
 const MARGIN_X = 24;
+/** `nodeRadius` clamps to this, so it is the widest a node draws past its
+ *  own centre. */
+const MAX_NODE_RADIUS = 14;
 const MARGIN_Y = 24;
 /** Where a shown branch's own node (or the first node of an opened chain)
  * sits, right of its spine parent. */
@@ -50,8 +59,15 @@ function branchRowOffset(branchIndex: number): number {
 // once, at module scope, keeps the margin correct without duplicating the
 // row math above.
 const WORST_CASE_ROW_OFFSETS = Array.from({ length: MAX_BRANCHES_PER_FORK + 1 }, (_, index) => branchRowOffset(index));
-const MAX_ROW_OFFSET_BELOW = Math.max(...WORST_CASE_ROW_OFFSETS.filter((offset) => offset > 0));
-const MAX_ROW_OFFSET_ABOVE = Math.abs(Math.min(...WORST_CASE_ROW_OFFSETS.filter((offset) => offset < 0)));
+/** R-17: one figure, not an above/below pair — the worst case is asymmetric
+ * (the overflow bar always lands below), but sizing both the same way keeps
+ * the spine exactly halfway between the top and bottom margins instead of
+ * biased toward whichever side happens to need less room, so the drawn
+ * window reads as centred in the pane rather than pinned near the top. */
+const MAX_ROW_OFFSET = Math.max(
+  Math.max(...WORST_CASE_ROW_OFFSETS.filter((offset) => offset > 0)),
+  Math.abs(Math.min(...WORST_CASE_ROW_OFFSETS.filter((offset) => offset < 0)))
+);
 
 export interface MapPoint {
   readonly x: number;
@@ -72,6 +88,9 @@ export interface MapLayoutNode {
   readonly words: number;
   readonly preview: string;
   readonly partNumber?: number;
+  /** D-34: set only for a node inside the lens — the take's first few words,
+   * ellipsized. The view draws it beside or under the node in `--type-meta`. */
+  readonly label?: string;
 }
 
 export interface MapLayoutEdge {
@@ -132,10 +151,36 @@ export interface MapLayoutOptions {
    * cursor's take leaves the current line. `undefined`/`null` (the default)
    * draws no lens, unchanged from before it existed. */
   readonly lensIndex?: number | null;
+  /** R-17: the stage's client width — scales the per-part gap so the drawn
+   * window fills the pane instead of a fixed 0.6px/word. `undefined` (the
+   * default) keeps the pre-R-17 fixed scale, so existing callers and tests
+   * are unaffected. */
+  readonly paneWidth?: number;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function nodeRadius(words: number): number {
-  return Math.min(14, Math.max(4, Math.sqrt(Math.max(0, words))));
+  return Math.min(MAX_NODE_RADIUS, Math.max(4, Math.sqrt(Math.max(0, words))));
+}
+
+/** D-34: a node inside the lens reads legibly larger than the rest (R-18).
+ * `nodeRadius` is already clamped to [4, 14], so this never needs its own
+ * upper clamp. */
+function lensNodeRadius(words: number): number {
+  return nodeRadius(words) * LENS_MAGNIFY_SCALE;
+}
+
+/** D-34: the take's first few words, ellipsized — the short label a lensed
+ * node draws beside itself. Pure text shaping, kept beside the geometry it
+ * decorates rather than in the view. */
+function shortLensLabel(text: string, maxWords = 4): string {
+  const words = text.trim().split(/\s+/).filter((word) => word.length > 0);
+  if (words.length === 0) return "";
+  const shown = words.slice(0, maxWords).join(" ");
+  return words.length > maxWords ? `${shown}…` : shown;
 }
 
 function isDeadEnd(node: NodeStub, onPath: boolean): boolean {
@@ -245,22 +290,10 @@ export function computeMapLayout(
   const windowed = lo > 0 || hi < path.length;
   const boundaryBarCount = (lo > 0 ? 1 : 0) + (hi < path.length ? 1 : 0);
 
-  // x positions: cumulative words along the windowed spine, min gap enforced.
-  const xs: number[] = [];
-  let cursorX = MARGIN_X + (lo > 0 ? 40 : 0);
-  let cumulativeWords = 0;
-  for (let index = lo; index < hi; index += 1) {
-    const stub = nodeStubById.get(path[index]!.id);
-    cumulativeWords += stub?.words ?? 0;
-    const proposed = MARGIN_X + (lo > 0 ? 40 : 0) + cumulativeWords * 0.6;
-    cursorX = index === lo ? Math.max(cursorX, proposed) : Math.max(cursorX + MIN_SPINE_GAP, proposed);
-    xs.push(cursorX);
-  }
-
   // D-34: decide which branches the lens opens, nearest the centre first,
-  // before laying out a single node — the fisheye spacing pass right after
-  // this needs to know an opened chain's node count to push later spine x
-  // positions clear of it.
+  // before laying out a single x position — both the spacing pass right
+  // below (R-18: the lens widens the gaps it spans) and the fisheye spacing
+  // pass after it need the final lens span up front.
   const openedChains = new Map<string, { readonly chain: readonly NodeStub[]; readonly restCount: number; readonly restWords: number; readonly restTipId: string | null }>();
   let lensSpan: { start: number; end: number } | null = null;
   if (hasLens) {
@@ -293,6 +326,65 @@ export function computeMapLayout(
     }
   }
 
+  const insideLens = (index: number): boolean => hasLens && lensSpan !== null && index >= lensSpan.start && index <= lensSpan.end;
+  // R-18: an opened chain's own node spacing widens by the same factor as
+  // the spine's, so a bigger node (magnified below) never crowds the node
+  // beside it.
+  const chainGap = hasLens ? LENS_CHAIN_GAP * LENS_MAGNIFY_SCALE : LENS_CHAIN_GAP;
+
+  // x positions along the windowed spine. With no `paneWidth` this is
+  // exactly the pre-R-17 fixed 0.6px/word scale (existing callers and tests
+  // are unaffected). With `paneWidth`, the per-part gap instead scales so the
+  // window fills the pane — words stay the relative weight, clamped to
+  // [PANE_MIN_GAP, PANE_MAX_GAP] — and, R-18, a gap inside the lens widens by
+  // `LENS_MAGNIFY_SCALE` while every gap outside compresses by the same
+  // factor (floored at the same minimum) so the total width stays close to
+  // the pane instead of growing with the lens.
+  const xs: number[] = [];
+  if (options.paneWidth === undefined && !hasLens) {
+    // Pre-R-17/R-18 behaviour, byte-for-byte: cumulative words along the
+    // spine, a flat minimum gap, no lens to react to.
+    let cursorX = MARGIN_X + (lo > 0 ? 40 : 0);
+    let cumulativeWords = 0;
+    for (let index = lo; index < hi; index += 1) {
+      const stub = nodeStubById.get(path[index]!.id);
+      cumulativeWords += stub?.words ?? 0;
+      const proposed = MARGIN_X + (lo > 0 ? 40 : 0) + cumulativeWords * 0.6;
+      cursorX = index === lo ? Math.max(cursorX, proposed) : Math.max(cursorX + MIN_SPINE_GAP, proposed);
+      xs.push(cursorX);
+    }
+  } else {
+    const paneWidth = options.paneWidth;
+    let paneScale = 0;
+    if (paneWidth !== undefined) {
+      const boundaryOffset = (lo > 0 ? 40 : 0) + (hi < path.length ? 40 : 0);
+      // The rightmost node draws its own radius past its centre, so the pane
+      // has to hold that too; otherwise the stage keeps a few-pixel
+      // horizontal scrollbar on platforms with classic scrollbars.
+      const available = Math.max(0, paneWidth - MARGIN_X * 2 - boundaryOffset - MAX_NODE_RADIUS);
+      let totalGapWords = 0;
+      for (let index = lo + 1; index < hi; index += 1) totalGapWords += Math.max(1, nodeStubById.get(path[index]!.id)?.words ?? 0);
+      paneScale = totalGapWords > 0 ? available / totalGapWords : 0;
+    }
+    const floorGap = paneWidth === undefined ? MIN_SPINE_GAP : PANE_MIN_GAP;
+    let cursorX = MARGIN_X + (lo > 0 ? 40 : 0);
+    xs.push(cursorX);
+    for (let index = lo + 1; index < hi; index += 1) {
+      const words = Math.max(1, nodeStubById.get(path[index]!.id)?.words ?? 0);
+      const base = paneWidth === undefined ? Math.max(MIN_SPINE_GAP, words * 0.6) : clamp(words * paneScale, PANE_MIN_GAP, PANE_MAX_GAP);
+      // The lens is anchored at the part under the pointer: every gap up to
+      // it keeps its width, so that part does not slide away at the moment
+      // the lens opens. The lens widens to its right, and the gaps past the
+      // lens compress, which keeps the drawing near the pane width.
+      const gap = !hasLens ? base
+        : index <= lensCenterIndex ? base
+          : insideLens(index) ? base * LENS_MAGNIFY_SCALE
+            : Math.max(floorGap, base / LENS_MAGNIFY_SCALE);
+      cursorX += gap;
+      xs.push(cursorX);
+    }
+  }
+
   // Fisheye spacing: an opened chain can need more room to its right than a
   // plain branch ever did — push every later spine x by the overrun so no
   // opened chain overlaps the next spine node or its own branches. Parts
@@ -309,10 +401,10 @@ export function computeMapLayout(
       for (const branchRoot of ordered) {
         const opened = openedChains.get(branchRoot.id);
         if (opened === undefined) continue;
-        const chainEndX = xs[index - lo]! + BRANCH_X_OFFSET + (opened.chain.length - 1) * LENS_CHAIN_GAP;
+        const chainEndX = xs[index - lo]! + BRANCH_X_OFFSET + (opened.chain.length - 1) * chainGap;
         const lastWords = opened.chain[opened.chain.length - 1]!.words;
         const restWidth = Math.min(120, 20 + opened.restCount * 4);
-        const endX = opened.restCount > 0 ? chainEndX + LENS_REST_GAP + restWidth : chainEndX + nodeRadius(lastWords);
+        const endX = opened.restCount > 0 ? chainEndX + LENS_REST_GAP + restWidth : chainEndX + lensNodeRadius(lastWords);
         rightmost = Math.max(rightmost, endX);
       }
       if (lensSpan !== null && index >= lensSpan.start && index <= lensSpan.end) {
@@ -329,7 +421,7 @@ export function computeMapLayout(
   const edges: MapLayoutEdge[] = [];
   const collapsedRuns: MapCollapsedRun[] = [];
   const chapterTicks: MapChapterTick[] = [];
-  const spineY = MARGIN_Y + MAX_ROW_OFFSET_ABOVE;
+  const spineY = MARGIN_Y + MAX_ROW_OFFSET;
 
   if (lo > 0) {
     const hidden = path.slice(0, lo);
@@ -347,19 +439,22 @@ export function computeMapLayout(
     const stub = nodeStubById.get(pathNode.id);
     const words = stub?.words ?? 0;
     const siblingCount = (childrenByParent.get(pathNode.parentId) ?? []).filter((candidate) => candidate.role !== "summary").length;
+    const preview = stub?.preview ?? pathNode.text.slice(0, 48);
+    const lensed = insideLens(index);
     nodes.push({
       id: pathNode.id,
       x: xs[index - lo]!,
       y: spineY,
-      r: nodeRadius(words),
+      r: lensed ? lensNodeRadius(words) : nodeRadius(words),
       onPath: true,
       ring: siblingCount > 1,
       summary: pathNode.role === "summary",
       deadEnd: false,
       cold: false,
       words,
-      preview: stub?.preview ?? pathNode.text.slice(0, 48),
-      partNumber: index + 1
+      preview,
+      partNumber: index + 1,
+      ...(lensed ? { label: shortLensLabel(preview) } : {})
     });
     if (index > lo) {
       edges.push({ id: `spine:${path[index - 1]!.id}:${pathNode.id}`, from: { x: xs[index - lo - 1]!, y: spineY }, to: { x: xs[index - lo]!, y: spineY }, onPath: true, straight: true, cold: false });
@@ -393,27 +488,29 @@ export function computeMapLayout(
         let chainX = x;
         opened.chain.forEach((chainNode, chainPosition) => {
           const words = chainNode.words;
+          const deadEnd = isDeadEnd(chainNode, false);
           nodes.push({
             id: chainNode.id,
             x: chainX,
             y,
-            r: isDeadEnd(chainNode, false) ? 5 : nodeRadius(words),
+            r: deadEnd ? 5 : lensNodeRadius(words),
             onPath: false,
             ring: false,
             summary: chainNode.role === "summary",
-            deadEnd: isDeadEnd(chainNode, false),
+            deadEnd,
             cold: isCold(chainNode, false, now),
             words,
-            preview: chainNode.preview
+            preview: chainNode.preview,
+            ...(deadEnd ? {} : { label: shortLensLabel(chainNode.preview) })
           });
-          const from = chainPosition === 0 ? { x: parentX, y: spineY } : { x: chainX - LENS_CHAIN_GAP, y };
+          const from = chainPosition === 0 ? { x: parentX, y: spineY } : { x: chainX - chainGap, y };
           edges.push({ id: `lens:${path[index]!.id}:${chainNode.id}`, from, to: { x: chainX, y }, onPath: false, straight: true, cold: isCold(chainNode, false, now) });
-          chainX += LENS_CHAIN_GAP;
+          chainX += chainGap;
         });
         if (opened.restCount > 0) {
-          const restX = chainX - LENS_CHAIN_GAP + LENS_REST_GAP;
+          const restX = chainX - chainGap + LENS_REST_GAP;
           collapsedRuns.push({ id: `run:${branchRoot.id}`, x: restX, y, width: Math.min(120, 20 + opened.restCount * 4), count: opened.restCount, words: opened.restWords, tipNodeId: opened.restTipId! });
-          edges.push({ id: `lens:rest:${branchRoot.id}`, from: { x: chainX - LENS_CHAIN_GAP, y }, to: { x: restX, y }, onPath: false, straight: true, cold: false });
+          edges.push({ id: `lens:rest:${branchRoot.id}`, from: { x: chainX - chainGap, y }, to: { x: restX, y }, onPath: false, straight: true, cold: false });
         }
         return;
       }
@@ -462,7 +559,7 @@ export function computeMapLayout(
     ...collapsedRuns.map((run) => run.x + run.width)
   ].reduce((max, value) => Math.max(max, value), MARGIN_X);
   const width = rightmost + MARGIN_X;
-  const height = spineY + MAX_ROW_OFFSET_BELOW + MARGIN_Y;
+  const height = spineY + MAX_ROW_OFFSET + MARGIN_Y;
 
   const lens: MapLensLayout | null = hasLens && lensSpan !== null
     ? { startIndex: lensSpan.start, endIndex: lensSpan.end, x: xs[lensSpan.start - lo]! - LENS_PAD, width: lensRightExtent + LENS_PAD - (xs[lensSpan.start - lo]! - LENS_PAD) }

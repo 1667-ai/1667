@@ -6,7 +6,7 @@ import test from "node:test";
 // Playwright is supplied by the desktop release workspace.
 // @ts-ignore The root backend workspace does not install the desktop lane.
 import { _electron as electron, type Page } from "playwright";
-import { closeDesktopApp, goToLibrary } from "./electron-test-helpers.js";
+import { closeDesktopApp, goToLibrary, goToProjectSettings } from "./electron-test-helpers.js";
 
 const appPath = process.env.AI_1667_DESKTOP_APP_PATH;
 
@@ -68,13 +68,20 @@ test("Electron navigates Aside history buckets and anchors new sessions at the f
       undefined,
       { timeout: 15_000 }
     );
-    await goToLibrary(page);
+    // R-12: Refresh library now lives in Settings › Desktop, alongside the
+    // rest of the Project block. The inspector (and so the Aside history
+    // this scenario checks) is a Write-destination concern (R-05: it is
+    // absent on Library and Settings), so return to Write once the refresh
+    // completes before reading it again.
+    await goToProjectSettings(page);
     await page.locator(".refresh-button").click();
     await page.waitForFunction(
       () => /^\d+ stor(?:y|ies)$/u.test(document.querySelector(".toast")?.textContent?.trim() ?? ""),
       undefined,
       { timeout: 30_000 }
     );
+    await page.locator(".tab-write").click();
+    await page.waitForSelector(".aside-anchor-picker", { timeout: 15_000 });
     await waitForAsideQuestion(page, firstAnchoredQuestion);
     assert.equal(await page.locator(".aside-anchor-picker").inputValue(), historical.value,
       "a pending Aside read must survive a same-story library refresh");

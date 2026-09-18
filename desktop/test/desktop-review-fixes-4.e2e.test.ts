@@ -124,9 +124,9 @@ test("Electron review fixes 4: a manual append moves focus to the new part", { t
   }
 });
 
-// Finding 6: the placeholder and the empty submit label both advertise
-// "Empty ↵ continues"; plain Enter on an empty Continue composer must
-// actually submit it, while Shift+Enter (and Enter once text is typed) must
+// Finding 6: the placeholder and the empty submit label both advertise that
+// ↵ continues; plain Enter on an empty Continue composer must actually
+// submit it, while Shift+Enter (and Enter once text is typed) must
 // keep inserting a newline.
 test("Electron review fixes 4: empty Enter continues; Shift+Enter still inserts a newline", { timeout: 180_000 }, async () => {
   const app = await launch();

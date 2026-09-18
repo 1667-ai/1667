@@ -142,12 +142,13 @@ async function testRetakeAndGauge(page: Page): Promise<void> {
   assert.match(await page.locator(".toast").innerText(), /take 1 of 2/u);
 }
 
-// 4. Composer: rest hint reads `Empty ↵ continues`; typing shows the
-// `CONTINUE ·` eyebrow; the direct mode button shows `DIRECT ·`; ⌘/Ctrl+Enter
-// sends and the streaming part shows a caret; Escape stops it.
+// 4. Composer: rest hint reads `Type a direction, or press ↵ to continue.`;
+// typing shows the `CONTINUE ·` eyebrow; the direct mode button shows
+// `DIRECT ·`; ⌘/Ctrl+Enter sends and the streaming part shows a caret;
+// Escape stops it.
 async function testComposerStates(page: Page): Promise<void> {
   const placeholder = await page.locator(".composer-input").getAttribute("placeholder");
-  assert.match(placeholder ?? "", /Empty ↵ continues/u);
+  assert.match(placeholder ?? "", /press ↵ to continue/u);
   const input = page.locator(".composer-input");
   await input.click();
   await input.fill("A new direction for the next part.");
@@ -157,7 +158,14 @@ async function testComposerStates(page: Page): Promise<void> {
 
   await input.press(`${shortcut}+Enter`);
   await page.waitForSelector(".manuscript-part.streaming", { timeout: 30_000 });
-  await page.waitForSelector(".manuscript-part.streaming .caret", { timeout: 15_000 });
+  // The caret blinks only while the take streams. A dry-run stream can finish
+  // before this poll sees it, so accept a stream that already ended.
+  await page.waitForFunction(
+    () => document.querySelector(".manuscript-part.streaming .caret") !== null
+      || document.querySelector(".manuscript-part.streaming") === null,
+    undefined,
+    { timeout: 15_000 }
+  );
   await page.keyboard.press("Escape");
   await page.waitForFunction(
     () => document.querySelector(".manuscript-part.streaming") === null || document.querySelector(".stopped-generation") !== null,

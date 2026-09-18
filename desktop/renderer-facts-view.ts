@@ -144,10 +144,10 @@ function renderFactRow(
   );
   item.append(select);
   const controls = el("div", "fact-controls");
-  const up = button("quiet", "↑", undefined, () => actions.moveFact(fact, -1));
+  const up = button("tertiary", "↑", undefined, () => actions.moveFact(fact, -1));
   up.classList.add("fact-up");
   up.disabled = factIndex === 0;
-  const down = button("quiet", "↓", undefined, () => actions.moveFact(fact, 1));
+  const down = button("tertiary", "↓", undefined, () => actions.moveFact(fact, 1));
   down.classList.add("fact-down");
   down.disabled = factIndex === story.facts.length - 1;
   controls.append(up, down);
@@ -266,7 +266,7 @@ function renderFactSheet(fact: StoryFact | null, editor: FactEditorState, story:
   if (dirty) {
     const save = button("primary", "Save fact", "⌘S", () => actions.saveFactEditor());
     save.classList.add("fact-editor-save");
-    const revert = button("quiet", "Revert", undefined, () => actions.revertFactEditor());
+    const revert = button("tertiary", "Revert", undefined, () => actions.revertFactEditor());
     revert.classList.add("fact-editor-revert");
     const summary = changes.length === 0
       ? "not yet saved"
@@ -295,6 +295,10 @@ function renderFactCapScalar(draft: FactDraft, actions: RendererActions): HTMLEl
     id: "fact-cap",
     placeholder: "no cap",
     invalid,
+    // R-15: a 1..1,000,000 range has no meaningful handle position, so this
+    // one scalar keeps only the stepper (chevrons + typed value) and drops
+    // the positional track that duplicated it without adding information.
+    track: false,
     onChange: (value) => actions.setFactDraft({ budget: value })
   });
   return control;
@@ -355,9 +359,9 @@ function renderStatesSection(fact: StoryFact, story: StoryPayload, actions: Rend
  * which would drop an unsaved edit sitting only in the draft. */
 function renderStatesFooter(fact: StoryFact, actions: RendererActions, dirty: boolean): HTMLElement {
   const reason = dirty ? "Save or revert this Fact first" : undefined;
-  const anchorButton = button("quiet", "+ State anchored here", undefined, () => actions.addFactStateAnchored(fact), reason);
-  const wideButton = button("quiet", "+ Story-wide state", undefined, () => actions.addFactStateStoryWide(fact), reason);
-  const endButton = button("quiet", "+ End here", undefined, () => actions.addFactStateEnd(fact), reason);
+  const anchorButton = button("tertiary", "+ State anchored here", undefined, () => actions.addFactStateAnchored(fact), reason);
+  const wideButton = button("tertiary", "+ Story-wide state", undefined, () => actions.addFactStateStoryWide(fact), reason);
+  const endButton = button("tertiary", "+ End here", undefined, () => actions.addFactStateEnd(fact), reason);
   return el("div", "fact-states-footer", anchorButton, wideButton, endButton);
 }
 
