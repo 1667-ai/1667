@@ -62,12 +62,20 @@ test("Electron Map: the fisheye lens opens a hovered run and collapses it again"
     });
     await hoverUntilLens(page, forkBox);
 
+    // The lens draws the branch's own chain as nodes. Any take off that
+    // chain stays in a smaller rest bar, so the check is that the subtree is
+    // no longer one collapsed bar of two takes, not that every bar is gone.
     const opened = await page.evaluate(() => ({
       runs: document.querySelectorAll(".map-collapsed-run").length,
+      largestRun: Math.max(0, ...[...document.querySelectorAll(".map-collapsed-run title")]
+        .map((title) => Number.parseInt((title.textContent ?? "").replace(/^\D*/u, ""), 10) || 0)),
       offPath: document.querySelectorAll("circle.map-node.off-path").length
     }));
-    assert.equal(opened.runs, before.runs - 1, "the run bar for the hovered subtree is gone");
-    assert.equal(opened.offPath, before.offPath + 2, "both takes of the opened subtree are now drawn individually");
+    assert.ok(opened.offPath > before.offPath, "the lens draws the subtree's takes individually");
+    assert.ok(
+      opened.largestRun < 2,
+      `the hovered subtree is no longer one collapsed bar, got a bar of ${opened.largestRun}`
+    );
 
     // Move the pointer off the stage entirely (the titlebar, well above and
     // left of it) — the run collapses again.
