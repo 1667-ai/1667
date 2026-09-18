@@ -5,6 +5,23 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0-beta.5 - 2026-09-18
+
+- **The desktop app supplies its own type.** It no longer asks your computer
+  for the fonts. Each theme now shows the type it was designed with.
+- **The desktop app has the 1667 mark as its icon.**
+- **Text and controls follow one scale.** Buttons, labels, and descriptions
+  use the same sizes and the same font on every screen.
+- **The rail shows icons.** Each destination has its own icon in place of a
+  text character.
+- **The Map fills the width.** Move the pointer along the story line to make
+  the takes below it larger, and click to hold the lens in place. The strip
+  below the Map shows the full story line and your position in it.
+- **The panel on the right is smaller and collapses.** Click a section title
+  to close or open that section. Library and Settings use the full width.
+- **The composer stays below the story at the smallest window size.** It no
+  longer covers your prose.
+
 ## 0.11.0-beta.4 - 2026-09-17
 
 - **You can move a chapter break.** On Chapters, drag the break handle on the
