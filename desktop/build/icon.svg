@@ -1,10 +1,10 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
   <title>1667</title>
-  <rect x="48" y="48" width="928" height="928" rx="196" fill="#242c29"/>
-  <rect x="74" y="74" width="876" height="876" rx="176" fill="none" stroke="#4a5148" stroke-width="4"/>
-  <path d="M180 202V822" stroke="#d58e4e" stroke-width="12"/>
-  <g fill="#f0ecde" font-family="Georgia, serif" font-size="370" font-weight="bold" text-anchor="middle">
-    <text x="552" y="466">16</text>
-    <text x="552" y="805">67</text>
-  </g>
+  <!-- The homepage mark: a white pilcrow on accent red. macOS wants the
+       rounded square drawn into the art with a margin, so the corner radius
+       and inset live here rather than in a mask. -->
+  <rect x="72" y="72" width="880" height="880" rx="198" fill="#E8452E"/>
+  <text x="470" y="520" fill="#FFFFFF"
+        font-family="'JetBrains Mono', ui-monospace, Menlo, Consolas, monospace"
+        font-size="560" font-weight="700" text-anchor="middle" dominant-baseline="central">¶</text>
 </svg>
