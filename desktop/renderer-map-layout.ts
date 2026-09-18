@@ -366,7 +366,14 @@ export function computeMapLayout(
     for (let index = lo + 1; index < hi; index += 1) {
       const words = Math.max(1, nodeStubById.get(path[index]!.id)?.words ?? 0);
       const base = paneWidth === undefined ? Math.max(MIN_SPINE_GAP, words * 0.6) : clamp(words * paneScale, PANE_MIN_GAP, PANE_MAX_GAP);
-      const gap = !hasLens ? base : insideLens(index) ? base * LENS_MAGNIFY_SCALE : Math.max(floorGap, base / LENS_MAGNIFY_SCALE);
+      // The lens is anchored at the part under the pointer: every gap up to
+      // it keeps its width, so that part does not slide away at the moment
+      // the lens opens. The lens widens to its right, and the gaps past the
+      // lens compress, which keeps the drawing near the pane width.
+      const gap = !hasLens ? base
+        : index <= lensCenterIndex ? base
+          : insideLens(index) ? base * LENS_MAGNIFY_SCALE
+            : Math.max(floorGap, base / LENS_MAGNIFY_SCALE);
       cursorX += gap;
       xs.push(cursorX);
     }

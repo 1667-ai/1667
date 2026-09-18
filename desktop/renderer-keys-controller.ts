@@ -163,7 +163,11 @@ export class RendererKeysController {
       if (isComposerWithTarget) this.hooks.actions().setComposerWriteTarget(null);
       return;
     }
-    if (state.tab === "map" && state.mapLensPinnedPartId !== null) {
+    // Only a pin the Map still draws counts: a pin whose part left the
+    // line is invisible, and consuming Escape for it would cost the writer
+    // a keypress with nothing to show.
+    if (state.tab === "map" && state.mapLensPinnedPartId !== null
+      && state.story?.path.some((node) => node.id === state.mapLensPinnedPartId) === true) {
       this.hooks.actions().pinMapLens(null);
       return;
     }

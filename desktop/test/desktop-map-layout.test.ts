@@ -457,3 +457,24 @@ test("the minimap geometry carries one mark per part (R-19)", () => {
   assert.deepEqual([...geometry.partFractions], [...geometry.partFractions].sort((a, b) => a - b), "the marks run in part order along the strip");
   for (const fraction of geometry.partFractions) assert.ok(fraction >= 0 && fraction <= 1);
 });
+
+test("the lens anchors the part under the pointer instead of sliding it away", () => {
+  const nodes: OrdinaryNodeStub[] = [];
+  const path: StoryPathNode[] = [];
+  let parent: string | null = null;
+  for (let index = 0; index < 15; index += 1) {
+    const id = `p${index}`;
+    nodes.push(stub(id, parent, 120, { childCount: index === 14 ? 0 : 1 }));
+    path.push(pathNode(id, parent, 120));
+    parent = id;
+  }
+  const fixture = story({ nodes, path });
+  const plain = computeMapLayout(fixture, "p7", { paneWidth: 1200 });
+  const lensed = computeMapLayout(fixture, "p7", { paneWidth: 1200, lensIndex: 12 });
+  const xOf = (layout: ReturnType<typeof computeMapLayout>, id: string): number =>
+    layout.nodes.find((node) => node.onPath && node.id === id)!.x;
+  // The hovered part keeps its position, so the pointer stays on it when the
+  // lens opens; a part before it does too.
+  assert.equal(xOf(lensed, "p12"), xOf(plain, "p12"));
+  assert.equal(xOf(lensed, "p5"), xOf(plain, "p5"));
+});
