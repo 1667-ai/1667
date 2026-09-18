@@ -158,7 +158,14 @@ async function testComposerStates(page: Page): Promise<void> {
 
   await input.press(`${shortcut}+Enter`);
   await page.waitForSelector(".manuscript-part.streaming", { timeout: 30_000 });
-  await page.waitForSelector(".manuscript-part.streaming .caret", { timeout: 15_000 });
+  // The caret blinks only while the take streams. A dry-run stream can finish
+  // before this poll sees it, so accept a stream that already ended.
+  await page.waitForFunction(
+    () => document.querySelector(".manuscript-part.streaming .caret") !== null
+      || document.querySelector(".manuscript-part.streaming") === null,
+    undefined,
+    { timeout: 15_000 }
+  );
   await page.keyboard.press("Escape");
   await page.waitForFunction(
     () => document.querySelector(".manuscript-part.streaming") === null || document.querySelector(".stopped-generation") !== null,
