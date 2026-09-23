@@ -20,7 +20,7 @@ export class RuntimeDataDirectoryLock {
   private canonicalDir: string | null = null;
   private startedAt: string | null = null;
 
-  constructor(dataDir: string, private readonly owner?: "desktop") {
+  constructor(dataDir: string) {
     this.lock = new DataDirectoryLock(dataDir);
   }
 
@@ -59,7 +59,6 @@ export class RuntimeDataDirectoryLock {
         // A record nobody could write is not a reason to refuse the project.
         await publishProjectRunRecord(canonicalDir, {
           pid: process.pid,
-          ...(this.owner === undefined ? {} : { owner: this.owner }),
           port: null,
           url: null,
           startedAt: this.startedAt
@@ -91,7 +90,6 @@ export class RuntimeDataDirectoryLock {
       }
       await publishProjectRunRecord(this.canonicalDir, {
         pid: process.pid,
-        ...(this.owner === undefined ? {} : { owner: this.owner }),
         port: server.port,
         url: server.url,
         startedAt: this.startedAt

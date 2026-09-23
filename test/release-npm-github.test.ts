@@ -24,12 +24,6 @@ import {
   expectedInstallerNames
 } from "../scripts/release-publication-assets.js";
 import {
-  allDesktopAssetNames,
-  desktopAssetNames,
-  desktopReleaseArchiveUrl,
-  desktopReleaseTargets
-} from "../scripts/release-desktop-assets.js";
-import {
   publishOrVerifyGitHubRelease,
   verifyNpmReleaseAssetDirectory
 } from "../scripts/release-npm-github.js";
@@ -162,54 +156,6 @@ test("GitHub release publication verifies exact assets before and after upload",
     () => verifyNpmReleaseAssetDirectory(assets, VERSION, REPOSITORY),
     /unexpected asset set/u
   );
-});
-
-test("GitHub release publication retains desktop assets outside npm preflight", async (t) => {
-  const root = await mkdtemp(path.join(tmpdir(), "1667-desktop-github-"));
-  t.after(() => rm(root, { recursive: true, force: true }));
-  const cliAssets = path.join(root, "cli-assets");
-  const desktopAssets = path.join(root, "desktop-assets");
-  const combined = path.join(root, "combined-assets");
-  const remote = path.join(root, "remote");
-  const state = path.join(root, "state.json");
-  const log = path.join(root, "gh.log");
-  const notes = path.join(root, "notes.md");
-  const gh = path.join(root, "gh");
-  await mkdir(cliAssets);
-  await mkdir(desktopAssets);
-  await mkdir(combined);
-  await writeReleaseAssetFixture(cliAssets, VERSION, REPOSITORY);
-  await writeDesktopAssetFixture(desktopAssets, VERSION, REPOSITORY);
-  for (const name of await readdir(cliAssets)) await copyFile(path.join(cliAssets, name), path.join(combined, name));
-  for (const name of await readdir(desktopAssets)) await copyFile(path.join(desktopAssets, name), path.join(combined, name));
-  const desktopNames = new Set(allDesktopAssetNames(VERSION));
-  await writeFile(
-    path.join(combined, "checksums.txt"),
-    formatReleaseChecksums(
-      directoryAssetDigests(combined).filter((asset) => !desktopNames.has(asset.name))
-    )
-  );
-  assert.doesNotMatch(
-    await readFile(path.join(combined, "checksums.txt"), "utf8"),
-    /darwin-arm64\.yml/u
-  );
-  await writeFile(notes, "# Desktop release\n");
-  await writeFakeReleaseGh(gh, { remote, state, log }, { tagObjectSha: "a".repeat(40) });
-
-  await publishOrVerifyGitHubRelease({
-    version: VERSION,
-    sourceCommit: COMMIT,
-    assetsDirectory: combined,
-    desktopAssetsDirectory: desktopAssets,
-    notesFile: notes,
-    environment: {
-      GITHUB_REPOSITORY: REPOSITORY,
-      GH_TOKEN: "test-token",
-      HOME: root
-    },
-    ghExecutable: gh
-  });
-  assert.deepEqual((await readdirNames(remote)).sort(), (await readdirNames(combined)).sort());
 });
 
 test("GitHub release publication refuses a tag that moves during asset verification", async (t) => {
@@ -440,32 +386,4 @@ test("GitHub release verification binds installers to channel digests and reject
 
 async function readdirNames(directory: string): Promise<string[]> {
   return await readdir(directory);
-}
-
-async function writeDesktopAssetFixture(
-  directory: string,
-  version: string,
-  repository: string
-): Promise<void> {
-  for (const target of desktopReleaseTargets()) {
-    const names = desktopAssetNames(version, target);
-    const archive = names.find((name) => name.endsWith(".zip") || name.endsWith(".AppImage") || name.endsWith(".exe"));
-    if (archive === undefined) throw new Error(`missing archive for ${target}`);
-    for (const name of names) {
-      if (name.startsWith("latest-")) continue;
-      await writeFile(path.join(directory, name), `${name}\n`);
-    }
-    const metadata = [
-      `version: ${version}`,
-      "files:",
-      `  - url: ${desktopReleaseArchiveUrl(version, target, repository)}`,
-      "    sha512: test",
-      "    size: 1",
-      `path: ${archive}`,
-      "sha512: test",
-      "releaseDate: 2026-09-14T00:00:00.000Z",
-      ""
-    ].join("\n");
-    await writeFile(path.join(directory, `latest-${target}.yml`), metadata);
-  }
 }

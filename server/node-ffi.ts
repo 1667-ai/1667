@@ -20,8 +20,8 @@ export function loadNodeFfi(): NativeFfi {
       if (byteLength === undefined) {
         throw new Error("Node FFI memory views require a byte length");
       }
-      // Electron forbids external ArrayBuffers. Decode native bytes into
-      // owned memory, which also stays valid after the native call releases it.
+      // Copy native bytes into owned memory so they remain valid after the
+      // native call releases its buffer.
       return Uint8Array.from(
         koffi.decode(
           BigInt(pointer),

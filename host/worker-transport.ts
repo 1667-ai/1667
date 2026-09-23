@@ -738,10 +738,7 @@ function defaultGenerationDeadline(method: WorkerMethod): number {
 
 function createDefaultWorker(): WorkerLike {
   if (isNodeWorkerRuntime()) {
-    // The desktop compiler emits ordinary JavaScript without the standalone
-    // build identity define. The module URL is the runtime truth for the
-    // worker entry and keeps a source tsx launch separate from packaged
-    // Electron JavaScript.
+    // The module URL distinguishes a source tsx launch from compiled Node.js.
     const source = import.meta.url.endsWith(".ts");
     const workerPath = new URL(
       source ? "../server/worker.ts" : "../server/worker.js",

@@ -16,7 +16,6 @@ const MAX_RUN_RECORD_BYTES = 4 * 1024;
  */
 export interface ProjectRunRecord {
   readonly pid: number;
-  readonly owner?: "desktop";
   readonly port: number | null;
   readonly url: string | null;
   readonly startedAt: string;
@@ -68,7 +67,6 @@ function parseRunRecord(text: string): ProjectRunRecord | null {
   if (url !== null && typeof url !== "string") return null;
   if (typeof startedAt !== "string") return null;
   return {
-    pid, port, url, startedAt,
-    ...(record.owner === "desktop" ? { owner: "desktop" as const } : {})
+    pid, port, url, startedAt
   };
 }
