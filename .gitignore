@@ -1,7 +1,5 @@
 node_modules
 tui/dist/
-desktop/app/
-desktop/dist/
 data/
 *.log
 .DS_Store

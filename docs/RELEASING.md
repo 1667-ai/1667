@@ -46,9 +46,7 @@ This document uses these Technical Names:
 | Managed Installation | An installation that an Installer creates and registers |
 | Ownership Record | The durable file that grants 1667 authority to replace one executable |
 | Release Archive | The target-specific native archive in an immutable GitHub release |
-| desktop asset | A desktop installer, archive, blockmap, or updater metadata file |
 | ad-hoc signature | A file integrity signature that contains no certificate identity |
-| updater metadata | The target-specific file that electron-updater reads |
 | POSIX ustar | The archive format that the release workflows use |
 | build identity | Version, source, time, protocol, and target data in a native executable |
 | source evidence | Trusted source, tag, version, and time data |
@@ -193,8 +191,7 @@ Collect these inputs before preflight:
    annotated or lightweight. An annotated tag must point directly at the
    source commit.
 3. Select one millisecond-precision UTC build timestamp for all targets.
-4. Use the same version in the root package, TUI package, desktop package, root
-   lockfile, and desktop lockfile.
+4. Use the same version in the root package, TUI package, and root lockfile.
 5. Run `--version --json` on each of the five published native executables.
 6. Pack the launcher package and the five published platform packages.
 
@@ -383,22 +380,20 @@ checks the tag before and after it makes the release immutable. The workflow
 refuses a release commit that the default branch cannot reach. The completion
 record also binds to that commit.
 
-The workflow has six jobs:
+The workflow has five jobs:
 
 1. `authorize` verifies the dispatcher before it starts release work.
 2. `build` builds and observes the five published native executables.
-3. `desktop` builds and stages the five desktop targets.
-4. `launcher` stages and packs the six release packages.
-5. `preflight` verifies the package set and retains the result.
-6. `publish` completes the publication.
+3. `launcher` stages and packs the six release packages.
+4. `preflight` verifies the package set and retains the result.
+5. `publish` completes the publication.
 
 The `publish` job completes these phases:
 
 1. It creates and verifies the GitHub release draft.
-2. It adds the desktop assets to the draft.
-3. It makes the GitHub release immutable.
-4. It publishes the five platform packages before the launcher package.
-5. It records completion.
+2. It makes the GitHub release immutable.
+3. It publishes the five platform packages before the launcher package.
+4. It records completion.
 
 A failed job can use the retained inputs from the same workflow run. The
 registry check accepts an existing version only when its digest and provenance
@@ -734,93 +729,12 @@ them, so the tuple type and the tests are not in the release path; that check
 is, and it names the missing file and the target.
 
 `checksums.txt` lists the SHA-256 of every CLI release asset except itself.
-Desktop assets have a separate file-set and metadata check.
 
 The workflow attests each native release asset except `checksums.txt` with
 `actions/attest-build-provenance`. The workflow makes `checksums.txt` after the
 final native attestation. Only the jobs that make an attestation get
 `id-token: write` and `attestations: write`. A reader verifies one attested archive with
 `gh attestation verify <file> --repo 1667-ai/1667`.
-
-## Desktop release assets
-
-The `desktop` job builds one Electron target on each supported runner. It uses
-Electron `44.3.0` and electron-builder `26.15.3`. It uses these targets:
-
-| Target | Assets |
-| --- | --- |
-| `darwin-arm64`, `darwin-x64` | DMG, ZIP, ZIP blockmap, and updater metadata |
-| `linux-arm64`, `linux-x64` | AppImage and updater metadata |
-| `windows-x64` | NSIS installer, EXE blockmap, and updater metadata |
-
-The package step keeps compiled `server/`, `host/`, `client/`, and `shared/`
-files under their relative paths. It also keeps the Photon and tiktoken WebAssembly
-files and native Node add-ons. The image child uses its compiled relative entry.
-The package also contains `LICENSE` and `NOTICE`.
-The native add-ons use their Node-API binaries. The build does not compile
-them again. `npm run test:native` checks these binaries and the WebAssembly
-modules under Electron before packaging.
-
-The CI job runs the backend tests under Electron. Windows runs the named
-platform, Installer, and image tests that its native lane supports. Linux and
-macOS run the complete root backend suite. The CI job also runs the Renderer
-tests through the main process and Worker. `npm run test:package` builds an
-application directory and runs the client contract through that application.
-On macOS, this test also builds and checks the DMG, ZIP, and updater metadata.
-The macOS CI package uses the same signing configuration as the release.
-
-`scripts/release-desktop-assets.ts` gives each target unique asset names. It
-renames the updater metadata to `<channel>-<target>.yml`, where stable uses
-`latest` and every prerelease uses `beta`. It writes
-the exact GitHub Release download URL into each metadata file.
-
-The workflow keeps desktop assets in a separate Actions artifact. It verifies
-their file set in the `launcher` and `publish` jobs. The desktop files stay
-outside npm preflight, SBOM generation, and the CLI artifact manifest. The
-publish job copies them into the GitHub release before it makes that release
-immutable.
-
-macOS release builds have no Developer ID signature or Apple notarization.
-The release does not use an Apple account or publish an Apple certificate
-identity. Do not select a certificate from the build machine. The package
-configuration disables certificate selection and notarization.
-The package uses an ad-hoc signature. The package test checks that signature.
-It also checks that the signature has no certificate authority or Apple Team ID.
-Windows builds can remain unsigned. Linux builds need no signing key.
-
-macOS can block the first start of a downloaded app. The user must permit that
-app in **System Settings > Privacy & Security**. See
-[Mac installation instructions](desktop-renderer.md#install-on-macos).
-
-The Mac app checks the same channel metadata as the other desktop targets.
-It opens the exact release page when the user selects **Download update**.
-The user must quit the app and replace it with the downloaded version.
-Squirrel.Mac requires an identity signature for automatic installation, so the
-Mac app does not download or install updates automatically. Windows and Linux
-keep their existing update process.
-
-To check an installed Linux update, supply two AppImages with different
-versions. Run this command from `desktop/` with a display or `xvfb-run`:
-
-```sh
-node --import tsx scripts/test-appimage-update.ts \
-  --old /path/to/1667-old.AppImage --from-version 0.11.0-beta.1 \
-  --new /path/to/1667-new.AppImage --to-version 0.11.0-beta.2 \
-  --channel beta
-```
-
-The test copies the old AppImage into a temporary directory. It downloads the
-new AppImage from a local feed and runs the installer. It then starts the
-updated app and checks the version and saved story. The input files do not
-change.
-
-The updater reads metadata from the homepage generic feed at
-`https://1667.ai/electron-updater/`. Stable uses the default `latest*` names.
-Beta uses the matching `beta*` names in the same directory. The homepage
-promotion step combines the two Mac metadata files into `latest-mac.yml` or
-`beta-mac.yml`, and serves the Linux and Windows files as `latest-linux*.yml`
-or `beta-linux*.yml`, and `latest.yml` or `beta.yml`. The archives stay at
-their exact GitHub Release URLs.
 
 ## Retain release evidence
 

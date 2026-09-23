@@ -26,7 +26,6 @@ test("embedded Bun worker starts without a Koffi package", async () => {
   const outputFile = path.join(root, "worker.js");
   const bootstrapFile = path.join(root, "bootstrap.ts");
   const machineState = path.join(root, "machine-state");
-  const desktopData = path.join(root, "desktop-data");
   const repositoryRoot = path.resolve(
     path.dirname(fileURLToPath(import.meta.url)),
     "../.."
@@ -86,7 +85,6 @@ test("embedded Bun worker starts without a Koffi package", async () => {
         env: {
           ...process.env,
           AI_1667_STATE: machineState,
-          AI_1667_DESKTOP_DATA_DIR: desktopData,
           BUN_CONFIG_NO_AUTO_INSTALL: "1",
           BUN_INSTALL: path.join(root, "bun-install")
         }

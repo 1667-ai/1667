@@ -65,22 +65,6 @@ Run the frame performance gate separately:
 bun bench/perf.ts
 ```
 
-Run the desktop gates from `desktop/` after you install the root, TUI, and
-desktop dependencies:
-
-```sh
-npm run typecheck
-npm run build:app
-npm run test:native
-npm run test:electron
-AI_1667_DESKTOP_APP_PATH="$PWD/app/main.cjs" npm run test:e2e
-npm run test:package
-```
-
-The last two commands open Electron windows. On Linux, use `xvfb-run` when no
-display is available. The packaged test uses an application directory with no
-signature. Release packages use the [release signing procedure](RELEASING.md#desktop-release-assets).
-
 GitHub CI runs the complete gates on Linux x64. Pull request CI also tests the
 macOS arm64, macOS x64, Linux arm64, Linux x64, and Windows x64 packages.
 Windows CI runs the native platform contracts, the PowerShell Installer tests,
@@ -124,7 +108,6 @@ contract.
 | Path | Contents |
 | --- | --- |
 | `tui/` | Terminal client, Bun workspace, and standalone build scripts |
-| `desktop/` | Electron application, graphical controls, tests, and package scripts |
 | `client/` | Shared client interfaces, response decoders, and transport adapters |
 | `host/` | Embedded worker ownership and shared launcher operations |
 | `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
@@ -141,13 +124,6 @@ The embedded backend supports Bun workers and Node.js worker threads.
 `host/worker-transport.ts` selects the worker adapter. Both adapters use the
 same worker protocol. Node.js uses Koffi for native file locks and platform
 privacy checks. The Bun executable keeps its Bun native interface.
-
-`host/desktop-port-bridge.ts` connects a browser MessagePort to an open
-project. MessagePort is a Technical Name. The host keeps the project lock and
-mutation outbox when a MessagePort closes. It cancels work from that port.
-Each browser window uses its own client and story version cache.
-The project run record identifies a desktop owner. If the TUI cannot acquire
-that project lock, its error tells you to close the project in the desktop app.
 
 A catalog response cannot update the held version of an open story. A failed
 generation also keeps that version. The next edit can report a revision
