@@ -18,31 +18,6 @@ This repository contains the terminal user interface (TUI) and its backend.
 
 [![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-4.gif)](https://1667.ai)
 
-## What you can do
-
-- Write and edit story parts in a full-screen terminal.
-- Keep several takes for one story part without replacing earlier text.
-- Select one take at each point to form a story line.
-- View the selected line, the full tree, or a compact map.
-- Organize long stories with chapters, summaries, Facts, and notes.
-- Import an existing manuscript and export the selected story line as Markdown.
-- Seal project files with a Vault Password.
-- Choose from eight themes.
-
-## Write with or without a model
-
-You do not need a model provider to edit prose, create takes, select a story
-line, manage chapters and Facts, or import and export Markdown. See
-[Write without a model](docs/write-without-a-model.md).
-
-When you want generated prose, connect a provider in Settings. 1667 supports
-ChatGPT and Claude plan connections. It also supports OpenAI-compatible and
-Anthropic Messages endpoints.
-
-You can inspect the next provider request before you send it. You can also set
-an Author Brief, directions, Facts, and sampling controls. See
-[Facts, context, and model providers](docs/model-providers.md).
-
 ## Install
 
 On macOS or Linux, use the Shell Installer:
