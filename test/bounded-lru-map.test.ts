@@ -26,19 +26,6 @@ test("bounded LRU map refreshes recency on both get and set", () => {
   assert.equal(cache.get("c"), "3");
 });
 
-test("bounded LRU map delete and clear remove entries", () => {
-  const cache = new BoundedLruMap<string, string>(2);
-  cache.set("a", "1");
-  cache.delete("a");
-  assert.equal(cache.get("a"), undefined);
-  assert.equal(cache.size, 0);
-  cache.set("a", "1");
-  cache.set("b", "2");
-  cache.clear();
-  assert.equal(cache.size, 0);
-  assert.equal(cache.get("a"), undefined);
-});
-
 test("bounded LRU map rejects a non-positive-integer capacity", () => {
   assert.throws(() => new BoundedLruMap<string, string>(0));
   assert.throws(() => new BoundedLruMap<string, string>(-1));

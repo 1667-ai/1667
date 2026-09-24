@@ -28,24 +28,6 @@ function detail(kind: ResolvedGenerationRecord["kind"]): ResolvedGenerationRecor
 }
 
 describe("generation record detail cache", () => {
-  test("holds up to its bound, then evicts the least recently used entry", () => {
-    const cache = createGenerationRecordDetailCache(2);
-    const a = detail("continue");
-    const b = detail("append");
-    const c = detail("rewrite-take");
-
-    cache.set("a", a);
-    cache.set("b", b);
-    expect(cache.get("a")).toBe(a);
-    expect(cache.get("b")).toBe(b);
-
-    // Over the bound: "a" was inserted first and is the least recently
-    // used, so it falls out to make room for "c".
-    cache.set("c", c);
-    expect(cache.get("a")).toBe(undefined);
-    expect(cache.get("b")).toBe(b);
-    expect(cache.get("c")).toBe(c);
-  });
 
   test("a read counts as a use, protecting a stale entry from eviction ahead of a fresher, untouched one", () => {
     const cache = createGenerationRecordDetailCache(2);

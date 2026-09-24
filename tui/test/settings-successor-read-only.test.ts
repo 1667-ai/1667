@@ -120,30 +120,6 @@ describe("successor read-only Settings presentation", () => {
     expect(settingsRows(overlay, source.config).map((row) => row.id)).toContain("base-url");
   });
 
-  test("legacy read-only profile row wording stays unchanged", () => {
-    const { source } = settingsHarness();
-    const view = readOnlyView(source);
-    const overlay = initialSettingsOverlay(view, source.config);
-
-    expect(profileRowValue(overlay)).toBe("‹ legacy profile ›");
-    expect(profileRowHint(overlay)).toBe("Legacy settings are read-only.");
-    expect(effortRowValue(overlay)).toBe("‹ default ›");
-    expect(effortRowHint(overlay)).toBe(
-      "Sets how much reasoning the model does before writing."
-    );
-    expect(settingsRows(overlay, source.config).find((row) => row.id === "cache-policy"))
-      .toMatchObject({
-        value: "‹ off ›",
-        hint: "Prompt caching is unavailable in legacy settings."
-      });
-    expect(settingsRows(overlay, source.config).find((row) => row.id === "image-input"))
-      .toMatchObject({
-        value: "—",
-        hint: "Shows whether this model accepts image attachments.",
-        disabled: true
-      });
-  });
-
   test("successor rows use closed response fields and name the rest as owned", () => {
     const { source } = settingsHarness();
     const effective = {

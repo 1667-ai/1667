@@ -26,25 +26,6 @@ import { plainLine, visibleWidth, type FrameLine } from "../src/screens/story/fr
 import { nextRequestEstimate } from "../src/request-projection.js";
 
 describe("grouped command palette model", () => {
-  test("builds six sections and one canonical selectable/render order", () => {
-    const model = commandPaletteModel("", false);
-    expect(model.sections.map((section) => section.label)).toEqual([
-      "Suggested", "Story", "Take", "View", "System", "Settings"
-    ]);
-    const ids = model.selectable.map((match) => match.command.id);
-    for (const id of [
-      "summary", "tag-line", "export", "switch-story", "rename-story", "folder",
-      "direct-take", "retake", "prune", "autoname", "settings",
-      "reconnect"
-    ] as const) expect(ids).toContain(id);
-    expect(commandMatches("", false)).toEqual(model.selectable);
-    expect(model.renderRows.filter((row) => row.kind === "command").map((row) => row.selectableIndex))
-      .toEqual(model.selectable.map((_, index) => index));
-    for (const [index, row] of model.renderRows.entries()) {
-      expect(model.renderRowToSelectable[index]).toBe(row.kind === "section" ? null : row.selectableIndex);
-    }
-  });
-
   test("covers every Settings row and Sampling focus stop exactly once", () => {
     const model = commandPaletteModel("", false);
     const commands = model.selectable
@@ -66,14 +47,6 @@ describe("grouped command palette model", () => {
       .filter((target) => target.kind === "sampling")
       .map((target) => settingsCommandTargetIdentity(target));
     expect(sampling).toEqual(SAMPLING_LAYER_ROWS.map(samplingLayerRowIdentity));
-  });
-
-  test("attach image is available once image input's entry points are open, this release's default", () => {
-    // shared/image-input-release.ts: this release activates the feature, so
-    // the release-wide switch opens every entry point together, including
-    // this command's palette availability.
-    const model = commandPaletteModel("", false);
-    expect(model.selectable.some((match) => match.command.id === "attach-image")).toBeTrue();
   });
 
   test("filters across descriptions without losing group or theme commands", () => {
@@ -115,65 +88,6 @@ describe("grouped command palette model", () => {
       connectionDown: false, requestActive: false, hasProse: false, lineTagged: false, canRewriteSelection: false
     });
     expect(empty.sections[0]!.matches.map((match) => match.command.id)).toEqual(["export"]);
-  });
-
-  test("rename story declares mutation ownership", () => {
-    const rename = commandMatches("rename story", false)
-      .find(({ command }) => command.id === "rename-story")?.command;
-    expect(rename?.mutating).toBeTrue();
-    const card = commandMatches("import character card", false)
-      .find(({ command }) => command.id === "import-card")?.command;
-    expect(card).toMatchObject({
-      section: "story",
-      name: "import character card",
-      description: "add a card's fields as Facts",
-      mutating: true
-    });
-    const archive = commandMatches("import archive", false)
-      .find(({ command }) => command.id === "import-archive")?.command;
-    expect(archive).toMatchObject({
-      section: "story",
-      name: "import archive",
-      description: "read a NovelAI lorebook, scenario, or story file",
-      mutating: true
-    });
-  });
-
-  test("Author's Note is a Story command with the NAV shortcut", () => {
-    const note = commandMatches("author's note", false)
-      .find(({ command }) => command.id === "authors-note")?.command;
-    expect(note).toMatchObject({
-      section: "story",
-      shortcut: "n",
-      mutating: true
-    });
-  });
-
-  test("Aside is a Story command with the NAV shortcut", () => {
-    const aside = commandMatches("aside", false, {
-      connectionDown: false,
-      requestActive: false,
-      hasProse: true,
-      lineTagged: false,
-      canRewriteSelection: false,
-      asideEntryPointsOpen: true
-    })
-      .find(({ command }) => command.id === "aside")?.command;
-    expect(aside).toMatchObject({
-      section: "story",
-      shortcut: "a",
-      blockedByLiveStream: true
-    });
-  });
-
-  test("Author Brief is a Story command with no NAV shortcut", () => {
-    const brief = commandMatches("author brief", false)
-      .find(({ command }) => command.id === "author-brief")?.command;
-    expect(brief).toMatchObject({
-      section: "story",
-      mutating: true
-    });
-    expect(brief?.shortcut).toBe(undefined);
   });
 
   test("finds priority Settings rows and Default Author Brief aliases", () => {

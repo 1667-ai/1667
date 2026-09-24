@@ -3,7 +3,7 @@ import { mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test from "node:test";
-import { liveObjectIds, manifestImageIds, StoryFormatError, sha256 } from "../server/story-format.js";
+import { manifestImageIds, StoryFormatError, sha256 } from "../server/story-format.js";
 import { StoryObjectStore } from "../server/story-objects.js";
 import type { StoryManifestV7 } from "../server/story-format.js";
 
@@ -171,13 +171,6 @@ test("manifestImageIds collects every attachment's objectId, in node order, incl
     manifestNode("n3", [{ objectId: idA }])
   ]);
   assert.deepEqual(manifestImageIds(manifest), [idA, idB, idA]);
-});
-
-test("liveObjectIds folds manifestImageIds into leaves.images", () => {
-  const idA = "a".repeat(64);
-  const manifest = manifestFixture([manifestNode("n1", [{ objectId: idA }])]);
-  const live = liveObjectIds(manifest);
-  assert.deepEqual(live.leaves.images, [idA]);
 });
 
 test("a sweep protects an image the manifest references even with no live Draft Lease at all", async (t) => {

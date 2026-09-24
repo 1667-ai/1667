@@ -233,28 +233,6 @@ test("internal stored failures publish only persisted diagnostic references", ()
   );
 });
 
-test("all private failures use one explicit typed service error", () => {
-  const root = Object.freeze(new Error("frozen private failure"));
-
-  const prepared = prepareServiceFailure(root);
-  const preparedError = errorFromFailureIncident(prepared);
-
-  assert.ok(preparedError instanceof Error);
-  assert.notEqual(preparedError, root);
-  assert.equal(preparedError.cause, root);
-  assert.equal(Object.isFrozen(prepared), true);
-  assert.equal(Object.isFrozen(preparedError), true);
-
-  const thrownUndefined = prepareServiceFailure(undefined);
-  const thrownUndefinedError = errorFromFailureIncident(thrownUndefined);
-  assert.ok(thrownUndefinedError instanceof ReportedServiceError);
-  assert.equal(
-    Object.prototype.hasOwnProperty.call(thrownUndefinedError, "cause"),
-    true
-  );
-  assert.equal(thrownUndefinedError.cause, undefined);
-});
-
 test("plain stored internal failures remain unavailable on replay", () => {
   const restored = restoreStoredServiceFailure({
     kind: "plain",

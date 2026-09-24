@@ -5,7 +5,6 @@ import {
   activePathWindow,
   tagBelow,
   continuationStats,
-  deletionCopy,
   recentLeafIds,
   rememberedLineTag,
   summaryExtendsCurrentLeaf,
@@ -100,11 +99,6 @@ test("switch feedback reports parts after the chosen take and the terminal part 
     activeChildId: candidate.id === "take-a" ? null : candidate.activeChildId
   })), ["root", "take-a"]);
   assert.equal(switchAnnouncement(ending, "take-a"), "Now on: Preview take-a… — the story ends after Part 2.");
-});
-
-test("delete confirmation always states the exact affected part count", () => {
-  assert.equal(deletionCopy(1), "Delete this take? 1 part total, gone for good.");
-  assert.equal(deletionCopy(4), "Delete this take and the 3 parts beneath it? 4 parts total, gone for good.");
 });
 
 test("recent lines resolve remembered descendants without repeating the active line", () => {

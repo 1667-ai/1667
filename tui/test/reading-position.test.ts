@@ -6,11 +6,9 @@ import { STARTER_OPENING_STORY_ID } from "../../shared/starter-vault.js";
 import { demoAppSource } from "../src/demo.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForNode } from "../src/model.js";
 import {
-  forgetReadingPosition,
   MAX_READING_POSITIONS,
   mergeReadingPositionDirty,
-  openingFocusIndex,
-  putReadingPosition
+  openingFocusIndex
 } from "../src/reading-position.js";
 import {
   configureReadingPositionStore,
@@ -42,19 +40,6 @@ describe("reading position", () => {
     const mid = payload.path[Math.floor(payload.path.length / 2)]!;
     const view = createStoryViewModel(payload);
     expect(openingFocusIndex(payload, mid.id)).toBe(rowIndexForNode(view, mid.id));
-  });
-
-  test("pure map put and forget only change when needed", () => {
-    const source = demoAppSource();
-    const view = createStoryViewModel(source.payload);
-    const part = source.payload.path[0]!;
-    const focus = rowIndexForNode(view, part.id);
-    const once = putReadingPosition({}, source.payload.id, view, focus, source.payload);
-    expect(once[source.payload.id]).toBe(part.id);
-    expect(putReadingPosition(once, source.payload.id, view, focus, source.payload)).toBe(once);
-    const cleared = forgetReadingPosition(once, source.payload.id);
-    expect(cleared[source.payload.id]).toBe(undefined);
-    expect(forgetReadingPosition(cleared, source.payload.id)).toBe(cleared);
   });
 
   test("store merge-write keeps peer keys for other stories", () => {

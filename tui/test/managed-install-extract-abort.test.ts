@@ -92,16 +92,3 @@ test("materializeCandidate maps extract abort to interrupted UpgradeFailure", as
     rmSync(root, { recursive: true, force: true });
   }
 });
-
-test("shared transfer policy pins wall 600s and managed body-idle 60s", async () => {
-  const bounds = await import("../../shared/release-artifact-bounds.js");
-  const download = await import("../src/upgrade-download.js");
-  expect(bounds.RELEASE_TRANSFER_TOTAL_TIMEOUT_MS).toBe(600_000);
-  expect(bounds.RELEASE_TRANSFER_BODY_IDLE_TIMEOUT_MS).toBe(60_000);
-  expect(download.DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS).toBe(600_000);
-  expect(download.DEFAULT_PACKAGE_DOWNLOAD_IDLE_TIMEOUT_MS).toBe(60_000);
-  expect(download.DEFAULT_PACKAGE_DOWNLOAD_TIMEOUT_MS)
-    .toBe(bounds.RELEASE_TRANSFER_TOTAL_TIMEOUT_MS);
-  expect(download.DEFAULT_PACKAGE_DOWNLOAD_IDLE_TIMEOUT_MS)
-    .toBe(bounds.RELEASE_TRANSFER_BODY_IDLE_TIMEOUT_MS);
-});

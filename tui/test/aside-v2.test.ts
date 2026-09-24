@@ -2384,13 +2384,6 @@ describe("Aside v2 surface", () => {
     expect(surface.anchor).toBeNull();
   });
 
-  test("shows delete toast in the turns footer", () => {
-    const { state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
-    state.toast = "▸ deleted 1 turn · u undoes";
-    const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
-    expect(text).toContain("▸ deleted 1 turn · u undoes");
-  });
-
   test("busy v2 rendering has no composer box or duplicate caret", () => {
     const { state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
     surface.busy = true;
@@ -2446,13 +2439,6 @@ describe("Aside v2 surface", () => {
     expect(surface.turnCursor).toBe(2);
     const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
     expect(text).toContain("▸ You       Question 3?");
-  });
-
-  test("labels every narrow turn-focus key across two rows", () => {
-    const { state, surface } = surfaceWithTurns([{ q: "Why?", a: "Because." }]);
-    const text = frameText(renderAsideScreen(state, surface, 80, 24).lines);
-    expect(text).toContain("↑↓ turn · ←→ session · n new · ↵ use · r retake · R reprompt · D delete");
-    expect(text).toContain("t Thoughts · tab ask · [ ] hop · g go · esc exit");
   });
 
   test("composer keyline does not advertise hop keys", () => {

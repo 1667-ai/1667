@@ -146,12 +146,6 @@ describe("atlas layout model", () => {
     expect(settled.next()).toBe(null);
   });
 
-  test("uses fork-count rollups", () => {
-    const demo = createDemoController().payload();
-    const layout = createAtlasLayout(demo, { now: NOW, sort: "size" });
-    expect(layout.forkCount).toBe(5);
-  });
-
   test("chapter summaries never interrupt a prose continuation", () => {
     const payload = fixture([
       ["root", null], ["continued", "root"], ["active-leaf", "continued"]

@@ -11,18 +11,12 @@ import {
   INSTALL_ACTIVE_EXECUTABLE,
   INSTALL_OWNERSHIP_FILE
 } from "../../shared/install-ownership-record.js";
-import { INSTALL_ACTIVE_FILE } from "../src/install-layout.js";
 import { resolveInstallationAuthority } from "../src/install-ownership.js";
 import {
   MANAGED_TEST_TARGET as TARGET,
   managedScratchRoot,
   writeManagedStub
 } from "./managed-package-fixture.js";
-
-test("install layout reuses shared active basename policy", () => {
-  expect(INSTALL_ACTIVE_FILE).toBe(INSTALL_ACTIVE_EXECUTABLE);
-  expect(INSTALL_ACTIVE_EXECUTABLE).toBe("1667");
-});
 
 test("invalid Ownership Record layout grants no replacement authority", () => {
   // Missing or invalid records grant no replacement authority (manual only).

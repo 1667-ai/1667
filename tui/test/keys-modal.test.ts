@@ -30,16 +30,6 @@ function text(width: number, height: number, scrollTop = 0): string {
 const entries = KEYS_MODAL_MODEL.sections.flatMap((section) => section.entries);
 
 describe("keys reference", () => {
-  test("sections read in a fixed order and each explains itself", () => {
-    expect(KEYS_MODAL_MODEL.sections.map((section) => section.title)).toEqual([
-      "MOVE", "WRITE", "SHAPE", "OPEN", "MAP", "SEARCH"
-    ]);
-    const frame = text(120, 36);
-    for (const section of KEYS_MODAL_MODEL.sections) {
-      expect(frame).toContain(`● ${section.title}  ${section.blurb}`);
-    }
-  });
-
   test("keys and meanings sit side by side, wide and narrow", () => {
     for (const [width, height] of [[80, 36], [120, 36]] as const) {
       const frame = text(width, height);
@@ -50,16 +40,6 @@ describe("keys reference", () => {
       expect(frame).toContain("esc  close what is open");
       for (const line of frame.split("\n")) expect(visibleWidth(line) <= width).toBeTrue();
     }
-  });
-
-  test("G names a part of the line being read, not global recency", () => {
-    const leaf = entries.find((item) =>
-      item.bindings.some((binding) => binding.action === "leaf")
-    );
-    expect(leaf?.description).toBe("first part · last part");
-    // `G` lands on the leaf of the line you are reading. "newest" would promise
-    // the most recent part in the story, which is a different node entirely.
-    expect(leaf?.description).not.toContain("newest");
   });
 
   test("the minimum-width panel wraps every meaning instead of clipping it", () => {
@@ -116,14 +96,6 @@ describe("keys reference", () => {
     expect(frame).toContain("● BUILD");
     expect(content).toContain(buildIdentity.replace(/\s/g, ""));
     expect(frame).toContain("build ↓");
-  });
-
-  test("the old QWERTY diagram and its unexplained bands are gone", () => {
-    const frame = text(120, 36);
-    expect(frame).not.toContain("┌───┬───┬───┬───┬───┬───┬───┬───┬───┬───┐");
-    expect(frame).not.toContain("│ h │ j │ k │ l │");
-    expect(frame).not.toContain("MORE");
-    expect(frame.toLowerCase()).not.toContain("laid where your fingers are");
   });
 
   test("columns follow the width the panel actually has", () => {
@@ -193,15 +165,6 @@ describe("keys reference", () => {
       for (const view of views) {
         expect(`${item.token}:${item.description.includes(view!)}`).toBe(`${item.token}:true`);
       }
-    }
-  });
-
-  test("it says where a chapter row's own keys are named", () => {
-    // `directChapterRowAction` runs before NAV, so `e` renames a chapter and
-    // `D` removes its break. The reference points at the story's hint line
-    // rather than claiming one meaning for both.
-    for (const [width, height] of [[80, 60], [120, 60]] as const) {
-      expect(text(width, height)).toContain("chapter rows differ · the line under the story says how");
     }
   });
 

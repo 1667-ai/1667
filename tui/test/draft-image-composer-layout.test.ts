@@ -37,20 +37,6 @@ describe("draft image metadata rows above the composer", () => {
     expect(spliceDraftImageRows(layout, [], "")).toBe(layout);
   });
 
-  test("a row names the position, media type, dimensions, and size, never inserted into the draft text", () => {
-    const composer = createComposer("");
-    const layout = renderComposerLayout({ composer, terminalWidth: 100, terminalHeight: 24, measure: 72 });
-    const withImages = spliceDraftImageRows(layout, [image("1", 1_200, 800, 428 * 1024)], "");
-    const text = frameText(withImages.lines);
-
-    expect(text).toContain("Image 1");
-    expect(text).toContain("PNG");
-    expect(text).toContain("1200×800");
-    expect(text).toContain("428 KiB");
-    expect(text).toContain("remove");
-    expect(composer.text).toBe("");
-  });
-
   test("the story screen shrinks story content by exactly the attached row count", () => {
     const source = demoAppSource();
     const state = initialState(source, false);

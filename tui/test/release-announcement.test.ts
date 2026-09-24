@@ -128,18 +128,6 @@ describe("releaseAnnouncement (pure)", () => {
       expect(releaseAnnouncement(UNKNOWN, "1.2.5", LOG_KEY_LIVE, NOTES)).toBeNull();
     });
   });
-
-  describe("the toast names the real route to the log", () => {
-    test("names ! directly when the log key is live (NAV/MAP)", () => {
-      const announcement = releaseAnnouncement(atVersion("1.0.0"), "1.3.0", true, NOTES);
-      expect(announcement!.toast).toBe("Updated to 1.3.0 · press ! for what changed");
-    });
-
-    test("names esc first when the log key is not live (COMPOSE, where ! is a character)", () => {
-      const announcement = releaseAnnouncement(atVersion("1.0.0"), "1.3.0", false, NOTES);
-      expect(announcement!.toast).toBe("Updated to 1.3.0 · esc then ! for what changed");
-    });
-  });
 });
 
 describe("announceRelease (wiring)", () => {

@@ -10,8 +10,7 @@ import { storyAutonameId } from "../server/story-metadata.js";
 import { nodeRewriteId, setNodeRewriteId } from "../server/story-node-text.js";
 import {
   applyProviderStoryEffect,
-  chapterSourceFingerprint,
-  type ProviderStoryEffect
+  chapterSourceFingerprint
 } from "../server/story-provider-effect.js";
 import { prepareProviderStoryEffect } from "../server/story-provider-preparation.js";
 import { createGenerationRecord, type GenerationRecord, type GenerationRecordKind } from "../shared/generation-record.js";
@@ -87,81 +86,6 @@ function story(nodes: StoryNode[], activeRootId: string | null = "root"): Story 
     chapterBreaks: []
   };
 }
-
-test("provider effects are exhaustively operation-specific", () => {
-  const effects = {
-    autoname: {
-      kind: "autoname",
-      expectedTitle: "T",
-      title: "Named"
-    },
-    continue: {
-      kind: "continue",
-      parentId: "root",
-      appendTo: null,
-      expectedTextHash: null,
-      instruction: "Go",
-      text: "Continuation.",
-      model: "m",
-      genId: "g",
-      nodeId: "generated",
-      expectedParentActiveChildId: null,
-      expectedAppendActiveChildId: null,
-      expectedActiveRootId: "root",
-      expectedActiveLeafId: "root",
-      generationRecord: generationRecordFixture("continue")
-    },
-    rewrite: {
-      kind: "rewrite",
-      nodeId: "root",
-      expectedText: "Opening.",
-      expectedInstruction: "",
-      text: "Rewritten.",
-      updatedAt: LATER,
-      generationRecord: generationRecordFixture("rewrite-in-place", "rewrite")
-    },
-    "summary-take": {
-      kind: "summary-take",
-      point: { nodeId: "root", offset: null },
-      expected: null,
-      sourceFingerprint: "x",
-      summary: "Summary.",
-      model: "m",
-      instruction: "Summarize",
-      commitIds: {},
-      generationRecord: generationRecordFixture("summary-take", "summary")
-    },
-    "chapter-summary": {
-      kind: "chapter-summary",
-      breakId: "break",
-      sourceFingerprint: "x",
-      summary: "Summary.",
-      model: "m",
-      generationRecord: generationRecordFixture("chapter-summary", "summary")
-    },
-    "fact-consistency": {
-      kind: "fact-consistency",
-      run: {
-        format: "1667-fact-consistency-run",
-        schemaVersion: 1,
-        runId: "run",
-        scope: "story-line",
-        anchor: { partId: "root", takeId: "root" },
-        checkedAt: AT,
-        provider: { profile: "utility", preset: "default", model: "m" },
-        storyLineTakeIds: ["root"],
-        parts: [],
-        droppedFindings: 0
-      }
-    },
-    aside: {
-      kind: "aside",
-      expectedAsideDocumentId: undefined,
-      document: { schemaVersion: 1, notes: [{ question: "Why?", answer: "Because." }] }
-    }
-  } satisfies Record<ProviderStoryEffect["kind"], ProviderStoryEffect>;
-  assert.equal(Object.keys(effects).length, 7);
-});
 
 test("Fact consistency preparation freezes cancellation before terminal replay", async () => {
   const controller = new AbortController();

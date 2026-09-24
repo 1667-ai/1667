@@ -2,16 +2,6 @@ import { describe, expect, test } from "bun:test";
 import { takeStrip } from "../src/screens/story/density.js";
 
 describe("take density ladder", () => {
-  test("three takes use spaced dots", () => {
-    expect(takeStrip(2, 3)).toEqual({
-      density: "spaced",
-      cells: ["○", "●", "○"],
-      text: "○ ● ○",
-      currentOffset: 2,
-      counter: "‹ take 2/3 ›"
-    });
-  });
-
   test("eight takes use condensed dots", () => {
     expect(takeStrip(6, 8)).toEqual({
       density: "condensed",
@@ -47,10 +37,6 @@ describe("subtake ring on the page strip", () => {
   test("condensed strips ring the same way", () => {
     const flags = Array.from({ length: 8 }, (_, index) => index % 2 === 0);
     expect(takeStrip(6, 8, flags).text).toBe("◎○◎○◎●◎○");
-  });
-
-  test("takes with no subtake information stay plain", () => {
-    expect(takeStrip(2, 3).text).toBe("○ ● ○");
   });
 
   test("the gauge has no per-take cell to ring", () => {

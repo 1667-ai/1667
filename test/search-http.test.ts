@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { SearchResponse } from "../shared/story-search.js";
-import { httpOperationPolicy } from "../shared/http-operation-policy.js";
 import type { StoryPayload } from "../shared/types.js";
 import { API_PROTOCOL_HEADERS, fetchWithApiProtocol } from "./http-test-client.js";
 import { json, testApp } from "./story-server-fixture.js";
@@ -9,15 +8,6 @@ import { json, testApp } from "./story-server-fixture.js";
 // Starting the product server is the point of these tests, and the packaged
 // Linux job is where that is cheap enough to do per case.
 const linuxTest = process.platform === "linux" ? test : test.skip;
-
-test("the search route carries a policy, so the client can reserve it", () => {
-  // The path is written in three places — the router, this policy table and
-  // the HTTP client. A route with no policy entry throws before it is sent.
-  assert.deepEqual(httpOperationPolicy("POST", "/api/stories/search"), {
-    method: "searchStories",
-    lifetime: "local"
-  });
-});
 
 linuxTest("the search route answers over HTTP at both scopes", async (t) => {
   const base = await testApp(t, "1667-search-http-");

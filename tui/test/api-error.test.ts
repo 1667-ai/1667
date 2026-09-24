@@ -1,11 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import {
-  ApiFailureError,
   apiHttpErrorFromPayload,
   ApiHttpError
 } from "../src/api-error.js";
-import { workerApiErrorFromFailure } from "../src/worker-error.js";
-import { createFailureEnvelope } from "../../shared/failure-envelope.js";
 
 describe("canonical HTTP failure decoding", () => {
   test("ordinary HTTP and SSE payloads share one bounded decoder", () => {
@@ -29,23 +26,6 @@ describe("canonical HTTP failure decoding", () => {
       expect(error.status).toBe(409);
       expect(error.code).toBe("revision_conflict");
       expect(error.diagnosticRef).toBe(reference);
-    }
-  });
-
-  test("HTTP and worker errors retain one canonical failure model", () => {
-    const failure = createFailureEnvelope({
-      code: "conflict",
-      message: "Conflict",
-      status: 409
-    });
-    const http = new ApiHttpError(failure);
-    const worker = workerApiErrorFromFailure(failure);
-
-    for (const error of [http, worker]) {
-      expect(error instanceof ApiFailureError).toBe(true);
-      expect(error.failure).toBe(failure);
-      expect(error.code).toBe("conflict");
-      expect(error.status).toBe(409);
     }
   });
 

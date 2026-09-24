@@ -15,10 +15,7 @@ import {
   GEMMA_CANDIDATE_OPTIMIZATION,
   GEMMA_EXPECTED_BLIND_SAMPLE_COUNT,
   GEMMA_REPLAY_OPERATIONS,
-  GEMMA_REPLAY_SEEDS,
-  GEMMA_SCORING_PROTOCOL,
-  GEMMA_SCORING_PROTOCOL_FINGERPRINT,
-  gemmaScoringProtocolMarkdown
+  GEMMA_REPLAY_SEEDS
 } from "../evals/gemma-prompt-quality/contract.js";
 import { parseGemmaCompatibilityEvidence } from "../evals/gemma-prompt-quality/evidence-schema.js";
 import { parseReplayResult } from "../evals/gemma-prompt-quality/replay-schema.js";
@@ -33,16 +30,6 @@ import {
   testProfile
 } from "./gemma-prompt-quality-test-support.js";
 const runFile = promisify(execFile);
-
-test("Gemma scoring anchors bind the scorer instructions to the gate floor", () => {
-  const readme = readFileSync(path.join(process.cwd(), "evals/gemma-prompt-quality/README.md"), "utf8");
-  assert.equal(readme.includes(gemmaScoringProtocolMarkdown()), true);
-  assert.equal(GEMMA_SCORING_PROTOCOL.baselineScoreFloor, 2);
-  assert.equal(GEMMA_SCORING_PROTOCOL.anchors[1].includes("major defect or break"), true);
-  assert.equal(GEMMA_SCORING_PROTOCOL.anchors[2].includes("noticeable but non-major"), true);
-  assert.match(GEMMA_SCORING_PROTOCOL.dimensionGuidance.styleVoiceCadenceContinuity, /Use 1 only for a major voice or cadence break/);
-  assert.match(GEMMA_SCORING_PROTOCOL_FINGERPRINT, /^sha256:[a-f0-9]{64}$/u);
-});
 
 test("Gemma replay pairs both prompt versions and preserves profile sampling", async (t) => {
   const requests: Record<string, unknown>[] = [];

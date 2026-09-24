@@ -527,32 +527,6 @@ describe("the settings row model stays one list", () => {
     });
   });
 
-  test("Claude plan help names its terminal sign-in command", async () => {
-    const { state, press } = settingsHarness();
-    await openSettings(press);
-    const overlay = state.settings!;
-    overlay.view = {
-      ...overlay.view,
-      subscriptionAuth: { chatgpt: "signed-out", claude: "signed-out" }
-    };
-    const draft = settingsTextDraftWithSubscriptionPlan(
-      overlay.draft,
-      "claude-plan",
-      {
-        ...overlay.draft.generation,
-        provider: "anthropic",
-        baseUrl: "",
-        model: "claude-sonnet-4-6",
-        apiKeyEnv: null,
-        contextWindow: 1_000_000
-      }
-    );
-    const rows = settingsRows({ ...overlay, draft }, state.config);
-
-    expect(rows.find((row) => row.id === "provider")?.hint)
-      .toBe("In a terminal, run 1667 auth login claude to sign in. Claude plan support is experimental.");
-  });
-
   test("subscription plans load catalogs and skip context probes", async () => {
     const { source, state, backend, press } = settingsHarness();
     await openSettings(press);

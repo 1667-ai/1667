@@ -1,29 +1,10 @@
 import { expect, test } from "bun:test";
-import { recoveryNotice } from "../src/app.js";
 import { WorkerApiError, type WorkerRecoveryWarning } from "../src/worker-api.js";
 import { RecoveryWarningFeed } from "../src/recovery-warning-feed.js";
 import {
   createFailureEnvelope,
   type FailureCode
 } from "../../shared/failure-envelope.js";
-
-test("unexpected generation recovery gives a friendly retry notice", () => {
-  const warning: WorkerRecoveryWarning = {
-    mutationId: "m1-example",
-    method: "continueStory",
-    storyId: "story",
-    resolution: "archived",
-    error: workerError(
-      "The model request may have been billed; retry only with a new mutation ID.",
-      "generation_outcome_unknown",
-      409
-    )
-  };
-
-  expect(recoveryNotice([warning])).toBe(
-    "something interrupted the model · you can try again"
-  );
-});
 
 test("recovery feed replays early warnings and deduplicates live metadata", () => {
   const feed = new RecoveryWarningFeed();

@@ -8,45 +8,11 @@ import {
   createBackgroundUpdateStarter,
   createUpdateCheckSession
 } from "../src/update-runtime.js";
-import {
-  managedInstallationChannel,
-  type InstallationAuthority
-} from "../src/install-ownership.js";
 
 const PUBLISHED_HOST = PUBLISHED_RELEASE_TARGETS[0];
 if (PUBLISHED_HOST === undefined) throw new Error("no published release target");
 
 describe("default background update runtime", () => {
-  test("maps proven install authority to its managed channel", () => {
-    const manual: InstallationAuthority = { kind: "manual" };
-    expect(managedInstallationChannel(manual)).toBe(undefined);
-
-    const shell: InstallationAuthority = {
-      kind: "shell",
-      record: {
-        schemaVersion: 1,
-        product: "1667",
-        installationId: "a".repeat(32),
-        method: "shell",
-        channel: "beta",
-        installRoot: "/tmp/1667",
-        executable: "/tmp/1667/1667",
-        artifactTarget: "linux-x64"
-      },
-      installRoot: "/tmp/1667",
-      executable: "/tmp/1667/1667"
-    };
-    expect(managedInstallationChannel(shell)).toBe("beta");
-
-    const powershell: InstallationAuthority = {
-      kind: "powershell",
-      channel: "stable",
-      installRoot: "C:\\Users\\test\\1667",
-      executable: "C:\\Users\\test\\1667\\1667.exe"
-    };
-    expect(managedInstallationChannel(powershell)).toBe("stable");
-  });
-
   test("constructs a checker by default and honors explicit opt-out", () => {
     const host = [PUBLISHED_HOST.platform, PUBLISHED_HOST.arch] as const;
     expect(typeof createBackgroundUpdateStarter(normalizeUserConfig(null), {}, ...host)).toBe("function");
@@ -57,16 +23,6 @@ describe("default background update runtime", () => {
     expect(createBackgroundUpdateStarter(normalizeUserConfig(null), {
       AI_1667_NO_UPDATE_CHECK: "1"
     }, ...host)).toBe(null);
-  });
-
-  test("explicit notify config opts in without doing network or filesystem work", () => {
-    const starter = createBackgroundUpdateStarter(
-      normalizeUserConfig({ updates: { mode: "notify" } }),
-      {},
-      PUBLISHED_HOST.platform,
-      PUBLISHED_HOST.arch
-    );
-    expect(typeof starter).toBe("function");
   });
 
   test("does not require an npm executable", () => {

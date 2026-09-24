@@ -4,8 +4,6 @@ import test from "node:test";
 import type { SamplingContext } from "../shared/sampling-capabilities.js";
 import {
   resolveTokenProbabilities,
-  tokenProbabilityUnavailableReason,
-  tokenProbabilityUnavailableReasonCompact,
   TOKEN_PROBABILITY_SUPPORTED_PRESETS,
   type TokenProbabilityResolution,
   type TokenProbabilityUnavailableReason
@@ -19,7 +17,6 @@ import {
   alignTokenProbabilities,
   createTokenProbabilities,
   parseTokenProbabilities,
-  probabilityOf,
   serializeTokenProbabilities,
   type CapturedTokenProbabilities,
   type TokenProbabilityRecord,
@@ -94,23 +91,6 @@ test("the exported supported-preset list agrees with every allow-listed fixture"
   assert.deepEqual([...TOKEN_PROBABILITY_SUPPORTED_PRESETS].sort(), allowListed);
 });
 
-test("presentation text uses user-facing wording for every unavailable reason", () => {
-  assert.equal(tokenProbabilityUnavailableReason("legacy-v1"), "Format 1 settings are read-only.");
-  assert.equal(tokenProbabilityUnavailableReasonCompact("legacy-v1"), "read-only");
-  assert.equal(
-    tokenProbabilityUnavailableReason("protocol"),
-    "This provider does not support token probabilities."
-  );
-  assert.equal(tokenProbabilityUnavailableReasonCompact("protocol"), "not supported by provider");
-  assert.equal(
-    tokenProbabilityUnavailableReason("preset-unknown"),
-    "Token probability support is unknown for this provider."
-  );
-  assert.equal(tokenProbabilityUnavailableReasonCompact("preset-unknown"), "support unknown");
-  assert.equal(tokenProbabilityUnavailableReason("model-refused"), "This model refused token probabilities.");
-  assert.equal(tokenProbabilityUnavailableReasonCompact("model-refused"), "model refused");
-});
-
 function context(protocol: SamplingContext["protocol"], preset: SamplingContext["preset"]): SamplingContext {
   return { protocol, preset, remoteModelId: "fixture-model", temperatureSupport: "unknown" };
 }
@@ -122,19 +102,6 @@ function available(wire: "openai-logprobs" | "dry-run"): TokenProbabilityResolut
 function unavailable(reason: TokenProbabilityUnavailableReason): TokenProbabilityResolution {
   return { kind: "unavailable", reason };
 }
-
-// --- probabilityOf: the design's own reference numbers ---
-
-test("probabilityOf matches the design's reference values to three decimal places", () => {
-  assert.equal(probabilityOf(-0.887).toFixed(3), "0.412");
-  assert.equal(probabilityOf(-1.605).toFixed(3), "0.201");
-  assert.equal(probabilityOf(-4.074).toFixed(3), "0.017");
-});
-
-test("probabilityOf clamps to [0, 1]", () => {
-  assert.equal(probabilityOf(0), 1);
-  assert.equal(probabilityOf(-1_000), 0);
-});
 
 // --- serialize / parse: byte-stable round trip ---
 

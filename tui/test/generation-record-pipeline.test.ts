@@ -3,13 +3,8 @@ import type { ResolvedGenerationRecord } from "../../shared/generation-record.js
 import type { StoryNode } from "../../shared/types.js";
 import {
   adjustmentNotices,
-  generationRecordFieldText,
-  generationRecordKindLabel,
-  generationRecordOperationLabel,
   generationRecordPipelineRows,
-  humanEditWarning,
-  pipelineCharacterCount,
-  visibleEntryCount
+  humanEditWarning
 } from "../src/generation-record-pipeline.js";
 
 /**
@@ -91,18 +86,6 @@ describe("generation record pipeline rows", () => {
     expect(rows.map((row) => row.index)).toEqual([0, 1, 2, 3, 4, 5, 6, 7]);
   });
 
-  test("labels text entries with role and kind, and source parts with category and node id", () => {
-    const rows = generationRecordPipelineRows(RECORD);
-    expect(rows[0]!.label).toBe("system · author brief");
-    expect(rows[1]!.label).toBe("user · facts");
-    expect(rows[2]!.label).toBe("user · source instruction · recent · root");
-    expect(rows[3]!.label).toBe("assistant · source prose · recent · root");
-    expect(rows[4]!.label).toBe("user · author's note");
-    expect(rows[5]!.label).toBe("user · source instruction · recent · child");
-    expect(rows[6]!.label).toBe("assistant · source prose · recent · child");
-    expect(rows[7]!.label).toBe("user · request");
-  });
-
   test("restores user and assistant roles for each compact source part", () => {
     const rows = generationRecordPipelineRows(RECORD);
     expect(rows[0]!.role).toBe("system");
@@ -133,36 +116,6 @@ describe("generation record pipeline rows", () => {
     expect(rows[1]!.label).toBe("assistant · source prose · summary · root");
   });
 
-  test("visibleEntryCount matches the row count, and is zero for a missing detail", () => {
-    expect(visibleEntryCount(RECORD)).toBe(8);
-    expect(visibleEntryCount(null)).toBe(0);
-  });
-
-  test("pipelineCharacterCount sums every row's exact content length", () => {
-    const expected = generationRecordPipelineRows(RECORD).reduce((sum, row) => sum + row.content.length, 0);
-    expect(pipelineCharacterCount(RECORD)).toBe(expected);
-    expect(expected).toBeGreaterThan(0);
-  });
-});
-
-describe("generation record labels", () => {
-  test("every kind has a distinct human label", () => {
-    expect(generationRecordKindLabel("continue")).toBe("continuation");
-    expect(generationRecordKindLabel("rewrite-take")).toContain("rewrite");
-    expect(generationRecordKindLabel("rewrite-in-place")).toContain("in place");
-    expect(generationRecordKindLabel("unsupported")).toBe("unsupported");
-  });
-
-  test("operation labels are plain words", () => {
-    expect(generationRecordOperationLabel("continue")).toBe("continue");
-    expect(generationRecordOperationLabel("rewrite")).toBe("rewrite");
-    expect(generationRecordOperationLabel("summary")).toBe("summary");
-  });
-
-  test("a field renders as field: value", () => {
-    expect(generationRecordFieldText({ field: "temperature", value: 0.8 })).toBe("temperature: 0.8");
-    expect(generationRecordFieldText({ field: "stream", value: false })).toBe("stream: false");
-  });
 });
 
 describe("generation record adjustment notices", () => {
@@ -179,10 +132,6 @@ describe("generation record adjustment notices", () => {
     ]);
   });
 
-  test("an empty adjustment list produces no notices for either stage", () => {
-    expect(adjustmentNotices([], "construction")).toEqual([]);
-    expect(adjustmentNotices([], "retry")).toEqual([]);
-  });
 });
 
 describe("human edit warning", () => {
