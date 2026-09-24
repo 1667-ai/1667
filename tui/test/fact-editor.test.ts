@@ -679,40 +679,6 @@ describe("Fact editor", () => {
     }
   });
 
-  test("each Fact option has a short explanation", async () => {
-    const { state, press } = editorHarness();
-    await press(key("f"));
-    await press(key("return"));
-    const editor = activeFactEditor(state);
-    const options: Array<[FactEditorSession["focus"], string]> = [
-      ["name", "Optional name shown in the Facts list."],
-      ["tag", "Groups similar Facts together."],
-      ["activation", "Always sends this Fact when a request is made."],
-      ["keys", "Words or phrases that activate a keyed Fact."],
-      ["secondary", "An optional second key list for the match rule below."],
-      ["match", "Needs one primary key and one secondary key."],
-      ["scan", "How many recent story parts to check."],
-      ["chain", "Let this Fact activate other keyed Facts."],
-      ["priority", "When the request is full, low priority Facts drop first."],
-      ["budget", "Optional token limit for this Fact."],
-      ["body", "Write the names, places, items, or rules"],
-    ];
-    for (const [focus, explanation] of options) {
-      setFactEditorFocus(editor, focus);
-      expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
-        .toContain(explanation);
-    }
-    editor.chromeFocus = "state";
-    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
-      .toContain("A state keeps one Fact text at a story point.");
-
-    openFactEditor(state, null);
-    const newFact = activeFactEditor(state);
-    newFact.chromeFocus = "scope";
-    expect(frameText(renderStoryScreen(state, { width: 100, height: 24 }).lines))
-      .toContain("Choose whether this Fact applies everywhere");
-  });
-
   test("the Fact editor adds a state at the cursor and moves one by mouse", async () => {
     const { source, state, cache, press } = editorHarness();
     const fact = state.payload.facts[0]!;

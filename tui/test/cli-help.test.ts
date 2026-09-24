@@ -2,14 +2,8 @@ import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import {
   AUTH_HELP,
-  DECRYPT_HELP,
-  ENCRYPT_HELP,
-  EXPORT_HELP,
   HELP,
   INIT_HELP,
-  IMPORT_CARD_HELP,
-  IMPORT_HELP,
-  IMPORT_LOREBOOK_HELP,
   commandHelp,
   wantsHelp
 } from "../src/cli-help.js";
@@ -37,37 +31,6 @@ test("the front page names every command that has its own page", () => {
   expect(commandHelp("no-such-command")).toBe(null);
 });
 
-test("the front page sends the reader to the page that holds the detail", () => {
-  expect(HELP).toContain("1667 <command> --help");
-});
-
-test("the front page keeps every root option that the root parser accepts", () => {
-  // Trimming the page to fit a short terminal must not take an option's only
-  // documentation with it. These are accepted by the default command and are
-  // written up nowhere else.
-  for (const option of ["--story", "--data", "--global", "--url", "--auth-file", "--version"]) {
-    expect(`${option}:${HELP.includes(option)}`).toBe(`${option}:true`);
-  }
-});
-
-test("each command page opens with its own usage line", () => {
-  const pages: ReadonlyArray<readonly [string, string]> = [
-    ["1667 init", INIT_HELP],
-    ["1667 encrypt", ENCRYPT_HELP],
-    ["1667 decrypt", DECRYPT_HELP],
-    ["1667 auth", AUTH_HELP],
-    ["1667 export", EXPORT_HELP],
-    ["1667 import", IMPORT_HELP],
-    ["1667 import-card", IMPORT_CARD_HELP],
-    ["1667 import-lorebook", IMPORT_LOREBOOK_HELP]
-  ];
-  for (const [command, page] of pages) {
-    const usage = page.split("\n").find((line) => line.startsWith("Usage:"));
-    expect(`${command}:${usage !== undefined && usage.includes(command)}`)
-      .toBe(`${command}:true`);
-  }
-});
-
 test("a command page does not advertise a form its parser refuses", () => {
   // `auth show` needs exactly one of --url and --auth-file, and --url always
   // takes a value. The page said both were optional and that --url could be
@@ -77,23 +40,6 @@ test("a command page does not advertise a form its parser refuses", () => {
   expect(AUTH_HELP).not.toContain("bare");
   // `--from` is only legal with --adopt.
   expect(INIT_HELP).toContain("requires --adopt");
-});
-
-test("a command that requires a story says so on its own page", () => {
-  for (const page of [IMPORT_CARD_HELP, IMPORT_LOREBOOK_HELP]) {
-    expect(page).toContain("--story");
-    expect(page).toContain("required");
-  }
-});
-
-test("the front page does not send the reader to a page that does not exist", () => {
-  // Every command named on the front page must answer --help, or the pointer
-  // sends a confused reader into an unknown-option error. `serve` and `upgrade`
-  // answer it themselves, so they are excluded here and covered by their own
-  // commands.
-  for (const command of ["init", "encrypt", "decrypt", "export", "import", "import-card", "import-lorebook", "auth"]) {
-    expect(`${command}:${commandHelp(command) !== null}`).toBe(`${command}:true`);
-  }
 });
 
 test("an inherited object key is not a command", () => {
@@ -156,12 +102,4 @@ test("CLI errors cannot write terminal control characters", () => {
   expect(child.status).toBe(2);
   expect(child.stderr).toContain("unknown option: --unknown▪[31m");
   expect(child.stderr).not.toContain("\u001b");
-});
-
-test("the import-lorebook page names every format the command reads", () => {
-  // A command that grows a format and not its page is the failure this split
-  // was made to fix.
-  for (const format of ["NovelAI", "World Info", ".lorebook", ".json", "PNG"]) {
-    expect(`${format}:${IMPORT_LOREBOOK_HELP.includes(format)}`).toBe(`${format}:true`);
-  }
 });

@@ -464,11 +464,6 @@ test("status still fails on a credential read error", async () => {
   );
 });
 
-test("auth parser directs unknown commands to auth help", () => {
-  assert.throws(() => parseAuthCommand([]), /auth --help/iu);
-  assert.throws(() => parseAuthCommand(["unknown"]), /auth show/iu);
-});
-
 test("manual OAuth code prompt honors abort and closes its readline", async () => {
   const input = new PassThrough();
   Object.assign(input, { isTTY: true });

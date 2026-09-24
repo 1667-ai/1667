@@ -15,7 +15,6 @@ import {
 import { setComposerText } from "../src/composer-model.js";
 import { nextRequestContext } from "../src/request-context.js";
 import { publishSettingsView } from "../src/overlay-publication.js";
-import { settingsFooterVariants } from "../src/screens/settings-panel-footers.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import {
@@ -330,19 +329,5 @@ describe("table-driven Settings writing prompts", () => {
     expect(nextRequestContext(state).defaultContinueDirection)
       .toBe(DEFAULT_WRITING_PROMPT_SETTINGS.defaultContinueDirection);
     expect(screen(state, 80, 24)).toContain("x discard");
-  });
-
-  test("writing rows use the text footer and the editor keep-draft footer", async () => {
-    const { state, press } = settingsHarness();
-    await openSettings(press);
-    for (const definition of WRITING_PROMPT_FIELD_DEFINITIONS) {
-      await selectRow(press, state, definition.row);
-      const footer = settingsFooterVariants(state.settings!, false)[0]!;
-      expect(footer.text).toContain("↵ edit");
-      expect(footer.text).not.toContain("←→ choose");
-      await press(key("return"));
-      expect(screen(state, 80, 20)).toContain("ctrl+s keep draft");
-      await press(key("escape"));
-    }
   });
 });

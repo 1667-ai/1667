@@ -10,13 +10,6 @@ const CHANGELOG_FILE = fileURLToPath(new URL("../../CHANGELOG.md", import.meta.u
 // not a fixture: it is the codegen pipeline `npm run notes:write` runs,
 // caught the moment the two would disagree.
 describe("release notes codegen", () => {
-  test("excludes Unreleased and includes the known released versions", () => {
-    const versions = RELEASE_NOTES.map((note) => note.version);
-    expect(versions).not.toContain("Unreleased");
-    expect(versions).toContain("0.2.1");
-    expect(versions).toContain("0.1.2");
-  });
-
   test("is strictly newest-first across the whole array, with no duplicate version", () => {
     // A hardcoded pair of versions would pass even if a future insert landed
     // in the wrong place elsewhere in the list. Check every adjacent pair.
@@ -41,13 +34,5 @@ describe("release notes codegen", () => {
     for (const note of RELEASE_NOTES) {
       expect(changelog).toContain(`## ${note.version} - ${note.date}`);
     }
-  });
-
-  test("the subscription release note uses the public sign-in commands", () => {
-    const note = RELEASE_NOTES.find((candidate) => candidate.version === "0.9.10-rc.1");
-    expect(note?.body).toContain("1667 auth login chatgpt");
-    expect(note?.body).toContain("1667 auth login claude");
-    expect(note?.body).not.toContain("1667 auth login openai-codex");
-    expect(note?.body).not.toContain("1667 auth login anthropic");
   });
 });

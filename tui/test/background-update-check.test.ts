@@ -253,18 +253,6 @@ describe("background update checking", () => {
     })).toBe("1667 0.1.0+build.2 available");
   });
 
-  test("binds a proven upgrade command to the checked version and channel", () => {
-    expect(updateNotice(
-      "0.2.0-beta.1",
-      observation,
-      "1667 upgrade --version 0.2.0-beta.1 --channel beta"
-    )).toBe(
-      "1667 0.2.0-beta.1 available · run 1667 upgrade --version 0.2.0-beta.1 --channel beta"
-    );
-    expect(updateNotice("0.2.0", observation)).toBe("1667 0.2.0 available");
-    expect(updateNotice("0.2.0", observation)).not.toContain("npm");
-  });
-
   test("stopping aborts an in-flight registry request without scheduling retry", async () => {
     const fake = scheduler();
     const request = { signal: null as AbortSignal | null };

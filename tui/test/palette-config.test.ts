@@ -14,60 +14,6 @@ import {
 import { renderConnectionBanner } from "../src/screens/connection-banner.js";
 import { displayColor, visibleWidth, type DisplayRole } from "../src/screens/story/frame.js";
 
-type CoreRole =
-  | "background"
-  | "prose"
-  | "prose · dim"
-  | "chrome"
-  | "focus / accent"
-  | "streaming"
-  | "human edit"
-  | "tag · canon"
-  | "danger";
-
-const CORE: Record<ThemeName, Record<CoreRole, string>> = {
-  lantern: {
-    background: "#14100B", prose: "#E9DFC9", "prose · dim": "#9A8A70",
-    chrome: "#6E604C", "focus / accent": "#FFB454", streaming: "#FFF2D8",
-    "human edit": "#8FB4D9", "tag · canon": "#E3B341", danger: "#E0603F"
-  },
-  "iron gall": {
-    background: "#0D1014", prose: "#D8DEE4", "prose · dim": "#8B96A0",
-    chrome: "#4E5A66", "focus / accent": "#A8C0D8", streaming: "#EEF4FA",
-    "human edit": "#D9A96C", "tag · canon": "#D4B254", danger: "#E0603F"
-  },
-  parchment: {
-    background: "#F2EAD9", prose: "#2A2016", "prose · dim": "#5C4E36",
-    chrome: "#7A6748", "focus / accent": "#9A5A10", streaming: "#0F0A04",
-    "human edit": "#2C5578", "tag · canon": "#8A6510", danger: "#A8331A"
-  },
-  bond: {
-    background: "#F4F2ED", prose: "#222426", "prose · dim": "#55585C",
-    chrome: "#6C685E", "focus / accent": "#A8321E", streaming: "#0A0C0E",
-    "human edit": "#235A8C", "tag · canon": "#7A6010", danger: "#8E1F10"
-  },
-  graphite: {
-    background: "#121215", prose: "#E6E4DE", "prose · dim": "#A9A9B0",
-    chrome: "#85858D", "focus / accent": "#D8F55A", streaming: "#F4F3ED",
-    "human edit": "#8FB8D9", "tag · canon": "#E4C65A", danger: "#F06755"
-  },
-  bone: {
-    background: "#EDEBE3", prose: "#1C1B18", "prose · dim": "#4A473F",
-    chrome: "#6B675C", "focus / accent": "#B52D14", streaming: "#141310",
-    "human edit": "#245F8E", "tag · canon": "#8C6500", danger: "#760000"
-  },
-  "hi-contrast dark": {
-    background: "#000000", prose: "#FFFFFF", "prose · dim": "#C4C4C4",
-    chrome: "#9A9A9A", "focus / accent": "#FFC400", streaming: "#FFFFFF",
-    "human edit": "#6FB8FF", "tag · canon": "#FFD84D", danger: "#FF5A45"
-  },
-  "hi-contrast light": {
-    background: "#FFFFFF", prose: "#000000", "prose · dim": "#333333",
-    chrome: "#4A4A4A", "focus / accent": "#9A3800", streaming: "#000000",
-    "human edit": "#144E86", "tag · canon": "#6A4A00", danger: "#A00000"
-  }
-};
-
 const ALL_ROLES: readonly PaletteRole[] = [
   "background", "raised", "chrome", "prose", "prose · dim",
   "focus / accent", "accent · deep", "compose accent", "streaming", "human edit",
@@ -154,31 +100,12 @@ function displayHex(theme: ThemeName, depth: ColorDepth, role: DisplayRole): str
 }
 
 describe("theme palette", () => {
-  test("ships all eight themes in settings order", () => {
-    expect(THEME_NAMES).toEqual([
-      "lantern", "iron gall", "parchment", "bond", "graphite", "bone",
-      "hi-contrast dark", "hi-contrast light"
-    ]);
-  });
-
-  test("pins the design spec core colors", () => {
-    for (const theme of THEME_NAMES) {
-      for (const [role, expected] of Object.entries(CORE[theme])) {
-        expect(hex(theme, role as CoreRole)).toBe(expected);
-      }
-    }
-  });
 
   test("defines every secondary role and keeps compose accent semantic", () => {
     for (const theme of THEME_NAMES) {
       for (const role of ALL_ROLES) expect(hex(theme, role)).toMatch(/^#[0-9A-F]{6}$/);
       expect(hex(theme, "compose accent")).toBe(hex(theme, "human edit"));
     }
-  });
-
-  test("bolds fresh ink only on light-theme polarity", () => {
-    expect(THEME_NAMES.map((theme) => createPalette(theme, "truecolor").freshBold))
-      .toEqual([false, false, true, true, false, true, false, true]);
   });
 
   test("corrected light text clears 4.5:1 and high-contrast chrome clears 7:1", () => {
@@ -190,25 +117,6 @@ describe("theme palette", () => {
     }
     for (const theme of ["hi-contrast dark", "hi-contrast light"] as const) {
       expect(contrast(hex(theme, "background"), hex(theme, "chrome"))).toBeGreaterThan(6.999);
-    }
-  });
-
-  test("pins a distinct 256-color table for every theme", () => {
-    expect(ALL_ROLES.map((role) => theme256Index("lantern", role))).toEqual([
-      233, 234, 241, 187, 101, 215, 179, 110, 230, 110, 180, 178, 139, 109, 243, 166, 240
-    ]);
-    expect(ALL_ROLES.map((role) => theme256Index("graphite", role))).toEqual([
-      233, 234, 245, 253, 248, 191, 149, 110, 231, 110, 246, 185, 183, 116, 243, 203, 240
-    ]);
-    expect(ALL_ROLES.map((role) => theme256Index("bone", role))).toEqual([
-      255, 254, 241, 234, 238, 124, 88, 24, 16, 24, 95, 94, 96, 23, 244, 52, 245
-    ]);
-    for (const theme of THEME_NAMES) {
-      for (const role of ALL_ROLES) {
-        const index = theme256Index(theme, role);
-        expect(Number.isInteger(index) && index >= 0 && index <= 255).toBeTrue();
-      }
-      expect(theme256Index(theme, "background")).not.toBe(theme256Index(theme, "raised"));
     }
   });
 

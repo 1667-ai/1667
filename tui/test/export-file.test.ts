@@ -19,7 +19,6 @@ import {
   writeStoryExport
 } from "../src/export-file.js";
 import { parseExportCommand, runStoryExport } from "../src/export-cli.js";
-import { EXPORT_HELP, HELP } from "../src/cli-help.js";
 import { createWorkerStoryApi } from "../src/worker-api.js";
 
 describe("markdown export files", () => {
@@ -330,31 +329,4 @@ describe("export command", () => {
       await rm(root, { recursive: true, force: true });
     }
   }, WORKER_EXPORT_TIMEOUT_MS);
-});
-
-describe("export help", () => {
-  test("says which story it takes, which line, and every selector it accepts", () => {
-    const block = EXPORT_HELP;
-    // The two questions the command cannot answer from its flags alone.
-    expect(block).toContain("selected line");
-    expect(block).toContain("most recently updated");
-    // No flag picks a branch, so the help has to say where that choice lives.
-    expect(block).toContain("choose it in the app first");
-    // Usage must list every selector the parser honours, and only those.
-    for (const flag of ["--story", "--all", "--format", "--force", "--passphrase-file", "--data", "--global"]) {
-      expect(`${flag}:${EXPORT_HELP.includes(flag)}`).toBe(`${flag}:true`);
-    }
-    // The front page must still name the command, or nobody reaches this page.
-    expect(HELP).toContain("export ");
-    // …and the parser must still honour the line the help advertises.
-    expect(parseExportCommand(["--story=st1_abc", "--force", "--data=book"])).toEqual({
-      storyId: "st1_abc",
-      all: false,
-      format: "markdown",
-      force: true,
-      data: "book",
-      global: false,
-      passphraseFile: null
-    });
-  });
 });

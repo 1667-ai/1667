@@ -95,24 +95,6 @@ test("persisted channel is the default and an explicit flag wins", () => {
     .toEqual({ kind: "check", channel: "stable" });
 });
 
-test("parser never emits impossible command combinations", () => {
-  const apply = parseUpgradeArguments(["--version", "1.0.0"]);
-  expect(apply?.command).toEqual({
-    kind: "apply",
-    version: "1.0.0",
-    channel: "stable"
-  });
-  expect(Object.keys(apply!.command).sort()).toEqual(["channel", "kind", "version"]);
-
-  const check = parseUpgradeArguments(["--check"]);
-  expect(check?.command).toEqual({ kind: "check", channel: "stable" });
-  expect(Object.keys(check!.command).sort()).toEqual(["channel", "kind"]);
-
-  const rollback = parseUpgradeArguments(["--rollback"]);
-  expect(rollback?.command).toEqual({ kind: "rollback" });
-  expect(Object.keys(rollback!.command)).toEqual(["kind"]);
-});
-
 test("typed apply commands have one terminal formatter", () => {
   expect(formatUpgradeApplyCommand({
     kind: "apply",

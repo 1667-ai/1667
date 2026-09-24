@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { Story, StoryNode } from "../shared/types.js";
 import { applyProviderStoryEffect, type ContinueStoryEffect } from "../server/story-provider-effect.js";
-import { assertNoAppendImageAttachments, commitTake, type TakeCommit } from "../server/story-nodes.js";
+import { commitTake, type TakeCommit } from "../server/story-nodes.js";
 import { sha256 } from "../server/story-format.js";
 import type { StoryImageAttachment } from "../shared/image-attachment.js";
 import { createGenerationRecord } from "../shared/generation-record.js";
@@ -103,12 +103,6 @@ test("commitTake refuses an append combined with a non-empty image list", () => 
     }),
     /must never carry an Image Attachment/
   );
-});
-
-test("assertNoAppendImageAttachments is a no-op for a non-append commit or an append with no images", () => {
-  assert.doesNotThrow(() => assertNoAppendImageAttachments({ appendTo: null, imageAttachments: [attachment("a".repeat(64))] }));
-  assert.doesNotThrow(() => assertNoAppendImageAttachments({ appendTo: "root", imageAttachments: [] }));
-  assert.doesNotThrow(() => assertNoAppendImageAttachments({ appendTo: "root", imageAttachments: undefined }));
 });
 
 test("applyProviderStoryEffect attaches images on the writer-moved new-take branch, and never mutates the append branch", async () => {

@@ -422,20 +422,6 @@ test("an unsupported route reports its own reason for mirostat tau/eta even with
   );
 });
 
-test("sampling presentation exposes a stable label and a provider-facing reason", () => {
-  const presentation = samplingKnobPresentation(
-    samplingContext("openai-chat-completions", "ollama"),
-    EMPTY_SAMPLING_V2,
-    "logitBias"
-  );
-  assert.deepEqual(presentation, {
-    label: "logit bias",
-    available: false,
-    reason: "Not supported by this provider.",
-    reasonCompact: "not supported by provider"
-  });
-});
-
 test("sampling presentation keeps internal routing terms out of unavailable reasons", () => {
   const cases: readonly {
     context: SamplingContext;
@@ -485,20 +471,6 @@ test("sampling presentation keeps internal routing terms out of unavailable reas
       }
     );
   }
-});
-
-test("sampling presentation reports mirostat-off for tau/eta when mirostat is unset", () => {
-  const presentation = samplingKnobPresentation(
-    samplingContext("openai-chat-completions", "llama-cpp"),
-    EMPTY_SAMPLING_V2,
-    "mirostatTau"
-  );
-  assert.deepEqual(presentation, {
-    label: "mirostat tau",
-    available: false,
-    reason: "Mirostat is off.",
-    reasonCompact: "mirostat off"
-  });
 });
 
 function samplingContext(

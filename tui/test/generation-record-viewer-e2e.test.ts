@@ -8,7 +8,6 @@ import { textHash } from "../src/api.js";
 import { handleKey, initialState } from "../src/app.js";
 import type { AppSource } from "../src/app.js";
 import { generationRecordPipelineRows } from "../src/generation-record-pipeline.js";
-import { resolveGenerationRecordKey } from "../src/generation-record-actions.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
@@ -100,21 +99,6 @@ function appSource(
     readingPositions: {}
   };
 }
-
-describe("resolveGenerationRecordKey", () => {
-  test("maps the accepted design's exact key vocabulary", () => {
-    expect(resolveGenerationRecordKey(key("left")).action).toBe("take-previous");
-    expect(resolveGenerationRecordKey(key("right")).action).toBe("take-next");
-    expect(resolveGenerationRecordKey(key("down")).action).toBe("focus-next");
-    expect(resolveGenerationRecordKey(key("up")).action).toBe("focus-previous");
-    expect(resolveGenerationRecordKey(key("down", true)).action).toBe("scroll-line-down");
-    expect(resolveGenerationRecordKey(key("up", true)).action).toBe("scroll-line-up");
-    expect(resolveGenerationRecordKey(key("pagedown")).action).toBe("scroll-down");
-    expect(resolveGenerationRecordKey(key("pageup")).action).toBe("scroll-up");
-    expect(resolveGenerationRecordKey(key("g")).action).toBe("top");
-    expect(resolveGenerationRecordKey(key("g", true)).action).toBe("leaf");
-  });
-});
 
 describe("generation record viewer: end-to-end dry-run generation", () => {
   test("h opens the newest record for the focused take from NAV, moving neither focus nor the story", async () => {

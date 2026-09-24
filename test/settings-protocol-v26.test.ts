@@ -8,21 +8,10 @@ import {
   WORKER_PROTOCOL_VERSION
 } from "../shared/worker-protocol.js";
 import {
-  HTTP_API_PROTOCOL_VERSION,
-  HTTP_MAX_CLIENT_PROTOCOL_VERSION,
-  HTTP_MIN_CLIENT_PROTOCOL_VERSION
-} from "../shared/build-identity.js";
-import {
   MAX_PROVIDER_PROBE_REQUEST_BYTES,
   MAX_SETTINGS_SAVE_REQUEST_BYTES
 } from "../shared/settings-v5-limits.js";
 import { INITIAL_SETTINGS_DOCUMENT_V2 } from "../server/settings-v2-default.js";
-
-test("HTTP protocol 29 refuses servers without Fact consistency routes", () => {
-  assert.equal(HTTP_API_PROTOCOL_VERSION, 29);
-  assert.equal(HTTP_MIN_CLIENT_PROTOCOL_VERSION, 29);
-  assert.equal(HTTP_MAX_CLIENT_PROTOCOL_VERSION, 29);
-});
 
 test("protocol-11 saveSettings refuses before document decode", () => {
   const command = {

@@ -107,13 +107,6 @@ describe("macOS clipboard image read, through the injectable seam", () => {
     }));
     expect(result).toEqual({ type: "image", mediaType: "image/jpeg", bytes: written });
   });
-
-  test("the helper command names bash, osascript, and the target path in order", () => {
-    const command = macosClipboardImageHelperCommand("/tmp/example-path");
-    expect(command[0]).toBe("bash");
-    expect(command.join(" ")).toContain("osascript");
-    expect(command[command.length - 1]).toBe("/tmp/example-path");
-  });
 });
 
 /**

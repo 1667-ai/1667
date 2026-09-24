@@ -8,12 +8,6 @@ import { noticeMarkupBlocks, parseNoticeMarkup } from "../src/notice-markup.js";
 // paragraph/list/bold/code behavior itself is covered end to end against a
 // rendered log frame in notice-log.test.ts; this file does not repeat that.
 describe("parseNoticeMarkup", () => {
-  test("strips ** markers and marks the span bold", () => {
-    const { text, runs } = parseNoticeMarkup("plain **bold** text");
-    expect(text).toBe("plain bold text");
-    expect(runs).toEqual([{ start: 6, end: 10, style: "bold" }]);
-  });
-
   test("strips backtick markers and marks the span code", () => {
     const { text, runs } = parseNoticeMarkup("use `always` mode");
     expect(text).toBe("use always mode");
@@ -53,11 +47,6 @@ describe("parseNoticeMarkup", () => {
     expect(text).toBe("first line continues here");
   });
 
-  test("a - list item always starts a new block, blank line before it or not", () => {
-    const { text } = parseNoticeMarkup("- first item\n- second item");
-    expect(text).toBe("- first item\n- second item");
-  });
-
   test("collapses repeated internal whitespace the way the old flatten did", () => {
     const { text } = parseNoticeMarkup("too   many    spaces");
     expect(text).toBe("too many spaces");
@@ -65,17 +54,6 @@ describe("parseNoticeMarkup", () => {
 });
 
 describe("noticeMarkupBlocks", () => {
-  test("finds list items and a plain paragraph in the cleaned text", () => {
-    const { text } = parseNoticeMarkup("heading\n- first item\n- second item");
-    const blocks = noticeMarkupBlocks(text);
-    expect(blocks.map((block) => block.list)).toEqual([false, true, true]);
-    expect(blocks.map((block) => text.slice(block.start, block.end))).toEqual([
-      "heading",
-      "- first item",
-      "- second item"
-    ]);
-  });
-
   test("a blank-line paragraph break is its own empty block", () => {
     const { text } = parseNoticeMarkup("first\n\nsecond");
     const blocks = noticeMarkupBlocks(text);

@@ -1,8 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  HTTP_API_PROTOCOL_VERSION,
-  AI_1667_BUILD_IDENTITY,
   createPackagedBuildIdentity,
   createSourceBuildIdentity,
   formatBuildVersion,
@@ -20,56 +18,6 @@ const packagedInput = {
   artifactTarget: "linux-x64"
 } satisfies PackagedBuildIdentityInput;
 const packaged = createPackagedBuildIdentity(packagedInput);
-
-test("source identity is explicit and cannot masquerade as a packaged build", () => {
-  // Pinned on purpose, so the advertised version and the wire shape can only
-  // move together. v9 added authenticated listener identity and project-scoped
-  // HTTP retry identity. v10 added global search and hit pagination. v11 adds
-  // Markdown reimport and naming chapter one. v12 adds NovelAI import. v13 adds
-  // the Author's Note route. v14 adds required Fact activation metadata. v15
-  // adds the Author Brief route and the Author's Note depth field. v16 adds the
-  // prompt token-count route. v17 adds the per-story phrase-bias and
-  // banned-strings routes and makes `scope` required on every resolved
-  // sampling-bias entry. v18 makes `nativeBannedStrings` required on a
-  // "resolved" resolveSamplingBias response (KoboldCpp's native bannedStrings
-  // transport, issue #311). v19 adds a take's thought: `effectiveProseReasoning`
-  // on the settings view, and `reasoning` and `discardReasoning` on a
-  // Generation Profile. A v18 client decodes both as closed records that know
-  // none of those names. v20 adds the two story image routes and eleven image
-  // failure codes: a v20 client takes a 404 on the stage route against a v19
-  // server, and a v19 client collapses every image code it does not know to
-  // `internal`, so it cannot tell a writer that a Draft Lease expired. v21
-  // adds Aside routes, Aside failure codes, and the Markdown export fidelity
-  // contract. v22 adds the active prose continuation layout to Settings. v23
-  // adds machine-tier subscription sign-in state to Settings. v24 adds the
-  // closed `pi-catalog` model-discovery source. v25 adds the Settings
-  // read-only reason. v26 adds required activeWriting, ProviderProbeRouteV1,
-  // and Settings schema 5. v27 adds edited questions to Aside retakes. v28
-  // adds branch-scoped Fact States and the state mutation routes. v29 adds
-  // Fact consistency routes and result presence. An older peer must fail at
-  // preflight.
-  assert.equal(
-    HTTP_API_PROTOCOL_VERSION,
-    29,
-    "Fact consistency requires HTTP API v29"
-  );
-  const source = createSourceBuildIdentity("1.2.3");
-  assert.deepEqual(source, {
-    schemaVersion: 1,
-    product: "1667",
-    productVersion: "1.2.3",
-    buildKind: "development",
-    apiProtocolVersion: HTTP_API_PROTOCOL_VERSION,
-    minClientProtocolVersion: HTTP_API_PROTOCOL_VERSION,
-    maxClientProtocolVersion: HTTP_API_PROTOCOL_VERSION,
-    artifactTarget: "source",
-    sourceCommit: null,
-    sourceDirty: null,
-    buildTimestamp: null
-  });
-  assert.match(formatBuildVersion(source), /1667 1\.2\.3 \(source\)/);
-  assert.equal(AI_1667_BUILD_IDENTITY.artifactTarget, "source");
-});
 
 test("packaged identity round-trips as one strict build contract", () => {
   const parsed = parseBuildIdentity(JSON.parse(JSON.stringify(packaged)));

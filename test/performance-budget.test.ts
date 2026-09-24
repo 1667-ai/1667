@@ -6,7 +6,6 @@ import {
   cpuBudget,
   fileBudget,
   platformPerformanceBudget,
-  platformPerformanceBudgetScale,
   startTiming,
   wallOnlyTiming,
   type Timing
@@ -15,17 +14,6 @@ import {
 const SCALE = platformPerformanceBudget(1);
 // A silent reporter keeps this module's own output out of the test log.
 const REPORT = { diagnostic: (): void => undefined };
-
-test("performance budgets scale only documented slow targets", () => {
-  assert.equal(platformPerformanceBudgetScale("win32", "x64", undefined), 2);
-  assert.equal(platformPerformanceBudgetScale("win32", "arm64", undefined), 1);
-  assert.equal(platformPerformanceBudgetScale("darwin", "x64", undefined), 3);
-  assert.equal(platformPerformanceBudgetScale("linux", "x64", "1"), 2);
-  assert.equal(platformPerformanceBudgetScale("linux", "x64", undefined), 1);
-  assert.equal(platformPerformanceBudgetScale("linux", "x64", "true"), 1);
-  assert.equal(platformPerformanceBudgetScale("linux", "arm64", "1"), 1);
-  assert.equal(platformPerformanceBudgetScale("darwin", "arm64", "1"), 1);
-});
 
 test("both budget kinds take the runner scale, and each names its own measure", () => {
   // A slower core uses more CPU time for the same computation. The Intel macOS

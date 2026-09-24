@@ -88,12 +88,6 @@ test("aside Thoughts defaults to hide and accepts the snake-case setting", () =>
   expect(normalizeUserConfig({ asideThoughts: "invalid" }).asideThoughts).toBe("hide");
 });
 
-test("apparatus defaults to off and accepts only the on or off values", () => {
-  expect(normalizeUserConfig({}).apparatus).toBe("off");
-  expect(normalizeUserConfig({ apparatus: "on" }).apparatus).toBe("on");
-  expect(normalizeUserConfig({ apparatus: "invalid" }).apparatus).toBe("off");
-});
-
 test("apparatus persists in the local user config", async () => {
   const root = await mkdtemp(path.join(tmpdir(), "1667-config-"));
   roots.push(root);

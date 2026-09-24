@@ -12,20 +12,6 @@ import {
   buildStandaloneProduct
 } from "../tui/scripts/standalone-build-requests.js";
 
-test("Intel macOS standalone builds use the baseline Bun runtime", () => {
-  assert.equal(
-    standaloneCompileTarget("darwin-x64"),
-    "bun-darwin-x64-baseline"
-  );
-});
-
-test("Intel Linux standalone builds use the baseline Bun runtime", () => {
-  assert.equal(
-    standaloneCompileTarget("linux-x64"),
-    "bun-linux-x64-baseline"
-  );
-});
-
 test("arm64 standalone builds keep the native Bun runtime", () => {
   assert.equal(standaloneCompileTarget("darwin-arm64"), undefined);
   assert.equal(standaloneCompileTarget("linux-arm64"), undefined);

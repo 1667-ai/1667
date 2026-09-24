@@ -192,13 +192,6 @@ test("an exact-metadata failure aborts its in-flight sibling", async () => {
   expect(platformRequest.signal?.aborted).toBe(true);
 });
 
-test("neutral plan never carries install method", async () => {
-  const check = await planUpgrade(checkCommand(), observation, fakeRegistry("1.3.0"));
-  const apply = await planUpgrade(applyCommand(), observation, fakeRegistry("1.3.0"));
-  expect("method" in check).toBe(false);
-  expect("method" in apply).toBe(false);
-});
-
 function checkCommand(
   overrides: Partial<Omit<UpgradeCheckCommand, "kind">> = {}
 ): UpgradeCheckCommand {

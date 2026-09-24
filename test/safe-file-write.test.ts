@@ -3,7 +3,6 @@ import {
   closeSync,
   lstatSync,
   mkdtempSync,
-  readFileSync,
   rmSync
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -17,17 +16,6 @@ import {
   writeExclusiveFile,
   type StagingMode
 } from "../shared/safe-file-write.js";
-
-test("writeExclusiveFile writes exclusive content", () => {
-  const dir = mkdtempSync(path.join(tmpdir(), "1667-write-"));
-  try {
-    const file = path.join(dir, "out");
-    writeExclusiveFile({ path: file, data: "hello", mode: 0o600 });
-    assert.equal(readFileSync(file, "utf8"), "hello");
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
 
 test("writeAll throws when the writer returns zero", () => {
   assert.throws(

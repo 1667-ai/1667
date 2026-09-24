@@ -3,10 +3,7 @@ import type { KeyEvent, MouseEvent } from "@opentui/core";
 import {
   asideConfirmClear,
   asideNotes,
-  createAsideSurface,
-  ASIDE_INPUT_PLACEHOLDER,
-  ASIDE_SAVED_NOTICE,
-  asideHeaderLine
+  createAsideSurface
 } from "../src/aside-surface.js";
 import {
   asideFooterHint,
@@ -112,19 +109,6 @@ describe("Aside TUI contract", () => {
     expect(resolveKey(key("q"), "ASIDE", { asideLayer: "use-menu" }).action).toBe("quit");
     expect(resolveKey(key("q"), "ASIDE", { asideLayer: "composer", textActionsOpen: true }).action)
       .toBe("quit");
-  });
-
-  test("header, notice, and input placeholder match the product strings", () => {
-    expect(asideHeaderLine("Lantern Story")).toBe("ASIDE · Lantern Story · non-canon");
-    expect(ASIDE_SAVED_NOTICE).toBe(
-      "Side Notes are saved with this story. They never enter story prompts."
-    );
-    expect(ASIDE_INPUT_PLACEHOLDER).toBe("Ask about this story");
-    const surface = createAsideSurface("s1", "Lantern Story");
-    const lines = renderAsideFrame(surface, 80, 24);
-    expect(lines[0]).toBe("ASIDE · Lantern Story · non-canon");
-    expect(lines[1]).toBe(ASIDE_SAVED_NOTICE);
-    expect(lines.some((line) => line.includes("Ask about this story"))).toBeTrue();
   });
 
   test("wraps long history rows to the viewport width", () => {

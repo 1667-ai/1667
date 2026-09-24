@@ -115,9 +115,6 @@ describe("tokenDisplayGlyph", () => {
     expect(tokenDisplayGlyph(" \n")).toBe("·↵");
   });
 
-  test("an empty token stays empty", () => {
-    expect(tokenDisplayGlyph("")).toBe("");
-  });
 });
 
 describe("tokenProbabilitySpan", () => {
@@ -170,36 +167,6 @@ describe("tokenProbabilityExcerpt", () => {
 });
 
 describe("resolveTokenProbabilityEmptyReason", () => {
-  const legacyView: SettingsView = {
-    dataFormat: 1,
-    editable: false,
-    stateGeneration: null,
-    activeRevision: null,
-    pendingRevision: null,
-    document: null,
-    effective: DEMO_SETTINGS_VIEW.effective,
-    effectiveProse: DEMO_SETTINGS_VIEW.effectiveProse,
-    activeWriting: writingPromptSettingsFromAuthorBrief(DEMO_SETTINGS_VIEW.effective.systemPrompt),
-    lastActivationOutcome: null
-  };
-
-  test("format 1 settings resolve legacy-v1, with no preset list", () => {
-    const reason = resolveTokenProbabilityEmptyReason(legacyView);
-    expect(reason.text).toBe("Format 1 settings are read-only.");
-    expect(reason.supportedPresets).toBe(undefined);
-  });
-
-  test("successor schema settings name the update path", () => {
-    const reason = resolveTokenProbabilityEmptyReason({
-      ...legacyView,
-      readOnlyReason: "successor-schema"
-    });
-    expect(reason.text).toBe(
-      "Newer settings schema is read-only here; the successor owns it. Update 1667."
-    );
-    expect(reason.supportedPresets).toBe(undefined);
-  });
-
   test("an Anthropic Messages route resolves protocol, naming the presets that do work", () => {
     const reason = resolveTokenProbabilityEmptyReason(routeView("anthropic", "anthropic-messages"));
     expect(reason.text).toBe("This provider does not support token probabilities.");

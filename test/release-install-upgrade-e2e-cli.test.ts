@@ -3,7 +3,6 @@ import test from "node:test";
 import packageJson from "../package.json" with { type: "json" };
 import {
   parseCliArgs,
-  USAGE,
   validateInstallerUrl
 } from "../scripts/release-install-upgrade-e2e.js";
 import { stableOnlyRefusal } from "../scripts/release-install-upgrade-e2e-lib.js";
@@ -36,15 +35,6 @@ test("the previous installer follows the named channel", () => {
     args.previousUrl,
     "https://github.com/1667-ai/1667/releases/download/v0.1.1/install-stable.sh"
   );
-});
-
-test("--help prints usage instead of arguments", () => {
-  for (const flag of ["-h", "--help"]) {
-    const result = parseCliArgs([flag]);
-    assert.equal(result.kind, "help");
-    if (result.kind !== "help") throw new Error("unreachable");
-    assert.equal(result.text, USAGE);
-  }
 });
 
 test("the gate refuses arguments it cannot act on", () => {

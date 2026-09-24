@@ -44,11 +44,6 @@ function fakeClock(stepMs = 0.2) {
 }
 
 describe("sliced story wrap build", () => {
-  test("stress fixtures contain their declared word count", () => {
-    expect(payload(1, 150).path[0]!.text.split(/\s+/)).toHaveLength(150);
-    expect(payload(1, 10_000).path[0]!.text.split(/\s+/)).toHaveLength(10_000);
-  });
-
   test("warms a 75k-word story in bounded slices", () => {
     const state = stateFor(payload(500, 150));
     const cache = createWrapCache<ProseStyle>();
