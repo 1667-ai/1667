@@ -4,6 +4,10 @@
  * embedded worker or an HTTP attach); everything after that — building the
  * app source and running the render-once or interactive loop — is `startTui`.
  */
-export { startTui, type StartTuiOptions, type StartTuiRenderOnce } from "./launch.js";
-export { demoAppSource } from "./demo.js";
+export {
+  startTui,
+  type StartTuiOptions,
+  type StartTuiRenderOnce,
+  type TuiBackend
+} from "./launch.js";
 export { RecoveryWarningFeed } from "./recovery-warning-feed.js";

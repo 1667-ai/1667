@@ -2,7 +2,6 @@ import {
   type SettingsPresetV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
-export { settingsActivationFailureText } from "../../shared/settings-activation-text.js";
 import {
   isWritingPromptRow,
   writingPromptFieldDefinition,

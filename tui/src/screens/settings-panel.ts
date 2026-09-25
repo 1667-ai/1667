@@ -1,7 +1,7 @@
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
+import { settingsActivationFailureText } from "../../../shared/settings-activation-text.js";
 import {
   boundedSettingsCursor,
-  settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRows

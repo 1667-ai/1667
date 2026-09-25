@@ -1,4 +1,4 @@
-import { startTui, RecoveryWarningFeed } from "../../tui/src/index.js";
+import { startTui, RecoveryWarningFeed, type TuiBackend } from "../../tui/src/index.js";
 import { createApi } from "../../client/http-api.js";
 import { HELP, commandHelp, wantsHelp } from "./cli-help.js";
 
@@ -132,7 +132,7 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await printStartupDiagnostic(parsed);
     return;
   }
-  await loadSource(parsed);
+  await runTui(parsed);
 }
 
 export function parseArguments(argv: string[]): Arguments | null {
@@ -435,7 +435,7 @@ function parseSize(value: string): { width: number; height: number } {
   return { width, height };
 }
 
-async function loadSource(args: Arguments): Promise<void> {
+async function runTui(args: Arguments): Promise<void> {
   const renderOnce = args.renderOnce
     ? { width: args.width, height: args.height, keys: args.keys }
     : null;
@@ -470,6 +470,49 @@ async function loadSource(args: Arguments): Promise<void> {
     ? ""
     : storyFolderForBackend(true, dataDir);
   const backendRecovery = new RecoveryWarningFeed();
+  // cli/ owns the backend end to end: it creates it here and disposes it
+  // below, once startTui returns. startTui disposes only what it built for
+  // itself out of the backend (the connection monitor, the reading-position
+  // store).
+  const backend = await createTuiBackend(args, {
+    dataDir,
+    exportDirectory,
+    storyFolder,
+    vaultOptions,
+    backendRecovery
+  });
+  try {
+    await startTui({
+      demo: false,
+      backend,
+      storyId: args.storyId,
+      dense: args.dense,
+      renderOnce,
+      backendRecovery
+    });
+  } finally {
+    await backend.dispose();
+  }
+}
+
+/**
+ * Open the embedded worker or attach over HTTP, whichever this invocation
+ * needs, and adapt it to the TUI's `TuiBackend` contract.
+ */
+async function createTuiBackend(
+  args: Arguments,
+  options: {
+    readonly dataDir: string | null;
+    readonly exportDirectory: string;
+    readonly storyFolder: string;
+    readonly vaultOptions: {
+      readonly vaultKey: Buffer;
+      readonly beforeVaultMigration: (lockedDataDirectory: string) => Promise<void>;
+    } | undefined;
+    readonly backendRecovery: RecoveryWarningFeed;
+  }
+): Promise<TuiBackend> {
+  const { dataDir, exportDirectory, storyFolder, vaultOptions, backendRecovery } = options;
   const worker = dataDir === null ? null : await createWorkerStoryApi({
     dataDir,
     printLogs: args.printLogs,
@@ -492,24 +535,29 @@ async function loadSource(args: Arguments): Promise<void> {
       throw error;
     }
   }
-  const backendApi = worker === null
+  const api = worker === null
     ? createApi(httpAttach!.origin, (metadata) => {
       return backendRecovery.publish(metadata.recoveryWarnings.map(httpRecoveryWarning));
     }, httpAttach!)
     : worker.api;
-  await startTui({
-    demo: false,
-    backendApi,
-    worker,
-    httpAttach,
-    dataDir,
-    exportDirectory,
+  return {
+    api,
+    failure: worker === null ? null : worker.failure,
+    readingPositionScope: worker === null
+      ? { dataDir: null, origin: httpAttach!.origin }
+      : { dataDir, origin: null },
     storyFolder,
-    storyId: args.storyId,
-    dense: args.dense,
-    renderOnce,
-    backendRecovery
-  });
+    exportDirectory,
+    isMissingStory: (error) => worker !== null && isWorkerNotFound(error),
+    dispose: async () => {
+      if (worker !== null) await worker.dispose();
+      else httpAttach!.dispose();
+    }
+  };
+}
+
+function isWorkerNotFound(error: unknown): boolean {
+  return error instanceof WorkerApiError && error.status === 404;
 }
 
 export function httpRecoveryWarning(warning: HttpRecoveryWarning) {

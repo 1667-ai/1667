@@ -29,29 +29,30 @@ test("tui/ never imports anything under cli/", async () => {
   assert.deepEqual(violations, []);
 });
 
-test("cli/src reaches tui/ only through its facade and its update-channel exception", async () => {
+test("cli/ reaches tui/ only through its facade and its update-channel exception", async () => {
+  // tui/src/config.js is the one internal tui reaches for directly, to read
+  // the update-channel setting; moving that setting out of tui/ so cli/ only
+  // ever needs the facade is tracked in #415.
   const ALLOWED_TUI_IMPORTS = ["tui/src/index.js", "tui/src/config.js"];
-  const violations = await importsMatching("cli/src", (target) =>
-    underDirectory(target, "tui") && !ALLOWED_TUI_IMPORTS.includes(target));
+  const violations: string[] = [];
+  for (const root of ["cli/src", "cli/scripts", "cli/test"]) {
+    violations.push(...await importsMatching(root, (target) =>
+      underDirectory(target, "tui") && !ALLOWED_TUI_IMPORTS.includes(target)));
+  }
   assert.deepEqual(violations, []);
 });
 
 // host/, client/, server/, and shared/ are the foundation cli/ and tui/ are
-// built from, so none of them has ever needed to import either one. No entry
-// belongs in this list; a new one would mean a shared directory started
-// reaching upward into a frontend.
-const ALLOWED_CORE_FRONTEND_IMPORTS: readonly string[] = [];
-
+// built from, so none of them has ever needed to import either one. A
+// violation here would mean a shared directory started reaching upward into
+// a frontend.
 test("host, client, server, and shared do not import tui/ or cli/", async () => {
   const violations: string[] = [];
   for (const root of ["host", "client", "server", "shared"]) {
     violations.push(...await importsMatching(root, (target) =>
       underDirectory(target, "tui") || underDirectory(target, "cli")));
   }
-  assert.deepEqual(
-    violations.filter((entry) => !ALLOWED_CORE_FRONTEND_IMPORTS.includes(entry)),
-    []
-  );
+  assert.deepEqual(violations, []);
 });
 
 /** `target` is a repository-relative path with forward slashes. */
