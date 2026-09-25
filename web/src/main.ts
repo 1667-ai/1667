@@ -169,7 +169,16 @@ async function main(): Promise<void> {
   };
   const outcome = await connectWebBridge({
     location,
-    storage: sessionStorage,
+    // Reading `sessionStorage` itself can throw when the browser blocks
+    // storage; the token in the fragment must still work then.
+    storage: {
+      getItem: (key) => {
+        try { return sessionStorage.getItem(key); } catch { return null; }
+      },
+      setItem: (key, value) => {
+        try { sessionStorage.setItem(key, value); } catch { /* this page load only */ }
+      }
+    },
     clearTokenFragment: () => history.replaceState(null, "", location.pathname + location.search),
     fetch,
     WebSocket,
@@ -196,6 +205,9 @@ async function main(): Promise<void> {
   let activeAbort: AbortController | null = null;
 
   const openStory = async (id: string): Promise<void> => {
+    // A running generation owns the story view until it settles; its
+    // `finally` reopens the story after clearing `activeAbort`.
+    if (activeAbort !== null) return;
     currentStory = await api.loadStory(id);
     elements.storySection.hidden = false;
     elements.storyTitle.textContent = currentStory.title;
@@ -205,6 +217,7 @@ async function main(): Promise<void> {
 
   elements.createButton.addEventListener("click", () => {
     void (async () => {
+      if (activeAbort !== null) return;
       const title = elements.newTitle.value.trim();
       const created = await api.createStory(title.length === 0 ? undefined : title);
       elements.newTitle.value = "";
