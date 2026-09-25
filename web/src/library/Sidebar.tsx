@@ -34,6 +34,25 @@ export function Sidebar(
   const activeId = route.kind === "story" ? route.id : null;
   const visible = filterAndSort(stories, query);
   const closeDrawer = (): void => onClose?.();
+  const searchRef = useRef<HTMLInputElement>(null);
+
+  // The one keybinding beyond native browser behavior (Enter submits a
+  // dialog's form, Escape closes it — both native, need no code here): "/"
+  // focuses search, unless the user is already typing somewhere else.
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent): void => {
+      if (event.key !== "/" || event.metaKey || event.ctrlKey || event.altKey) return;
+      const target = event.target;
+      if (target instanceof HTMLElement) {
+        const tag = target.tagName;
+        if (tag === "INPUT" || tag === "TEXTAREA" || target.isContentEditable) return;
+      }
+      event.preventDefault();
+      searchRef.current?.focus();
+    };
+    addEventListener("keydown", onKeyDown);
+    return () => removeEventListener("keydown", onKeyDown);
+  }, []);
 
   return (
     <>
@@ -87,6 +106,7 @@ export function Sidebar(
 
         <div className="field sidebar-search">
           <input
+            ref={searchRef}
             type="search"
             placeholder="Search stories"
             aria-label="Search stories"

@@ -163,6 +163,19 @@ test("case 8: the search box narrows the list, and shows a no-match message", as
   await page.getByText("No stories match.").waitFor();
 }, 30_000);
 
+test("the / key focuses search (section 5's one keybinding beyond native)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const page = await openTestPage(await sharedBrowser());
+
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await page.keyboard.press("/");
+  const focused = await page.getByRole("searchbox", { name: "Search stories" })
+    .evaluate((element) => element === document.activeElement);
+  expect(focused).toBeTrue();
+}, 30_000);
+
 test("case 9: the placeholder shows the active path text of a story "
   + "seeded through the bridge's createNode", async () => {
   const project = await scratchProject();
