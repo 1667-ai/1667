@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
+  normalizeContext,
   type Context,
   type Model
 } from "@earendil-works/pi-ai";
@@ -233,9 +234,10 @@ test("Anthropic budget thinking reserves output within the remaining context", a
 
   assert.ok(seenContext);
   assert.ok(seenOptions);
-  const admittedMaxTokens = clampMaxTokensToContext(model, seenContext, 2_048);
+  const transcript = normalizeContext(seenContext);
+  const admittedMaxTokens = clampMaxTokensToContext(model, transcript, 2_048);
   const adjusted = adjustMaxTokensForThinking(admittedMaxTokens, model.maxTokens, "low");
-  const expectedMaxTokens = clampMaxTokensToContext(model, seenContext, adjusted.maxTokens);
+  const expectedMaxTokens = clampMaxTokensToContext(model, transcript, adjusted.maxTokens);
   assert.equal(seenOptions.maxTokens, expectedMaxTokens);
   assert.equal(
     seenOptions.thinkingBudgetTokens,
@@ -245,7 +247,7 @@ test("Anthropic budget thinking reserves output within the remaining context", a
   assert.ok((seenOptions.thinkingBudgetTokens as number) < 2_048);
   assert.equal(
     seenOptions.maxTokens,
-    clampMaxTokensToContext(model, seenContext, seenOptions.maxTokens as number)
+    clampMaxTokensToContext(model, transcript, seenOptions.maxTokens as number)
   );
 });
 

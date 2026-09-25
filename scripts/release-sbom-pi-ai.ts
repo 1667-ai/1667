@@ -3,23 +3,22 @@
  *
  * `@earendil-works/pi-ai` declares a broad provider set. The release imports
  * only its Anthropic and OpenAI Codex providers plus its Bun OAuth registry.
- * A Bun 1.4.0 metafile for that exact entry graph contains the four packages
+ * A Bun metafile for that exact entry graph contains the seven packages
  * below. Other Pi provider packages do not contribute modules to the compiled
  * executable.
  */
 export const PI_AI_BUNDLED_PACKAGE_NAMES = Object.freeze([
   "@anthropic-ai/sdk",
   "@earendil-works/pi-ai",
+  "@stablelib/base64",
+  "fast-sha256",
   "partial-json",
+  "standardwebhooks",
   "typebox"
 ] as const);
 
 /** Packages installed for Pi providers that the standalone does not import. */
 export const PI_AI_TREE_SHAKEN_PACKAGE_NAMES = Object.freeze([
-  "@aws-crypto/sha256-browser",
-  "@aws-crypto/sha256-js",
-  "@aws-crypto/supports-web-crypto",
-  "@aws-crypto/util",
   "@aws-sdk/client-bedrock-runtime",
   "@aws-sdk/core",
   "@aws-sdk/credential-provider-env",
@@ -37,13 +36,11 @@ export const PI_AI_TREE_SHAKEN_PACKAGE_NAMES = Object.freeze([
   "@aws-sdk/signature-v4-multi-region",
   "@aws-sdk/token-providers",
   "@aws-sdk/types",
-  "@aws-sdk/util-locate-window",
   "@aws-sdk/xml-builder",
   "@aws/lambda-invoke-store",
   "@babel/runtime",
   "@earendil-works/pi-telemetry",
   "@google/genai",
-  "@opentelemetry/api",
   "@protobufjs/aspromise",
   "@protobufjs/base64",
   "@protobufjs/codegen",
@@ -56,12 +53,9 @@ export const PI_AI_TREE_SHAKEN_PACKAGE_NAMES = Object.freeze([
   "@smithy/core",
   "@smithy/credential-provider-imds",
   "@smithy/fetch-http-handler",
-  "@smithy/is-array-buffer",
   "@smithy/node-http-handler",
   "@smithy/signature-v4",
   "@smithy/types",
-  "@smithy/util-buffer-from",
-  "@smithy/util-utf8",
   "@types/node",
   "@types/retry",
   "agent-base",
@@ -92,6 +86,7 @@ export const PI_AI_TREE_SHAKEN_PACKAGE_NAMES = Object.freeze([
   "openai",
   "p-retry",
   "protobufjs",
+  "proxy-agent-negotiate",
   "retry",
   "safe-buffer",
   "ts-algebra",

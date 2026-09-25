@@ -168,7 +168,7 @@ export const SETTINGS_PROVIDER_CHOICES: readonly SettingsProviderChoice[] = [
     provider: "openai-compatible",
     defaults: {
       baseUrl: "",
-      model: "gpt-5.4",
+      model: "gpt-5.5",
       apiKeyEnv: null,
       contextWindow: 272_000
     }

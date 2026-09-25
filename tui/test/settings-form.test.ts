@@ -381,7 +381,7 @@ describe("C-15 · the model option column", () => {
         ...overlay.draft.generation,
         provider: "openai-compatible",
         baseUrl: "",
-        model: "gpt-5.4",
+        model: "gpt-5.5",
         apiKeyEnv: null,
         contextWindow: 272_000
       }
@@ -391,16 +391,16 @@ describe("C-15 · the model option column", () => {
       observedAt: "2026-01-01T00:00:00.000Z",
       models: [
         {
-          remoteId: "gpt-5.4",
-          name: "GPT-5.4",
+          remoteId: "gpt-5.5",
+          name: "GPT-5.5",
           contextWindow: 272_000,
           maxOutputTokens: null,
           source: "pi-catalog"
         },
         {
-          remoteId: "gpt-5.4-mini",
-          name: "GPT-5.4 mini",
-          contextWindow: 128_000,
+          remoteId: "gpt-5.6-luna",
+          name: "GPT-5.6 Luna",
+          contextWindow: 272_000,
           maxOutputTokens: null,
           source: "pi-catalog"
         }
@@ -432,7 +432,7 @@ describe("C-15 · the model option column", () => {
     overlay.view = { ...activeView, pendingRevision: null };
 
     await press(key("right"));
-    expect(overlay.draft.generation.model).toBe("gpt-5.4-mini");
+    expect(overlay.draft.generation.model).toBe("gpt-5.6-luna");
 
     await press(key("return"));
     expect(overlay.modelPicker).not.toBe(null);
@@ -542,7 +542,7 @@ describe("the settings row model stays one list", () => {
         ...overlay.draft.generation,
         provider: "openai-compatible",
         baseUrl: "",
-        model: "gpt-5.4",
+        model: "gpt-5.5",
         apiKeyEnv: null,
         contextWindow: 272_000
       }
@@ -574,7 +574,7 @@ describe("the settings row model stays one list", () => {
 
     expect(discoveryCalls).toBe(1);
     expect(settingsModelChoices(overlay).map((model) => model.remoteId))
-      .toContain("gpt-5.4");
+      .toContain("gpt-5.5");
     expect(settingsModelChoices(overlay).every((model) =>
       model.remoteId.startsWith("gpt-") && model.source === "pi-catalog"
     )).toBeTrue();

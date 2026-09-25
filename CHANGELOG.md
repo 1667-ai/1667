@@ -13,6 +13,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   the Anthropic provider, you can set effort for these models. 1667 shows
   their thoughts and uses prompt caching for them.
 
+- **Claude plan lists Claude Opus 5.5 and Claude Fable 5.1.**
+- **ChatGPT plan lists GPT-6 Astra, GPT-6 Luna, and GPT-6 Sol.** It no longer
+  lists GPT-5.4 or GPT-5.4 mini, because ChatGPT accounts cannot use them. A
+  new ChatGPT plan connection starts with GPT-5.5. If your connection uses
+  GPT-5.4, select a different model in Settings.
+
 ## 0.11.0-beta.5 - 2026-09-18
 
 - **The desktop app supplies its own type.** It no longer asks your computer

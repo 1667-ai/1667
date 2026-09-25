@@ -21,7 +21,7 @@ const PLAN_FIXTURES = [
     provider: "openai-compatible" as const,
     preset: "chatgpt-plan" as const,
     protocol: "openai-codex-responses" as const,
-    model: "gpt-5.4"
+    model: "gpt-5.5"
   },
   {
     provider: "anthropic" as const,
@@ -57,6 +57,11 @@ test("subscription probes use bundled catalogs without an HTTP URL", async (t) =
         .map((model) => model.id)
     );
     assert.ok(discovery.models.some((model) => model.remoteId === fixture.model));
+    for (const remoteId of fixture.preset === "claude-plan"
+      ? ["claude-opus-5-5", "claude-fable-5-1"]
+      : []) {
+      assert.ok(discovery.models.some((model) => model.remoteId === remoteId), remoteId);
+    }
     assert.ok(discovery.models.every((model) => model.source === "pi-catalog"));
     assert.equal(await probeContextWindow(settings), null);
   }
