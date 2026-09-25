@@ -32,24 +32,46 @@ function setStoryIfCurrentRoute(store: Store<AppState>, id: string, next: StoryS
 }
 
 export function createStoryActions(store: Store<AppState>): StoryActions {
-  return {
-    load: (id) => catchAtBoundary(() => runAction(store, "Open story", async () => {
-      setStoryIfCurrentRoute(store, id, { kind: "loading", id });
-      const api = requireApi(store);
-      try {
-        const payload = await api.loadStory(id);
-        setStoryIfCurrentRoute(store, id, { kind: "loaded", payload });
-      } catch (error) {
-        // A deleted (or never-existing) story renders its own "missing"
-        // state instead of a toast — see `story/StoryPlaceholder.tsx` — so
-        // this returns instead of rethrowing into `runAction`'s toast.
-        if (apiErrorCode(error) === "not_found") {
-          setStoryIfCurrentRoute(store, id, { kind: "missing", id });
-          return;
-        }
-        throw error;
+  // Codex review: `StoryPlaceholder`'s mount effect has no cleanup, so
+  // `<StrictMode>` (dev) calls `load(id)` twice back to back for the same
+  // id before either settles. Without de-duplication, both issued a real
+  // `loadStory(id)` request; the second's own opportunistic residue-recovery
+  // claim on that story's mutation scope could still be active when a
+  // near-immediate delete of the SAME story tried to claim it for real,
+  // which the server rejects as "busy" — not a genuine capacity limit, just
+  // the app racing itself against one story. A second `load` for an id
+  // already in flight reuses the first call's promise instead of issuing a
+  // second request.
+  const inFlight = new Map<string, Promise<void>>();
+
+  const loadUnwrapped = (id: string): Promise<void> => catchAtBoundary(() => runAction(store, "Open story", async () => {
+    setStoryIfCurrentRoute(store, id, { kind: "loading", id });
+    const api = requireApi(store);
+    try {
+      const payload = await api.loadStory(id);
+      setStoryIfCurrentRoute(store, id, { kind: "loaded", payload });
+    } catch (error) {
+      // A deleted (or never-existing) story renders its own "missing"
+      // state instead of a toast — see `story/StoryPlaceholder.tsx` — so
+      // this returns instead of rethrowing into `runAction`'s toast.
+      if (apiErrorCode(error) === "not_found") {
+        setStoryIfCurrentRoute(store, id, { kind: "missing", id });
+        return;
       }
-    })),
+      throw error;
+    }
+  }));
+
+  return {
+    load: (id) => {
+      const existing = inFlight.get(id);
+      if (existing !== undefined) return existing;
+      const promise = loadUnwrapped(id).finally(() => {
+        if (inFlight.get(id) === promise) inFlight.delete(id);
+      });
+      inFlight.set(id, promise);
+      return promise;
+    },
 
     titleChanged: (updated) => {
       store.set((state) => (

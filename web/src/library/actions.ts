@@ -4,6 +4,7 @@ import type { StoryPayload } from "../../../shared/types.js";
 import { navigate } from "../app/router.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
+import { retryWhenBusy } from "../app/busy-retry.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
 import type { DialogState } from "./state.js";
 
@@ -82,7 +83,7 @@ export function createLibraryActions(
 
     create: () => catchAtBoundary(() => runAction(store, "New story", async () => {
       const api = requireApi(store);
-      const created = await api.createStory();
+      const created = await retryWhenBusy(() => api.createStory());
       await refreshUnwrapped();
       navigate({ kind: "story", id: created.id });
     })),
@@ -101,7 +102,7 @@ export function createLibraryActions(
       const trimmed = title.trim();
       if (trimmed.length === 0) return;
       const api = requireApi(store);
-      const updated = await api.renameStory(dialog.storyId, trimmed);
+      const updated = await retryWhenBusy(() => api.renameStory(dialog.storyId, trimmed));
       setDialog(store, { kind: "none" });
       deps.titleChanged(updated);
       await refreshUnwrapped();
@@ -119,7 +120,7 @@ export function createLibraryActions(
       const api = requireApi(store);
       setDialog(store, { kind: "none" });
       try {
-        await api.deleteStory(storyId);
+        await retryWhenBusy(() => api.deleteStory(storyId));
       } catch (error) {
         if (apiErrorCode(error) !== "not_found") {
           await refreshUnwrapped();
