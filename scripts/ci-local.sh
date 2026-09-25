@@ -77,6 +77,9 @@ run_darwin_arm64() {
     bun install --frozen-lockfile
     bun run typecheck
     bun run test
+    cd ../cli
+    bun run typecheck
+    bun run test
     bun run build:standalone
   )
   local code=$?
@@ -96,7 +99,8 @@ ensure_container() {
     -v "$REPO_ROOT:/src:ro" "$IMAGE" sleep infinity >/dev/null || return 1
   # node_modules is host-built for darwin, so the container installs its own.
   # tui's bun dependencies install here too: root npm test spawns
-  # tui/src/standalone.ts (see test/character-card-import.test.ts and
+  # cli/src/standalone.ts, which reaches @opentui/core through tui/src (see
+  # test/character-card-import.test.ts and
   # test/story-novelai-import-integration.test.ts), so tui/node_modules must
   # exist before any test command runs, not after it.
   docker exec "$name" bash -c '
@@ -140,6 +144,9 @@ run_linux() {
     set -e
     timeout ${TARGET_TIMEOUT_S} ${runtime_test}
     cd tui
+    bun run typecheck
+    timeout ${TARGET_TIMEOUT_S} bun run test
+    cd ../cli
     bun run typecheck
     timeout ${TARGET_TIMEOUT_S} bun run test
   "

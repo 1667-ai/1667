@@ -54,8 +54,8 @@ import {
 } from "./standalone-smoke-process.js";
 
 const execFileAsync = promisify(execFile);
-const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const repositoryRoot = path.dirname(tuiRoot);
+const cliRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const repositoryRoot = path.dirname(cliRoot);
 const WINDOWS_TARGET = releaseTargetForArtifact("windows-x64");
 const DEFAULT_STATE_SMOKE_VARIABLE =
   "AI_1667_WINDOWS_DEFAULT_STATE_SMOKE";
@@ -210,7 +210,7 @@ export async function smokeWindowsNpmPackage(
   // Record the PowerShell Installer would never put in a package directory, and
   // leaving it there for the state-root smoke that runs next. The real path is
   // covered end to end in test/release-install-powershell.test.ts and at the
-  // contract level in tui/test/upgrade-cli.test.ts.
+  // contract level in cli/test/upgrade-cli.test.ts.
   if (process.env[DEFAULT_STATE_SMOKE_VARIABLE] === "1") {
     await smokeDefaultWindowsStateRoot(runEntry, installRoot, environment);
   }

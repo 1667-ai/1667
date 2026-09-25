@@ -109,7 +109,7 @@ jobs:
         run: bun run test
 
       - name: Build and smoke-test native standalone
-        working-directory: tui
+        working-directory: cli
         run: bun run build:standalone
 
       - name: Install Btrfs tools
@@ -141,18 +141,18 @@ jobs:
           AI_1667_BTRFS_TEST_MOUNT="${mount_point}" \
             node --import tsx --test \
               test/http-btrfs-node-integration.test.ts
-          bun tui/scripts/standalone-btrfs-identity.ts capture \
-            tui/dist/1667 "${mount_point}/project" "${state}" "${first}"
+          bun cli/scripts/standalone-btrfs-identity.ts capture \
+            cli/dist/1667 "${mount_point}/project" "${state}" "${first}"
           btrfs subvolume snapshot \
             "${mount_point}/project" "${mount_point}/snapshot"
-          bun tui/scripts/standalone-btrfs-identity.ts capture \
-            tui/dist/1667 "${mount_point}/snapshot" "${state}" "${snapshot}"
+          bun cli/scripts/standalone-btrfs-identity.ts capture \
+            cli/dist/1667 "${mount_point}/snapshot" "${state}" "${snapshot}"
           sudo umount "${mount_point}"
           cp --reflink=never "${image}" "${clone_image}"
           sudo mount --options loop "${clone_image}" "${mount_point}"
-          bun tui/scripts/standalone-btrfs-identity.ts capture \
-            tui/dist/1667 "${mount_point}/project" "${state}" "${clone}"
-          bun tui/scripts/standalone-btrfs-identity.ts verify \
+          bun cli/scripts/standalone-btrfs-identity.ts capture \
+            cli/dist/1667 "${mount_point}/project" "${state}" "${clone}"
+          bun cli/scripts/standalone-btrfs-identity.ts verify \
             "${first}" "${snapshot}" "${clone}"
 
       - name: Test non-Btrfs clone rejection
@@ -293,7 +293,7 @@ jobs:
         run: bun run test -- --max-concurrency=1
 
       - name: Build and execute packaged candidate
-        working-directory: tui
+        working-directory: cli
         env:
           AI_1667_WINDOWS_DEFAULT_STATE_SMOKE: ${{ matrix.target == 'windows-x64' && '1' || '0' }}
         run: bun run build:standalone

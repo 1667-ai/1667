@@ -167,7 +167,7 @@ function writeStdout(bytes: Uint8Array): Promise<void> {
 /**
  * The one-line hook a future compiled entrypoint adds to reach this process
  * body from the packaged executable's own main dispatch, matching the shape
- * `tui/src/standalone.ts` already uses for
+ * `cli/src/standalone.ts` already uses for
  * `server/supervised-serve-child-bootstrap.ts`. This module is outside that
  * file's ownership, so the hook itself is not wired here; this function is
  * ready for a one-line `await runImageNormalizeChildBootstrap(argv)` call.
@@ -180,7 +180,7 @@ export async function runImageNormalizeChildBootstrap(argv: readonly string[]): 
  * Self-dispatch for source-mode execution: `server/image-normalize-launcher.ts`
  * spawns this exact file as the child's entrypoint when running under `tsx`
  * or `bun run` from source (see `childSpawnCommand` there), so this file
- * must be able to run standalone, the same way `tui/src/standalone.ts` does
+ * must be able to run standalone, the same way `cli/src/standalone.ts` does
  * for the whole application.
  */
 if (isDirectlyExecutedAsChild()) {

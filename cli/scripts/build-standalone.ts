@@ -40,9 +40,10 @@ import {
   buildStandaloneProduct
 } from "./standalone-build-requests.js";
 
-const tuiRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
-const repositoryRoot = path.dirname(tuiRoot);
-const outputDirectory = path.join(tuiRoot, "dist");
+const cliRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
+const repositoryRoot = path.dirname(cliRoot);
+const tuiRoot = path.join(repositoryRoot, "tui");
+const outputDirectory = path.join(cliRoot, "dist");
 const outputFile = path.join(outputDirectory, process.platform === "win32" ? "1667.exe" : "1667");
 const execFileAsync = promisify(execFile);
 // Defender can delay the first launch of the compiled Windows executable;
@@ -77,8 +78,8 @@ const embeddedWorkerSource = process.platform === "win32"
 
 const result = await buildStandaloneProduct(standaloneCompiler, {
   entrypoints: process.platform === "win32"
-    ? [path.join(tuiRoot, "src", "standalone.ts")]
-    : [path.join(tuiRoot, "src", "standalone.ts"), workerEntry],
+    ? [path.join(cliRoot, "src", "standalone.ts")]
+    : [path.join(cliRoot, "src", "standalone.ts"), workerEntry],
   outputFile,
   buildIdentity,
   tiktokenWasmBase64,
@@ -149,9 +150,10 @@ async function deriveBuildIdentity(): Promise<PackagedBuildIdentity> {
     }
     return identity;
   }
-  const [rootPackage, tuiPackage, rootLock, sourceCommit, sourceStatus] = await Promise.all([
+  const [rootPackage, tuiPackage, cliPackage, rootLock, sourceCommit, sourceStatus] = await Promise.all([
     readJson(path.join(repositoryRoot, "package.json")),
     readJson(path.join(tuiRoot, "package.json")),
+    readJson(path.join(cliRoot, "package.json")),
     readJson(path.join(repositoryRoot, "package-lock.json")),
     git("rev-parse", "--verify", "HEAD^{commit}"),
     git("status", "--porcelain=v1", "--untracked-files=normal")
@@ -159,6 +161,7 @@ async function deriveBuildIdentity(): Promise<PackagedBuildIdentity> {
   const versions = [
     manifestVersion(rootPackage, "package.json"),
     manifestVersion(tuiPackage, "tui/package.json"),
+    manifestVersion(cliPackage, "cli/package.json"),
     manifestVersion(rootLock, "package-lock.json"),
     lockRootVersion(rootLock)
   ];
@@ -316,7 +319,7 @@ async function smokePromptTokenizer(
     process.platform === "win32" ? "prompt-tokenizer-smoke.exe" : "prompt-tokenizer-smoke"
   );
   const result = await buildPromptTokenizerSmoke(standaloneCompiler, {
-    entrypoint: path.join(tuiRoot, "scripts", "prompt-tokenizer-smoke.ts"),
+    entrypoint: path.join(cliRoot, "scripts", "prompt-tokenizer-smoke.ts"),
     outputFile: executable,
     tiktokenWasmBase64
   });

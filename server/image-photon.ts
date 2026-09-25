@@ -7,8 +7,8 @@
  * on disk, so that call fails inside the compiled binary.
  *
  * The standalone build embeds the WASM bytes as a base64 define (see
- * `tui/scripts/standalone-build-requests.ts` and
- * `tui/scripts/build-standalone.ts`, next to the existing tiktoken define).
+ * `cli/scripts/standalone-build-requests.ts` and
+ * `cli/scripts/build-standalone.ts`, next to the existing tiktoken define).
  * This loader feeds those bytes back through a temporary replacement of
  * `fs.readFileSync` that only intercepts a path ending in
  * `photon_rs_bg.wasm`, then restores the original function once photon has

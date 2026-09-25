@@ -31,7 +31,7 @@ Set CursorBlink false
 Set WaitTimeout 15s
 
 Hide
-Type "cd tui && exec bun start -- --demo"
+Type "cd cli && exec bun start -- --demo"
 Enter
 Wait+Screen /the lantern keeper/
 Show

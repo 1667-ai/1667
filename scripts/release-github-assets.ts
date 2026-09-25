@@ -96,7 +96,7 @@ export interface StagedReleaseArchive {
 export interface StageReleaseArchiveOptions {
   readonly source: CollectedReleaseSource;
   readonly target: BuiltArtifactTarget;
-  /** Directory holding the freshly built executable, normally `tui/dist`. */
+  /** Directory holding the freshly built executable, normally `cli/dist`. */
   readonly buildDirectory: string;
   /** Directory that receives the archive directory. */
   readonly outputDirectory: string;
