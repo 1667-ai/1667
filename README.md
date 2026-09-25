@@ -59,6 +59,7 @@ because PowerShell treats it as a number.
 - [Summary branches](docs/summary-branches.md)
 - [Story line copy and paste](docs/story-line-copy-paste.md)
 - [Automatic story names](docs/autoname.md)
+- [CLI reference](cli/README.md)
 - [TUI reference](tui/README.md)
 
 ## License

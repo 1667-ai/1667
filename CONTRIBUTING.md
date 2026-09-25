@@ -31,7 +31,8 @@ order matters less than the trail existing.
 - Node.js 22
 - Docker, to run the Linux gates
 
-Use npm at the repository root and Bun in `tui/`. The TUI worker runs the shared
+Use npm at the repository root and Bun in `tui/`. The `1667` command lives in
+`cli/`. `cli/` has no dependencies of its own. The TUI worker runs the shared
 modules in `server/`, so you need both dependency trees.
 
 ```sh
@@ -56,8 +57,9 @@ On macOS arm64, this script runs `darwin-arm64` natively. It runs `linux-x64`
 and `linux-arm64` in Docker. It does not run `darwin-x64` or `windows-x64`.
 GitHub CI runs `darwin-x64` and `windows-x64` on every pull request.
 
-On Windows x64, run the root gates and the TUI gates directly. Run
-`bun run build:standalone` to test the Windows package candidate.
+On Windows x64, run the root gates, the TUI gates, and the CLI gates directly.
+Run `bun run build:standalone` from `cli/` to test the Windows package
+candidate.
 
 A full green run records the commit it passed. To have pushes refused unless
 that commit passed, opt into the hook with

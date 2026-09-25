@@ -15,8 +15,9 @@ read_when:
 - A terminal with support for 256 colors
 - Optional mouse support
 
-Use npm in the repository root. Use Bun in `tui/`. The TUI worker uses shared
-modules from `server/`. Install both dependency trees.
+Use npm in the repository root. Use Bun in `tui/`. The `1667` command lives in
+`cli/`. `cli/` has no dependencies of its own. The TUI worker uses shared
+modules from `server/`. Install the root and TUI dependency trees.
 
 ## Prepare the workspace
 
@@ -26,11 +27,12 @@ cd 1667
 npm ci
 cd tui
 bun install --frozen-lockfile
+cd ..
 ```
 
 ## Start 1667
 
-Run these commands from `tui/`.
+Run these commands from `cli/`.
 
 ```sh
 bun start                            # Open the nearest project

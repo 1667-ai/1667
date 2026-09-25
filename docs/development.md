@@ -59,6 +59,14 @@ bun run typecheck
 bun run test
 ```
 
+Run the CLI gates from `cli/`:
+
+```sh
+bun run typecheck
+bun run test
+bun run build:standalone
+```
+
 Run the frame performance gate separately:
 
 ```sh
@@ -72,9 +80,10 @@ the upgrade command tests, and the standalone package smoke. CI does not run
 the frame performance gate.
 
 On native macOS arm64, the local CI script runs the root build, root tests, TUI
-type check, TUI tests, and standalone build. The script runs the root tests and
-TUI tests in Docker for Linux arm64 and Linux x64. The local script does not
-build Linux standalone candidates. It does not test macOS x64 or Windows x64.
+type check, TUI tests, CLI type check, CLI tests, and the standalone build. The
+script runs the root tests, TUI tests, and CLI tests in Docker for Linux arm64
+and Linux x64. The local script does not build Linux standalone candidates. It
+does not test macOS x64 or Windows x64.
 
 ```sh
 scripts/ci-local.sh
@@ -107,7 +116,8 @@ contract.
 
 | Path | Contents |
 | --- | --- |
-| `tui/` | Terminal client, Bun workspace, and standalone build scripts |
+| `cli/` | The `1667` executable: argument dispatch, subcommands, and the standalone build |
+| `tui/` | Terminal UI, and its Bun workspace |
 | `client/` | Shared client interfaces, response decoders, and transport adapters |
 | `host/` | Embedded worker ownership and shared launcher operations |
 | `server/` | Backend storage, generation, providers, worker, and HTTP adapters |
