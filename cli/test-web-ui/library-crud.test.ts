@@ -125,7 +125,8 @@ test("case 6: Cancel keeps the story; Delete removes it, confirmed through a sec
     .click();
 
   await expectHash(page, "#/");
-  expect(await page.getByRole("button", { name: /Doomed/ }).count()).toBe(0);
+  // The list refresh after the delete lands after the navigation; wait for it.
+  await page.getByRole("button", { name: /Doomed/ }).waitFor({ state: "detached" });
   expect((await api.listStories()).some((summary) => summary.id === created.id)).toBeFalse();
 }, 30_000);
 
@@ -157,7 +158,7 @@ test("case 8: the search box narrows the list, and shows a no-match message", as
   const search = page.getByRole("searchbox", { name: "Search stories" });
   await search.fill("alpha");
   await page.getByRole("button", { name: /Alpha Story/ }).waitFor();
-  expect(await page.getByRole("button", { name: /Beta Story/ }).count()).toBe(0);
+  await page.getByRole("button", { name: /Beta Story/ }).waitFor({ state: "detached" });
 
   await search.fill("no such story exists");
   await page.getByText("No stories match.").waitFor();
@@ -229,8 +230,14 @@ test("deleting the open story while navigating to another story lands on the "
   }, storyB.id);
 
   await page.getByRole("heading", { name: "Story B" }).waitFor();
-  expect(await page.evaluate(() => location.hash)).toBe(`#/story/${storyB.id}`);
+  // The test did not wait for the delete, so it may still be running; wait
+  // (bounded) for it to land before checking where the page ended up.
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    if (!(await api.listStories()).some((summary) => summary.id === storyA.id)) break;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
   expect((await api.listStories()).some((summary) => summary.id === storyA.id)).toBeFalse();
+  expect(await page.evaluate(() => location.hash)).toBe(`#/story/${storyB.id}`);
 }, 30_000);
 
 test("case 9: the placeholder shows the active path text of a story "
