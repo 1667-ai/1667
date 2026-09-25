@@ -322,6 +322,11 @@ jobs:
       - name: Install runtime dependencies
         run: npm ci
 
+      # `1667 web` from source loads cli/src/main.ts, which imports the TUI.
+      - name: Install TUI dependencies
+        working-directory: tui
+        run: bun install --frozen-lockfile
+
       # `playwright-core` drives the runner image's own pre-installed Chrome
       # (`channel: "chrome"` in cli/test-web-ui — no browser download step).
       - name: Test web UI
