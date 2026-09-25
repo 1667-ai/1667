@@ -34,15 +34,6 @@
   cursor: default;
 }
 
-.btn-count {
-  color: var(--faint);
-}
-
-.btn-dashed {
-  background: transparent;
-  border-style: dashed;
-}
-
 .btn-primary {
   background: var(--accent);
   border-color: var(--accent);
@@ -87,12 +78,6 @@
   font-size: 13px;
 }
 
-.btn-cta {
-  border-radius: 11px;
-  padding: 13px 26px;
-  font-size: 15px;
-}
-
 a.btn {
   text-decoration: none;
 }
@@ -123,11 +108,6 @@ a.btn {
 .icon-btn:hover:not(:disabled) {
   color: var(--ink);
   background: var(--sb);
-}
-
-.icon-btn-danger:hover:not(:disabled) {
-  color: var(--danger);
-  background: var(--danger-soft);
 }
 
 .icon-btn:disabled {

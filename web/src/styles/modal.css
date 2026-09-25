@@ -1,7 +1,8 @@
 /**
  * Ported from `~/source/storytavern/web/src/modal.css`: `.modal`,
- * `.modal-actions`, `.modal-status`, `.field-row`. `.settings-*` and
- * `.cache-policy-*` are dropped — there is no settings screen yet.
+ * `.modal-actions`, `.modal-status`. `.field-row`, `.settings-*`, and
+ * `.cache-policy-*` are dropped — nothing here uses a two-field row, and
+ * there is no settings screen yet.
  *
  * The Rename and Delete dialogs use a native `<dialog>` (owner decision),
  * which supplies its own top-layer stacking and `::backdrop`, so the
@@ -36,15 +37,6 @@ dialog.modal::backdrop {
   font-weight: 600;
   line-height: 1;
   color: var(--ink);
-}
-
-.field-row {
-  display: flex;
-  gap: 14px;
-}
-
-.field-row .field {
-  flex: 1;
 }
 
 .modal-status {

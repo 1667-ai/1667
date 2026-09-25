@@ -22,14 +22,12 @@ svg.icon {
   fill: none; stroke: currentColor; stroke-linecap: round;
   stroke-linejoin: round; stroke-width: 1.6;
 }
-svg.icon.icon-filled { fill: currentColor; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field > span, .field > label {
+.field > label {
   color: var(--dim); font-family: var(--mono); font-size: 11px; font-weight: 500;
   letter-spacing: .06em; text-transform: uppercase;
 }
-.field small { color: var(--faint); font-family: var(--ui); font-size: 12px; letter-spacing: normal; text-transform: none; }
 .field input, .field select, .field textarea {
   background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
   font-size: 14px; outline: none; padding: 9px 12px;
@@ -40,6 +38,3 @@ svg.icon.icon-filled { fill: currentColor; }
 }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
-@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
-@keyframes pulse { 0%, 100% { opacity: 1; } 50% { opacity: .45; } }
-@keyframes slide-in { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: none; } }

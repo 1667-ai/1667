@@ -1,0 +1,33 @@
+/**
+ * The connection screens (`ui/ConnectionScreens.tsx`) and the recovery
+ * banner (`ui/RecoveryBanner.tsx`). Moved out of `styles/story.css` (review
+ * fix D18) — StoryTavern has no equivalent (it never loses its own backend
+ * mid-session the way a browser tab can), so these are new, styled to match
+ * the tokens and card language already here, and have nothing to do with
+ * the story view itself.
+ */
+
+.connection-screen {
+  align-items: center; display: flex; flex: 1; justify-content: center; padding: 40px;
+}
+.connection-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--dropdown-shadow); display: flex; flex-direction: column; gap: 14px;
+  max-width: 40ch; padding: 28px 30px; text-align: center;
+}
+.connection-card p { color: var(--ink); font-size: 15px; line-height: 1.6; }
+.connection-detail { color: var(--dim); font-family: var(--mono); font-size: 12.5px; }
+.connection-overlay {
+  align-items: center; background: rgba(15, 16, 28, 0.5); display: flex; inset: 0;
+  justify-content: center; padding: 24px; position: fixed; z-index: 90;
+}
+.connection-overlay .connection-card { animation: rise 200ms ease both; }
+
+.recovery-banner {
+  background: var(--warn-soft); border-bottom: 1px solid var(--line);
+  padding: 10px 24px; display: flex; flex-direction: column; gap: 6px;
+}
+.recovery-banner-heading { color: var(--meter-warn); font-size: 13px; font-weight: 600; }
+.recovery-banner ul { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
+.recovery-banner li { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.recovery-banner li span { color: var(--dim); font-size: 13px; }
