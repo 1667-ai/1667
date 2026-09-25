@@ -81,9 +81,14 @@ export function startWebBridgeServer(options: WebBridgeHubOptions): WebBridgeHub
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
       let bridge: WebBridge;
-      bridge = new WebBridge(options.host, new WsBridgeSocket(ws, socket), () => {
-        active.delete(bridge);
-      });
+      bridge = new WebBridge(
+        options.host,
+        new WsBridgeSocket(ws, socket),
+        () => { active.delete(bridge); },
+        // A dismissal on this connection changes a snapshot every open
+        // connection shares — broadcast it, not only this one's own view.
+        () => { active.forEach((sibling) => sibling.publishRecoveryWarnings(options.host.recoveryWarnings)); }
+      );
       active.add(bridge);
     });
   });

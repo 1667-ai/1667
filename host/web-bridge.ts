@@ -71,7 +71,13 @@ export class WebBridge {
   constructor(
     private readonly host: WorkerHost,
     private readonly socket: BridgeSocket,
-    private readonly onClosed: () => void = () => undefined
+    private readonly onClosed: () => void = () => undefined,
+    /** Fired after this connection dismisses an archived mutation, so the
+     * hub (`host/web-bridge-server.ts`) can broadcast the changed snapshot
+     * to every other open connection — the dismisser's own view comes from
+     * this instance's own `post` below, same as before. `WebBridge` owns no
+     * registry of siblings, so it cannot broadcast this itself. */
+    private readonly onRecoveryWarningsChanged: () => void = () => undefined
   ) {
     socket.on("message", (data) => this.onMessage(data));
     socket.on("close", () => this.close());
@@ -299,7 +305,7 @@ export class WebBridge {
     try {
       await this.host.transport.dismissArchivedMutation(mutationId);
       this.post({ type: "dismissedArchivedMutation", callId, mutationId });
-      this.publishRecoveryWarnings(this.host.recoveryWarnings);
+      this.onRecoveryWarningsChanged();
     } catch (error) {
       this.post({
         type: "dismissalError",
