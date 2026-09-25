@@ -267,12 +267,15 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "@opentui/core-linux-x64",
     "@opentui/core-linux-x64-musl",
     "@silvia-odwyer/photon-node",
+    "@stablelib/base64",
     "bun",
     "detect-libc",
+    "fast-sha256",
     "msgpackr",
     "msgpackr-extract",
     "node-gyp-build-optional-packages",
     "partial-json",
+    "standardwebhooks",
     "tiktoken",
     "typebox",
     "web-tree-sitter"
@@ -289,12 +292,15 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
   assert.equal(runtime.licenseDeclared, "MIT");
 
   const expected = new Map([
-    ["@anthropic-ai/sdk", ["0.91.1", "MIT",
-      "2c09aeefad6d48df6beba8b1be6722b30523fd90bed50e2201fa5e7537d254b7"
-      + "acc11c276379f635be93b24f9c2cf3f6f1a2ce3d678c808b93b8270c0ba5bf8b"]],
-    ["@earendil-works/pi-ai", ["0.84.2", "MIT",
-      "e8ccecad8218355944ed27e96cbdb261bebb428e7ca7fed0fb1586d5166fa17d"
-      + "4ff346910874a8776ff5dda169c64a30d653ced8b121ddce3de49d06c26ca38a"]],
+    ["@anthropic-ai/sdk", ["0.124.0", "MIT",
+      "70de4ef22f545711de3900338ff5e3b215971bc2a289b243c3d386a47d99fde4"
+      + "779ff441c5da0bc4324e71fa80256be368c0c57c74c1003534e21591255903c8"]],
+    ["@earendil-works/pi-ai", ["0.87.1", "MIT",
+      "5ffdcf7d00679e879574ef42bfccc782150c825ce580d65818dce83e76d1a069"
+      + "c7977470dd3940d94292501ec144750ec4caf21d761af1d9e359995b46178364"]],
+    ["@stablelib/base64", ["1.0.1", "MIT",
+      "d5b9cf42a4b14ae737222e8c841caca160a0e7c8fdeda523b82499ac64a60f13"
+      + "6ab72b488b493cbad51e9c0c1364de15e665d7606b15508f73781ab2fa304e49"]],
     ["detect-libc", ["2.1.2", "Apache-2.0",
       "06d8f604e38ef37a375b21f9f5ef0c817b3111055c6ab9143a9118aee6c1d2e"
       + "af09cdd74c90dfae2bb22072535d67665a966199b4e62fe87fb8a8e26ce2841b5"]],
@@ -304,12 +310,18 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     ["node-gyp-build-optional-packages", ["5.2.2", "MIT",
       "b3ec3eac15a7a533304856da134517b11960ee15381637a4294e1ec808a1e53f"
       + "2726e3594f59cdb2c917a7199ea922bd53390197a5204659ca73c873f0812a3b"]],
+    ["fast-sha256", ["1.3.0", "Unlicense",
+      "9f5d5118ffe5ad610523f6d677280bc6123ea557a8d59608570bef3e45bb6b39"
+      + "7facecbe1771d8459d8ae73784f669a4850a69caff6c405c7424cf5469b9e93d"]],
     ["partial-json", ["0.1.7", "MIT",
       "363bffe7d8476a891bfe14548dc7b71ddbf5db077ad0cb4cf59e4e9669fe9de8"
       + "5ed100c0b11b516c93ef27467dd53bac1744ae65122f9ccf92e25e8420ff2578"]],
-    ["typebox", ["1.3.7", "MIT",
-      "99e2ae89f737dcf71cc743ba3dd23360cab73a0f33bcfe13222fdaf81c370043"
-      + "19331383d3e447190be982511ee99772df067c9ea9ff8fde61f0b5192e4ffa1e"]],
+    ["standardwebhooks", ["1.1.1", "MIT",
+      "6c26d7f5913216458fb11cfb065dcdb90509a219b01927afff286beef85a18f9"
+      + "5ce007c8aeca4845ae9c3d306e23522d9ab4c327877f4b6842b1f7b8faf4069d"]],
+    ["typebox", ["1.3.27", "MIT",
+      "ceefa3735a5ccb85223538718a452bdfa7f44726e4f4f11e0a0fcd13a69d796a"
+      + "ff48ab1d34ee04cd91d844396fd9809501f8f739dab7744492a3f8cdca8057cc"]],
     ["tiktoken", ["1.0.22", "MIT",
       "3cabf2d6b545d5189b7c5dc99570523f426b730daeab7c977607045ed293627d"
       + "d027f7014411c39eb2798c7932f8c10d67a0c83f0354196a64571fbb8e80a934"]],

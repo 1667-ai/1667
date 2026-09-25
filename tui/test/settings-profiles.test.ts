@@ -195,7 +195,7 @@ describe("Generation Profile settings", () => {
         ...overlay.draft.generation,
         provider: "text-completion",
         baseUrl: "http://127.0.0.1:5001/v1",
-        model: "gpt-5.4",
+        model: "gpt-5.5",
         apiKeyEnv: null,
         contextWindow: null
       }),
@@ -204,16 +204,16 @@ describe("Generation Profile settings", () => {
     overlay.draft = textDraft;
     applySettingsModelChoice(
       overlay,
-      { remoteId: "gpt-5.4", contextWindow: null },
+      { remoteId: "gpt-5.5", contextWindow: null },
       null,
       { kind: "automatic", targetIdentity: "automatic-test" }
     );
     expect(overlay.modelSelectionByProfile[profileId]?.automaticModel?.remoteId)
-      .toBe("gpt-5.4");
+      .toBe("gpt-5.5");
 
     const choice = cycleSettingsProvider(overlay, 1);
     expect(choice.id).toBe("chatgpt-plan");
-    expect(overlay.draft.generation.model).toBe("gpt-5.4");
+    expect(overlay.draft.generation.model).toBe("gpt-5.5");
     const route = resolveSettingsProfile(overlay.draft.document!, profileId);
     expect(route.connection.protocol).toBe("openai-codex-responses");
     parseSettingsDocumentV5(overlay.draft.document!);
@@ -221,7 +221,7 @@ describe("Generation Profile settings", () => {
     await press(key("s"));
     expect(commands).toHaveLength(1);
     const saved = parseSettingsDocumentV5(commands[0]!.document);
-    expect(resolveSettingsProfile(saved, profileId).model.remoteId).toBe("gpt-5.4");
+    expect(resolveSettingsProfile(saved, profileId).model.remoteId).toBe("gpt-5.5");
   });
 
   test("subscription plans expose supported effort choices and save a non-default effort", async () => {

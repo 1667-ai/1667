@@ -5,6 +5,7 @@ import type {
   Model,
   OpenAICodexResponsesOptions
 } from "@earendil-works/pi-ai";
+import { normalizeContext } from "@earendil-works/pi-ai";
 import {
   adjustMaxTokensForThinking,
   clampMaxTokensToContext
@@ -170,9 +171,10 @@ export function anthropicReasoningOptions(
   }
   // Match Pi's Anthropic stream path: admit the configured answer limit first,
   // then reserve thinking, and clamp the combined ceiling to the context.
-  const admittedMaxTokens = clampMaxTokensToContext(model, context, maxTokens);
+  const transcript = normalizeContext(context);
+  const admittedMaxTokens = clampMaxTokensToContext(model, transcript, maxTokens);
   const adjusted = adjustMaxTokensForThinking(admittedMaxTokens, model.maxTokens, effort);
-  const requestMaxTokens = clampMaxTokensToContext(model, context, adjusted.maxTokens);
+  const requestMaxTokens = clampMaxTokensToContext(model, transcript, adjusted.maxTokens);
   return {
     maxTokens: requestMaxTokens,
     thinkingEnabled: true,
