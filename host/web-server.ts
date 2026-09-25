@@ -44,11 +44,12 @@ function securityHeaders(port: number): Record<string, string> {
 
 /** One static file the app bundle needs served publicly: `cli/src/web-assets.ts`
  * builds `"/"` (`web/index.html`) and `"/app.js"` (`web/src/main.ts`, bundled).
- * Step 3 adds hashed `/assets/*` entries; this server does not care which
+ * Step 3 adds hashed `/assets/*` entries, including binary fonts, so the body
+ * is raw bytes rather than a UTF-8 string; this server does not care which
  * paths are present, only that every one of them is public GET/HEAD. */
 export interface WebAsset {
   readonly contentType: string;
-  readonly body: string;
+  readonly body: Uint8Array;
 }
 
 export interface WebServerOptions {
@@ -328,10 +329,10 @@ function send(
   method: string,
   status: number,
   contentType: string,
-  body: string,
+  body: string | Uint8Array,
   port: number
 ): void {
-  const payload = Buffer.from(body, "utf8");
+  const payload = typeof body === "string" ? Buffer.from(body, "utf8") : body;
   response.writeHead(status, {
     "content-type": contentType,
     "content-length": String(payload.length),

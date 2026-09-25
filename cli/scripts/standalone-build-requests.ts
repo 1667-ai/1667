@@ -3,6 +3,7 @@ import type {
   StandaloneCompiler
 } from "../../shared/standalone-compile-target.js";
 import type { WebAsset } from "../../host/web-server.js";
+import { encodeWebAssets } from "../src/web-assets-codec.js";
 
 export interface StandaloneProductBuildOptions {
   readonly entrypoints: string[];
@@ -48,7 +49,7 @@ export function buildStandaloneProduct<Result>(
         options.embeddedWorkerSource === undefined
           ? "undefined"
           : JSON.stringify(options.embeddedWorkerSource),
-      __AI_1667_WEB_ASSETS__: JSON.stringify(Object.fromEntries(options.webAssets))
+      __AI_1667_WEB_ASSETS__: JSON.stringify(encodeWebAssets(options.webAssets))
     },
     external: ["koffi"],
     minify: true

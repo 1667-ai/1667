@@ -2,14 +2,16 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WebAsset } from "../../host/web-server.js";
+import { decodeWebAssets, type EncodedWebAsset } from "./web-assets-codec.js";
 
 /** A compiled build embeds the built assets under this identifier
  * (`cli/scripts/standalone-build-requests.ts`'s `define`), the same pattern
  * `worker-transport.ts`'s `__AI_1667_EMBEDDED_WORKER_SOURCE__` uses: `Bun.build`'s
  * `define` splices the `JSON.stringify`d value in as source text, so an
  * object value becomes a literal object expression here, not a string to
- * re-parse. */
-declare const __AI_1667_WEB_ASSETS__: Readonly<Record<string, WebAsset>> | undefined;
+ * re-parse. It carries `EncodedWebAsset` entries (base64 bodies), not
+ * `WebAsset` directly — see `cli/src/web-assets-codec.ts`. */
+declare const __AI_1667_WEB_ASSETS__: Readonly<Record<string, EncodedWebAsset>> | undefined;
 
 const webRoot = fileURLToPath(new URL("../../web", import.meta.url));
 
@@ -22,7 +24,7 @@ const webRoot = fileURLToPath(new URL("../../web", import.meta.url));
  */
 export async function loadWebAssets(): Promise<ReadonlyMap<string, WebAsset>> {
   if (typeof __AI_1667_WEB_ASSETS__ !== "undefined") {
-    return new Map(Object.entries(__AI_1667_WEB_ASSETS__));
+    return decodeWebAssets(__AI_1667_WEB_ASSETS__);
   }
   return await buildWebAssets();
 }
@@ -43,7 +45,7 @@ export async function buildWebAssets(): Promise<ReadonlyMap<string, WebAsset>> {
   const appJs = await result.outputs[0]!.text();
   const indexHtml = await readFile(path.join(webRoot, "index.html"), "utf8");
   return new Map<string, WebAsset>([
-    ["/", { contentType: "text/html; charset=utf-8", body: indexHtml }],
-    ["/app.js", { contentType: "text/javascript; charset=utf-8", body: appJs }]
+    ["/", { contentType: "text/html; charset=utf-8", body: new TextEncoder().encode(indexHtml) }],
+    ["/app.js", { contentType: "text/javascript; charset=utf-8", body: new TextEncoder().encode(appJs) }]
   ]);
 }
