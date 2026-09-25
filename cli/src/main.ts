@@ -33,30 +33,22 @@ import {
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { resolveMachineTierRoot } from "../../server/machine-tier.js";
 import { resolvePlatformDataDirectory } from "../../server/platform-data-directory.js";
-import {
-  createProjectTier,
-  resolveProject,
-  type ProjectRequest,
-  type ResolvedProject
-} from "../../server/project-discovery.js";
-import { PROJECT_DIRECTORY_NAME } from "../../server/project-layout.js";
+import { resolveProject } from "../../server/project-discovery.js";
 import {
   adoptProject,
-  initializeProject
+  initializeProject,
+  projectRequest as launcherProjectRequest
 } from "../../host/launcher-project.js";
 import { requireExistingProject } from "./project-command.js";
+import { runWebCommand } from "./web-command.js";
 import {
   readProjectRunRecord
 } from "../../server/project-run-record.js";
 import {
-  canPromptForProject,
-  confirmProjectCreation
-} from "./project-prompt.js";
-import {
-  openSealedVault,
-  revalidateSealedVault,
-  revalidateUnsealedVault
-} from "./vault-open.js";
+  embeddedVaultOptions,
+  openProject,
+  type EmbeddedVaultOptions
+} from "./embedded-project.js";
 
 interface Arguments {
   url: string | null;
@@ -123,6 +115,10 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
   }
   if (argv[0] === "profile") {
     await runProfileCommand(argv.slice(1));
+    return;
+  }
+  if (argv[0] === "web") {
+    await runWebCommand(argv.slice(1));
     return;
   }
 
@@ -261,7 +257,7 @@ async function printStartupDiagnostic(args: Arguments): Promise<void> {
     packaged: AI_1667_BUILD_IDENTITY.artifactTarget !== "source"
   };
   try {
-    const outcome = await resolveProject(projectRequest(args));
+    const outcome = await resolveProject(launcherProjectRequest(projectSelection(args)));
     process.stdout.write(`${JSON.stringify({
       ...base,
       project: outcome.kind === "absent"
@@ -323,12 +319,8 @@ async function runProjectInit(argv: readonly string[]): Promise<void> {
   }
 }
 
-function projectRequest(args: Arguments): ProjectRequest {
-  return {
-    cwd: process.cwd(),
-    ...(args.dataDir === null ? {} : { data: args.dataDir }),
-    ...(args.global ? { global: true } : {})
-  };
+function projectSelection(args: Arguments) {
+  return { data: args.dataDir, global: args.global };
 }
 
 /**
@@ -339,7 +331,7 @@ function projectRequest(args: Arguments): ProjectRequest {
 async function attachOrigin(args: Arguments): Promise<string> {
   if (args.url !== null) return args.url;
   const project = requireExistingProject(
-    await resolveProject(projectRequest(args)),
+    await resolveProject(launcherProjectRequest(projectSelection(args))),
     { unavailable: "nothing to attach to" }
   );
   const record = await readProjectRunRecord(project.directory);
@@ -350,46 +342,6 @@ async function attachOrigin(args: Arguments): Promise<string> {
     );
   }
   return record.url;
-}
-
-/**
- * Open the project this invocation names, asking once when none exists.
- * Returns null when the person declines, which is not an error.
- */
-interface OpenedProject {
-  readonly project: ResolvedProject;
-  readonly vault: Awaited<ReturnType<typeof openSealedVault>>;
-}
-
-async function openProject(args: Arguments): Promise<OpenedProject | null> {
-  const outcome = await resolveProject(projectRequest(args));
-  if (outcome.kind === "project") {
-    // An explicitly named project — `--data` or `--global` — is explicit intent
-    // to have one, so it is created. Discovery only ever finds existing ones.
-    if (!outcome.project.exists) {
-      await createProjectTier(outcome.project.directory);
-      return { project: { ...outcome.project, exists: true }, vault: null };
-    }
-    return {
-      project: outcome.project,
-      vault: await openSealedVault(outcome.project.directory)
-    };
-  }
-  const streams = { input: process.stdin, output: process.stdout };
-  if (!canPromptForProject(streams)) {
-    throw new Error(
-      `no ${PROJECT_DIRECTORY_NAME} story project in ${outcome.cwd} or any parent. `
-        + "Run '1667 init', or use --global."
-    );
-  }
-  if (!await confirmProjectCreation(outcome.cwd, streams)) {
-    process.stdout.write(
-      "1667: no story project created. Run '1667 init' here, "
-        + "or '1667 --global' for one shared library.\n"
-    );
-    return null;
-  }
-  return { project: await initializeProject(outcome.cwd), vault: null };
 }
 
 function serviceErrorCode(error: unknown): string {
@@ -444,27 +396,16 @@ async function runTui(args: Arguments): Promise<void> {
     return;
   }
   let dataDir: string | null = null;
-  let vaultOptions: {
-    readonly vaultKey: Buffer;
-    readonly beforeVaultMigration: (lockedDataDirectory: string) => Promise<void>;
-  } | undefined;
+  let vaultOptions: EmbeddedVaultOptions | undefined;
   // Exports land in the project root, beside the writing. A client
   // attached to a server has no project of its own and writes where it started.
   let exportDirectory = process.cwd();
   if (args.embedded) {
-    const opened = await openProject(args);
+    const opened = await openProject(projectSelection(args));
     if (opened === null) return;
     dataDir = opened.project.directory;
     exportDirectory = opened.project.root;
-    const vault = opened.vault;
-    if (vault !== null) {
-      vaultOptions = {
-        vaultKey: vault.key,
-        beforeVaultMigration: async (lockedDataDirectory: string) => {
-          await revalidateSealedVault(lockedDataDirectory, vault.keyslotBytes);
-        }
-      };
-    }
+    vaultOptions = embeddedVaultOptions(opened.vault);
   }
   const storyFolder = dataDir === null
     ? ""
@@ -505,10 +446,7 @@ async function createTuiBackend(
     readonly dataDir: string | null;
     readonly exportDirectory: string;
     readonly storyFolder: string;
-    readonly vaultOptions: {
-      readonly vaultKey: Buffer;
-      readonly beforeVaultMigration: (lockedDataDirectory: string) => Promise<void>;
-    } | undefined;
+    readonly vaultOptions: EmbeddedVaultOptions | undefined;
     readonly backendRecovery: RecoveryWarningFeed;
   }
 ): Promise<TuiBackend> {
@@ -517,7 +455,7 @@ async function createTuiBackend(
     dataDir,
     printLogs: args.printLogs,
     onRecoveryWarnings: (warnings) => backendRecovery.publish(warnings),
-    ...(vaultOptions ?? { beforeVaultMigration: revalidateUnsealedVault })
+    ...(vaultOptions ?? embeddedVaultOptions(null))
   });
   const httpAttach = worker === null
     ? await attachHttpServer(await attachOrigin(args), {

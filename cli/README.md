@@ -35,6 +35,24 @@ HTTP server mode is available only on Linux. See
 [Run 1667 from source](../docs/run-from-source.md) and
 [Story storage](../docs/story-storage.md).
 
+## `1667 web` (experimental)
+
+`1667 web` opens your project and serves a placeholder page. The server
+answers requests from your computer only.
+
+```sh
+bun start -- web
+bun start -- web --data /path/to/project
+bun start -- web --port 4000
+bun start -- web --no-open
+```
+
+The command prints a URL with a private token. Open the URL in a browser.
+By default, the command opens the URL for you.
+
+The page shows your project and the build version. It does not show your
+stories yet.
+
 ## Build a standalone executable
 
 Use Bun 1.4.0 or newer:
