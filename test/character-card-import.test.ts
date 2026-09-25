@@ -208,7 +208,7 @@ async function runCardImport(
   storyId: string,
   file: string
 ): Promise<{ readonly stdout: string; readonly stderr: string }> {
-  const entrypoint = path.resolve("tui/src/standalone.ts");
+  const entrypoint = path.resolve("cli/src/standalone.ts");
   return await runBunCli(
     [entrypoint, "import-card", "--data", root, "--story", storyId, file],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }

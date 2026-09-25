@@ -100,6 +100,14 @@ jobs:
         working-directory: tui
         run: bun run test
 
+      - name: Type-check CLI
+        working-directory: cli
+        run: bun run typecheck
+
+      - name: Test CLI
+        working-directory: cli
+        run: bun run test
+
       - name: Build and smoke-test native standalone
         working-directory: tui
         run: bun run build:standalone
@@ -250,9 +258,14 @@ jobs:
         working-directory: tui
         run: bun run test
 
-      - name: Run Windows upgrade, ownership, and clipboard tests
+      - name: Run CLI tests
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
+        working-directory: cli
+        run: bun run test
+
+      - name: Run Windows upgrade, ownership, and install tests
         if: matrix.target == 'windows-x64'
-        working-directory: tui
+        working-directory: cli
         run: >-
           bun test --timeout 30000
           test/upgrade-cli.test.ts
@@ -260,12 +273,23 @@ jobs:
           test/windows-powershell-upgrade-recovery.test.ts
           test/windows-powershell-upgrade-compat.test.ts
           test/install-ownership-authority.test.ts
+
+      - name: Run Windows clipboard tests
+        if: matrix.target == 'windows-x64'
+        working-directory: tui
+        run: >-
+          bun test --timeout 30000
           test/clipboard-command-runner.test.ts
           test/clipboard-windows.test.ts
 
       - name: Run Intel macOS TUI tests without filesystem contention
         if: matrix.target == 'darwin-x64'
         working-directory: tui
+        run: bun run test -- --max-concurrency=1
+
+      - name: Run Intel macOS CLI tests without filesystem contention
+        if: matrix.target == 'darwin-x64'
+        working-directory: cli
         run: bun run test -- --max-concurrency=1
 
       - name: Build and execute packaged candidate

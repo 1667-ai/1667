@@ -13,16 +13,12 @@
     "1667": "./bin/1667"
   },
   "scripts": {
-    "test": "bun scripts/test-shards.ts",
+    "start": "bun src/standalone.ts",
+    "build:standalone": "bun scripts/build-standalone.ts",
+    "test": "bun test",
     "typecheck": "tsc --noEmit"
   },
   "engines": {
     "bun": ">=1.4.0"
-  },
-  "dependencies": {
-    "@opentui/core": "0.4.5"
-  },
-  "devDependencies": {
-    "typescript": "^5.8.0"
   }
 }

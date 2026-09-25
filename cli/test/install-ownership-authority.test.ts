@@ -1,0 +1,98 @@
+import { expect, test } from "bun:test";
+import {
+  chmodSync,
+  mkdirSync,
+  realpathSync,
+  rmSync,
+  writeFileSync
+} from "node:fs";
+import path from "node:path";
+import {
+  INSTALL_ACTIVE_EXECUTABLE,
+  INSTALL_OWNERSHIP_FILE
+} from "../../shared/install-ownership-record.js";
+import { resolveInstallationAuthority } from "../../host/launcher/install-ownership.js";
+import {
+  MANAGED_TEST_TARGET as TARGET,
+  managedScratchRoot,
+  writeManagedStub
+} from "./managed-package-fixture.js";
+
+test("invalid Ownership Record layout grants no replacement authority", () => {
+  // Missing or invalid records grant no replacement authority (manual only).
+  const root = managedScratchRoot("authority-bad-layout-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const active = path.join(installRoot, INSTALL_ACTIVE_EXECUTABLE);
+    writeManagedStub(active, "1.0.0", TARGET);
+    // Bypass createInstallOwnershipRecord: write a layout-invalid record by hand.
+    const bad = {
+      schemaVersion: 1,
+      product: "1667",
+      installationId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      method: "shell",
+      channel: "beta",
+      installRoot,
+      executable: path.join(installRoot, "not-the-active-name"),
+      artifactTarget: TARGET
+    };
+    writeFileSync(
+      path.join(installRoot, INSTALL_OWNERSHIP_FILE),
+      `${JSON.stringify(bad)}\n`,
+      { mode: 0o600 }
+    );
+    chmodSync(path.join(installRoot, INSTALL_OWNERSHIP_FILE), 0o600);
+    const authority = resolveInstallationAuthority(active);
+    expect(authority.kind).toBe("manual");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("missing Ownership Record grants no replacement authority", () => {
+  const root = managedScratchRoot("authority-missing-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot, { mode: 0o755 });
+    chmodSync(installRoot, 0o755);
+    const active = path.join(installRoot, INSTALL_ACTIVE_EXECUTABLE);
+    writeManagedStub(active, "1.0.0", TARGET);
+    const authority = resolveInstallationAuthority(active);
+    expect(authority.kind).toBe("manual");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("PowerShell Ownership Record grants read-only Windows authority", () => {
+  if (process.platform !== "win32") return;
+  const root = managedScratchRoot("authority-powershell-");
+  try {
+    const installRoot = path.join(root, "bin");
+    mkdirSync(installRoot);
+    const canonicalRoot = realpathSync(installRoot);
+    const active = path.join(canonicalRoot, "1667.exe");
+    writeFileSync(active, "fixture\n");
+    writeFileSync(path.join(canonicalRoot, INSTALL_OWNERSHIP_FILE), `${JSON.stringify({
+      schemaVersion: 1,
+      product: "1667",
+      installationId: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      method: "powershell",
+      channel: "beta",
+      installRoot: canonicalRoot,
+      executable: active,
+      artifactTarget: "windows-x64"
+    })}\n`);
+    expect(resolveInstallationAuthority(active, "windows-x64")).toEqual({
+      kind: "powershell",
+      channel: "beta",
+      installRoot: canonicalRoot,
+      executable: active
+    });
+    expect(resolveInstallationAuthority(active, "source").kind).toBe("manual");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});

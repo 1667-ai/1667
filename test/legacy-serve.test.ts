@@ -20,7 +20,7 @@ import {
   HttpListenerAuthority
 } from "../shared/http-listener-authority.js";
 import { startHttpListener } from "../server/http-listener.js";
-import { startLegacyServe } from "../tui/src/http-commands.js";
+import { startLegacyServe } from "../cli/src/http-commands.js";
 import { publishDataDirectoryOwnerMarker } from "../server/data-directory-format.js";
 import {
   acquireLegacyDataDirectoryLease

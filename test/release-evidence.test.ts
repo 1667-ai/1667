@@ -44,6 +44,20 @@ const FIXTURE_GIT_ENVIRONMENT: NodeJS.ProcessEnv = Object.freeze({
   GIT_COMMITTER_DATE: "2026-07-27T00:00:00+0000"
 });
 
+test("cli/package.json has no dependency tree and matches tui's version and Bun floor", () => {
+  const tuiManifest = JSON.parse(
+    readFileSync(path.join(REPOSITORY_ROOT, "tui", "package.json"), "utf8")
+  ) as { version: string; engines?: { bun?: string } };
+  const cliManifest = JSON.parse(
+    readFileSync(path.join(REPOSITORY_ROOT, "cli", "package.json"), "utf8")
+  ) as { version: string; engines?: { bun?: string }; dependencies?: unknown; devDependencies?: unknown };
+
+  assert.equal("dependencies" in cliManifest, false);
+  assert.equal("devDependencies" in cliManifest, false);
+  assert.equal(cliManifest.version, tuiManifest.version);
+  assert.equal(cliManifest.engines?.bun, tuiManifest.engines?.bun);
+});
+
 interface FixtureOptions {
   readonly rootVersion?: string;
   readonly tuiVersion?: string;
