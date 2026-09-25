@@ -88,6 +88,9 @@ export function startWebBridgeServer(options: WebBridgeHubOptions): WebBridgeHub
   });
   const active = new Set<WebBridge>();
   const sockets = new Set<WsBridgeSocket>();
+  // Set before `close()` snapshots the open sockets, so an upgrade that
+  // arrives (or finishes) during the drain can never escape it.
+  let closing = false;
   // Seeded from the live snapshot at hub startup, not `null`: every new
   // connection's own `hello` already carries this exact snapshot (`WebBridge.start`
   // reads `host.recoveryWarnings` itself), so the first `broadcastRecoveryWarnings()`
@@ -115,7 +118,7 @@ export function startWebBridgeServer(options: WebBridgeHubOptions): WebBridgeHub
       socket.destroy();
       return;
     }
-    if (active.size >= MAX_BRIDGE_CONNECTIONS) {
+    if (closing || active.size >= MAX_BRIDGE_CONNECTIONS) {
       socket.destroy();
       return;
     }
@@ -124,6 +127,10 @@ export function startWebBridgeServer(options: WebBridgeHubOptions): WebBridgeHub
       return;
     }
     wss.handleUpgrade(request, socket, head, (ws) => {
+      if (closing) {
+        socket.destroy();
+        return;
+      }
       const wsSocket = new WsBridgeSocket(ws, socket);
       const bridge = new WebBridge({
         host: options.host,
@@ -153,6 +160,7 @@ export function startWebBridgeServer(options: WebBridgeHubOptions): WebBridgeHub
   return {
     broadcastRecoveryWarnings,
     close: async () => {
+      closing = true;
       const destroyed = [...sockets].map((socket) => socket.destroyed);
       active.forEach((bridge) => bridge.close(1001, "1667 web is stopping"));
       await Promise.all(destroyed);
