@@ -1,8 +1,8 @@
 import {
-  type SettingsActivationErrorCodeV2,
   type SettingsPresetV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
+export { settingsActivationFailureText } from "../../shared/settings-activation-text.js";
 import {
   isWritingPromptRow,
   writingPromptFieldDefinition,
@@ -402,23 +402,6 @@ export function applySystemPromptDraft(
   systemPrompt: string
 ): void {
   applyWritingPromptDraft(overlay, "defaultAuthorBrief", systemPrompt);
-}
-
-/** One spelling for every surface that reports why an activation failed. */
-export function settingsActivationFailureText(
-  errorCode: SettingsActivationErrorCodeV2
-): string {
-  switch (errorCode) {
-    case "credential_unresolved":
-      return "credential not found (env var or stored key)";
-    case "candidate_invalid":
-      return "provider check failed";
-    case "activation_crashed":
-      return "activation was interrupted";
-    case "activation_failed":
-    case "readiness_failed":
-      return "rolled back after an interruption";
-  }
 }
 
 /** Local-only rows live in the user config; every other row edits a
