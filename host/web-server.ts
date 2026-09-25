@@ -14,7 +14,7 @@ import {
 /** 32 random bytes, hex-encoded: matches the story-scope capability length,
  * so a candidate of the wrong shape never reaches `timingSafeEqual` with
  * mismatched buffer lengths. */
-export const WEB_TOKEN_BYTES = 32;
+const WEB_TOKEN_BYTES = 32;
 const TOKEN_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const INVALID_TOKEN = Buffer.alloc(WEB_TOKEN_BYTES);
 const BEARER_PREFIX = "Bearer ";
