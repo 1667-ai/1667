@@ -172,10 +172,9 @@ you stop this command.
 private token. Open the URL in a browser to see the page. By default, the
 command opens the URL for you.
 
-The page shows the project root and the build version. It lists your
-stories. You can create a story, open a story, and continue a story. The
-page shows the new text as the model writes it. You can stop a generation
-before it ends.
+The page shows your Library. The Library lists your stories. You can create
+a story, open a story, rename a story, and delete a story. You can pick a
+light or dark look. You can pick a color palette.
 
 Press Ctrl+C to stop the command. This closes the page and frees the
 project.
