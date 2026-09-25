@@ -8,9 +8,13 @@ import test from "node:test";
 import { fileURLToPath } from "node:url";
 import { promisify } from "node:util";
 import { runInNewContext } from "node:vm";
+import { AI_1667_BUILD_IDENTITY } from "../shared/build-identity.js";
+import { WORKER_PROTOCOL_VERSION } from "../shared/worker-protocol.js";
+import { encodeBridgeMessage } from "../shared/web-bridge-protocol.js";
 import type * as Demo from "../client/demo.js";
 import type * as Decoders from "../client/api-response-decoders.js";
 import type * as Facade from "../client/worker-story-api.js";
+import type * as WebBridge from "../client/web-bridge-transport.js";
 
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -24,13 +28,14 @@ test("the shared client runs with browser globals only", async (t) => {
     `import * as demo from ${JSON.stringify(path.join(root, "client/demo.ts"))};`,
     `import * as decoders from ${JSON.stringify(path.join(root, "client/api-response-decoders.ts"))};`,
     `import * as facade from ${JSON.stringify(path.join(root, "client/worker-story-api.ts"))};`,
-    "globalThis.browserClient = { demo, decoders, facade };"
+    `import * as webBridge from ${JSON.stringify(path.join(root, "client/web-bridge-transport.ts"))};`,
+    "globalThis.browserClient = { demo, decoders, facade, webBridge };"
   ].join("\n"));
   await execFileAsync("bun", [
     "build", entry, "--target=browser", "--format=iife", `--outfile=${bundle}`
   ], { cwd: root, timeout: 60_000 });
 
-  // Keep all three export surfaces in the bundle. No Node globals or module
+  // Keep all four export surfaces in the bundle. No Node globals or module
   // loader are supplied: the renderer must own a real browser-only client.
   const browser = {
     TextEncoder, TextDecoder, URL, AbortController, AbortSignal,
@@ -39,11 +44,12 @@ test("the shared client runs with browser globals only", async (t) => {
       demo: typeof Demo;
       decoders: typeof Decoders;
       facade: typeof Facade;
+      webBridge: typeof WebBridge;
     } | undefined
   };
   runInNewContext(await readFile(bundle, "utf8"), browser, { timeout: 10_000 });
   assert.ok(browser.browserClient);
-  const { demo, decoders, facade } = browser.browserClient;
+  const { demo, decoders, facade, webBridge } = browser.browserClient;
   const api = demo.demoStoryApi(demo.createDemoController());
   const stories = await api.listStories();
   assert.ok(stories.length > 0);
@@ -71,4 +77,75 @@ test("the shared client runs with browser globals only", async (t) => {
   );
   assert.ok(aside);
   assert.equal(typeof facade.storyApiFromWorkerTransport, "function");
+
+  // client/web-bridge-transport.ts: a hello + request/accepted/result round
+  // trip against a fake WebBridgeSocket, still inside the same browser-only
+  // VM — the bundle must open a bridge transport with no DOM WebSocket, only
+  // the structural subset `WebBridgeSocket` declares.
+  const fake = createFakeBridgeSocket();
+  const recoveryWarningsSeen: unknown[] = [];
+  const opening = webBridge.openWebBridgeTransport(fake.socket, {
+    onRecoveryWarnings: (warnings) => recoveryWarningsSeen.push(warnings)
+  });
+  fake.emit("message", {
+    data: encodeBridgeMessage({
+      type: "hello",
+      workerProtocolVersion: WORKER_PROTOCOL_VERSION,
+      build: AI_1667_BUILD_IDENTITY,
+      recoveryWarnings: []
+    })
+  });
+  const bridgeTransport = await opening;
+  // `recoveryWarningsSeen[0]` is an Array from the sandboxed realm: compare
+  // its length rather than its identity or `assert.deepEqual` fails on the
+  // cross-realm prototype mismatch alone.
+  assert.equal(recoveryWarningsSeen.length, 1);
+  assert.equal((recoveryWarningsSeen[0] as readonly unknown[]).length, 0);
+
+  const operationId = { workerInstanceId: "a".repeat(32), sequence: 1n };
+  const listing = bridgeTransport.call("listStories", {});
+  assert.equal(fake.sent.length, 1);
+  const sentRequest = JSON.parse(fake.sent[0]!) as { callId: string; method: string };
+  assert.equal(sentRequest.method, "listStories");
+  fake.emit("message", {
+    data: encodeBridgeMessage({ type: "accepted", callId: sentRequest.callId, id: operationId })
+  });
+  fake.emit("message", {
+    data: encodeBridgeMessage({ type: "result", id: operationId, value: [] })
+  });
+  assert.equal((await listing as readonly unknown[]).length, 0);
+  bridgeTransport.close();
 });
+
+/** A minimal `WebBridgeSocket` driven by hand — no real network, no DOM. */
+function createFakeBridgeSocket(): {
+  readonly socket: WebBridge.WebBridgeSocket;
+  readonly sent: string[];
+  emit(type: "message" | "close", event: { readonly data?: unknown; readonly code?: number }): void;
+} {
+  type FakeListener = (event: { readonly data?: unknown; readonly code?: number }) => void;
+  const listeners: Record<"message" | "close", FakeListener[]> = { message: [], close: [] };
+  const sent: string[] = [];
+  const socket: WebBridge.WebBridgeSocket = {
+    readyState: 1,
+    protocol: "1667.bridge.1",
+    send: (data) => sent.push(data),
+    close: () => undefined,
+    addEventListener: (type, listener) => {
+      if (type === "message" || type === "close") {
+        listeners[type].push(listener as unknown as FakeListener);
+      }
+    },
+    removeEventListener: (type, listener) => {
+      if (type === "message" || type === "close") {
+        const target = listener as unknown as FakeListener;
+        listeners[type] = listeners[type].filter((entry) => entry !== target);
+      }
+    }
+  };
+  return {
+    socket,
+    sent,
+    emit: (type, event) => listeners[type].forEach((listener) => listener(event))
+  };
+}
