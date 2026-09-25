@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
+  the Anthropic provider, you can set effort for these models. 1667 shows
+  their thoughts and uses prompt caching for them.
+
 ## 0.11.0-beta.5 - 2026-09-18
 
 - **The desktop app supplies its own type.** It no longer asks your computer

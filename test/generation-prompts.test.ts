@@ -231,25 +231,35 @@ test("continuation boundary tags stay stable when derived from the left anchor",
 });
 
 test("legacy Anthropic prefill defaults cannot override official Claude incompatibility", () => {
-  const settings = {
-    provider: "anthropic" as const,
-    baseUrl: "https://api.anthropic.com",
-    model: "claude-sonnet-4-6",
-    apiKeyEnv: "ANTHROPIC_API_KEY",
-    temperature: 0,
-    maxTokens: 100,
-    systemPrompt: "Write.",
-    contextWindow: null
-  };
-  const runtime = providerRuntimeFor(settings);
+  for (const model of [
+    "claude-sonnet-4-6",
+    "claude-opus-5",
+    "claude-sonnet-5",
+    "claude-opus-5-5",
+    "claude-fable-5",
+    "claude-fable-5-1",
+    "claude-mythos-5-1"
+  ]) {
+    const settings = {
+      provider: "anthropic" as const,
+      baseUrl: "https://api.anthropic.com",
+      model,
+      apiKeyEnv: "ANTHROPIC_API_KEY",
+      temperature: 0,
+      maxTokens: 100,
+      systemPrompt: "Write.",
+      contextWindow: null
+    };
+    const runtime = providerRuntimeFor(settings);
 
-  assert.equal(supportsAssistantPrefill(attachProviderRuntime(settings, {
-    ...runtime,
-    capabilities: {
-      ...runtime.capabilities,
-      assistantPrefill: "supported"
-    }
-  })), false);
+    assert.equal(supportsAssistantPrefill(attachProviderRuntime(settings, {
+      ...runtime,
+      capabilities: {
+        ...runtime.capabilities,
+        assistantPrefill: "supported"
+      }
+    })), false, model);
+  }
 });
 
 test("official OpenAI chat uses a verified echo because assistant messages are history, not prefill", () => {

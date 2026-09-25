@@ -117,6 +117,13 @@ test("capability lowering is conservative and never silently downgrades opt-in p
     )),
     { kind: "anthropic-explicit", ttl: "1h" }
   );
+  for (const remoteModelId of ["claude-fable-5-1", "claude-mythos-5-1", "claude-opus-5-5"]) {
+    assert.deepEqual(
+      lowerPromptCache(context("anthropic-official", "supported", "long", remoteModelId)),
+      { kind: "anthropic-explicit", ttl: "1h" },
+      remoteModelId
+    );
+  }
   assert.deepEqual(
     lowerPromptCache(context("openai-official", "unknown", "auto", "gpt-5.6")),
     {

@@ -395,6 +395,9 @@ function needsExactTokenizer(knob: SamplingKnobV2): boolean {
 export const ANTHROPIC_SAMPLING_RULES: ReadonlyMap<string, "default-only" | "truncated"> = new Map([
   ["claude-fable-5", "default-only"],
   ["claude-mythos-5", "default-only"],
+  ["claude-fable-5-1", "default-only"],
+  ["claude-mythos-5-1", "default-only"],
+  ["claude-opus-5-5", "default-only"],
   ["claude-mythos-preview", "default-only"],
   ["claude-opus-5", "default-only"],
   ["claude-opus-4-8", "default-only"],

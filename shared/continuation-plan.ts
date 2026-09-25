@@ -335,7 +335,7 @@ export function supportsAssistantPrefill(settings: GenerationSettings): boolean 
   if (declared === "unsupported") return false;
   if (settings.provider === "openai-compatible") return true;
   if (settings.provider !== "anthropic") return true;
-  const familyFirst = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d+)/i.exec(settings.model);
+  const familyFirst = /^claude-(?:opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i.exec(settings.model);
   const versionFirst = /^claude-(\d+)(?:[-.](\d+))?/i.exec(settings.model);
   const version = familyFirst ?? versionFirst;
   if (version === null) return false;
@@ -345,7 +345,8 @@ export function supportsAssistantPrefill(settings: GenerationSettings): boolean 
 }
 
 function isClaudeWithoutPrefill(model: string): boolean {
-  const familyFirst = /^claude-(?:opus|sonnet|haiku)-(\d+)-(\d+)/i.exec(model);
+  if (/^claude-(?:fable|mythos)-/i.test(model)) return true;
+  const familyFirst = /^claude-(?:opus|sonnet|haiku)-(\d+)(?:-(\d+))?/i.exec(model);
   const versionFirst = /^claude-(\d+)(?:[-.](\d+))?/i.exec(model);
   const version = familyFirst ?? versionFirst;
   if (version === null) return false;

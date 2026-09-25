@@ -470,6 +470,9 @@ test("Anthropic exact model groups lower their provider request shapes", async (
   const cases = [
     ["claude-fable-5", "max", { type: "adaptive", display: "summarized" }, "max"],
     ["claude-mythos-5", "max", { type: "adaptive", display: "summarized" }, "max"],
+    ["claude-fable-5-1", "max", { type: "adaptive", display: "summarized" }, "max"],
+    ["claude-mythos-5-1", "max", { type: "adaptive", display: "summarized" }, "max"],
+    ["claude-opus-5-5", "max", { type: "adaptive", display: "summarized" }, "max"],
     ["claude-mythos-preview", "max", { type: "adaptive", display: "summarized" }, "max"],
     ["claude-opus-4-8", "max", undefined, "max"],
     ["claude-opus-4-7", "max", undefined, "max"],
