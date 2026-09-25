@@ -137,7 +137,7 @@ const statusFields = new WeakMap<Elements, Record<string, string | number>>();
 function renderRecoveryWarnings(
   elements: Elements,
   warnings: readonly BridgeRecoveryWarning[],
-  transport: WebBridgeTransport
+  onDismiss: (mutationId: string) => void
 ): void {
   elements.recovery.textContent = "";
   if (warnings.length === 0) return;
@@ -153,7 +153,7 @@ function renderRecoveryWarnings(
     dismiss.type = "button";
     dismiss.textContent = "Dismiss";
     dismiss.addEventListener("click", () => {
-      void transport.dismissArchivedMutation(warning.mutationId);
+      onDismiss(warning.mutationId);
     });
     item.append(text, dismiss);
     list.appendChild(item);
@@ -211,7 +211,11 @@ async function main(): Promise<void> {
   try {
     const socket = new WebSocket(webBridgeUrl(location), webBridgeProtocols(token));
     transport = await openWebBridgeTransport(socket, {
-      onRecoveryWarnings: (warnings) => renderRecoveryWarnings(elements, warnings, transport),
+      // `hello` can carry warnings before this promise resolves, so the
+      // Dismiss handler reads `transport` at click time, not now.
+      onRecoveryWarnings: (warnings) => renderRecoveryWarnings(elements, warnings, (mutationId) => {
+        void transport.dismissArchivedMutation(mutationId);
+      }),
       onClose: (error) => setStatus(elements, { connection: `closed: ${error.message}` })
     });
   } catch (error) {
