@@ -6,6 +6,7 @@ import {
   PI_AI_BUNDLED_PACKAGE_NAMES,
   PI_AI_TREE_SHAKEN_PACKAGE_NAMES
 } from "./release-sbom-pi-ai.js";
+import { WEB_BUNDLED_PACKAGE_NAMES } from "./release-sbom-web.js";
 
 /** The name and version of a component listed in the same inventory. */
 export interface ReleaseComponentRef {
@@ -68,6 +69,7 @@ export const RELEASE_BUN_RUNTIME: ReleaseRuntimeComponent = Object.freeze({
 /** Root-lockfile packages whose code the bundler pulls into the executable. */
 const NPM_BUNDLED_PACKAGES = Object.freeze([
   ...PI_AI_BUNDLED_PACKAGE_NAMES,
+  ...WEB_BUNDLED_PACKAGE_NAMES,
   "@silvia-odwyer/photon-node",
   "detect-libc",
   "msgpackr",
@@ -82,6 +84,10 @@ const NPM_BUNDLED_REQUIRED_BY: Readonly<Record<string, string>> = Object.freeze(
   "msgpackr-extract": "msgpackr",
   "node-gyp-build-optional-packages": "msgpackr-extract",
   "partial-json": "@earendil-works/pi-ai",
+  // `react-dom` only peer-depends on `react` (no `requires` edge in the
+  // lockfile); both `react` and `react-dom` are direct root dependencies, so
+  // neither belongs here. `scheduler` is `react-dom`'s own dependency.
+  "scheduler": "react-dom",
   "typebox": "@earendil-works/pi-ai"
 });
 

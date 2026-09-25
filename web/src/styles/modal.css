@@ -1,0 +1,59 @@
+/**
+ * Ported from `~/source/storytavern/web/src/modal.css`: `.modal`,
+ * `.modal-actions`, `.modal-status`, `.field-row`. `.settings-*` and
+ * `.cache-policy-*` are dropped — there is no settings screen yet.
+ *
+ * The Rename and Delete dialogs use a native `<dialog>` (owner decision),
+ * which supplies its own top-layer stacking and `::backdrop`, so the
+ * original `.modal-overlay` wrapper `<div>` is not needed as an element —
+ * its background becomes the dialog's own `::backdrop`, and `.modal` styles
+ * the `<dialog>` itself instead of a child card.
+ */
+
+dialog.modal::backdrop {
+  background: rgba(15, 16, 28, 0.42);
+}
+
+.modal {
+  background: var(--surface);
+  border: 0;
+  border-radius: 16px;
+  padding: 26px 28px;
+  width: min(560px, 100%);
+  max-width: calc(100vw - 40px);
+  margin: 56px auto auto;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  box-shadow: 0 30px 80px -20px rgba(15, 16, 28, 0.5);
+  animation: rise 250ms ease both;
+  color: var(--ink);
+}
+
+.modal h2 {
+  font-family: var(--serif);
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--ink);
+}
+
+.field-row {
+  display: flex;
+  gap: 14px;
+}
+
+.field-row .field {
+  flex: 1;
+}
+
+.modal-status {
+  color: var(--dim);
+  font-size: 14px;
+}
+
+.modal-actions {
+  display: flex;
+  gap: 9px;
+  justify-content: flex-end;
+}

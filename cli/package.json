@@ -6,6 +6,7 @@
     "web:dev": "bun scripts/web-dev.ts",
     "build:standalone": "bun scripts/build-standalone.ts",
     "test": "bun test --timeout=30000",
+    "test:web-ui": "bun test --timeout=60000 ./test-web-ui",
     "typecheck": "tsc --noEmit"
   },
   "engines": {

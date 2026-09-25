@@ -25,8 +25,9 @@ import {
  * function of the run's own port. */
 function csp(port: string): string {
   return "default-src 'none'; script-src 'self'; "
+    + "style-src 'self'; font-src 'self'; img-src 'self'; "
     + `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}; `
-    + "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+    + "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 }
 
 afterEach(cleanupWebProcesses);
@@ -64,26 +65,51 @@ test("the shell page and every hashed asset it references are public, "
   expect(assetPaths.some((assetPath) => /^\/assets\/.+\.js$/.test(assetPath))).toBeTrue();
 
   let scriptBody = "";
+  let woff2Count = 0;
   for (const assetPath of assetPaths) {
     const asset = await fetch(`${web.origin}${assetPath}`);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toBe(contentTypeForPath(assetPath));
     assertSecurityHeaders(asset, web.port);
-    if (assetPath.endsWith(".js")) scriptBody = await asset.text();
+    if (assetPath.endsWith(".js")) {
+      scriptBody = await asset.text();
+    } else if (assetPath.endsWith(".css")) {
+      // Fonts are referenced only from inside the stylesheet's own
+      // `@font-face src: url(...)` rules, never from index.html directly.
+      const cssBody = await asset.text();
+      for (const fontPath of cssAssetReferences(cssBody)) {
+        const font = await fetch(`${web.origin}${fontPath}`);
+        expect(font.status).toBe(200);
+        expect(font.headers.get("content-type")).toBe("font/woff2");
+        assertSecurityHeaders(font, web.port);
+        // The woff2 binary magic number: proves the body traveled as bytes,
+        // not mangled through a UTF-8 string somewhere on the way.
+        const magic = Buffer.from(await font.arrayBuffer()).subarray(0, 4).toString("ascii");
+        expect(magic).toBe("wOF2");
+        woff2Count += 1;
+      }
+    }
   }
   expect(scriptBody).toContain("/api/status");
   expect(scriptBody).toContain("/api/bridge");
   expect(scriptBody).toContain("1667.web.token");
+  expect(woff2Count).toBeGreaterThan(0);
 
   const unknown = await fetch(`${web.origin}/assets/does-not-exist.js`);
   expect(unknown.status).toBe(404);
 }, 30_000);
 
 /** Every root-absolute `src`/`href` an HTML document references — the
- * script tag today, and (from step 3 on) hashed stylesheet, font, and icon
- * references too, all of which this same scan already covers. */
+ * script, stylesheet, and favicon tags. */
 function hashedAssetReferences(html: string): string[] {
   const matches = [...html.matchAll(/(?:src|href)="(\/[^"]+)"/gu)];
+  return [...new Set(matches.map((match) => match[1]!))];
+}
+
+/** Every root-absolute `url(...)` a CSS document references — a bundled
+ * font's `@font-face src`, in practice. */
+function cssAssetReferences(css: string): string[] {
+  const matches = [...css.matchAll(/url\((\/[^)]+)\)/gu)];
   return [...new Set(matches.map((match) => match[1]!))];
 }
 

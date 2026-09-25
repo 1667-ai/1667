@@ -1,0 +1,26 @@
+/**
+ * Ported from `~/source/storytavern/web/src/loom.css`'s `.loom-toast` rules,
+ * renamed `.toast` / `.toast-close`. StoryTavern only ever shows one at a
+ * time; `.toast-stack` (new) is the column container this app's several
+ * auto-dismissing toasts (`app/toasts.ts`) stack inside.
+ */
+.toast-stack {
+  bottom: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  left: 50%;
+  position: fixed;
+  transform: translateX(-50%);
+  z-index: 100;
+}
+
+.toast {
+  align-items: center; animation: rise 180ms ease both; background: #202127; border: 1px solid rgba(255,255,255,.12);
+  border-radius: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.35); color: #f1f2f5;
+  display: flex; font-size: 12.5px; gap: 12px; max-width: min(720px, calc(100vw - 32px));
+  padding: 10px 12px 10px 15px;
+}
+.toast > span { flex: 1; }
+.toast-close { color: #aaaeba; height: 26px; padding: 4px; width: 26px; }
+.toast-close svg { height: 15px; width: 15px; }

@@ -41,6 +41,7 @@ import {
   buildStandaloneProduct
 } from "./standalone-build-requests.js";
 import { buildWebAssetsWithVite } from "./web-build.js";
+import { WEB_BUNDLED_PACKAGE_NAMES } from "../../scripts/release-sbom-web.js";
 
 const cliRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(cliRoot);
@@ -82,7 +83,8 @@ const embeddedWorkerSource = process.platform === "win32"
 // release build always builds fresh, bypassing `cli/src/web-assets.ts`'s
 // content-hash cache (meant for repeated test/dev spawns, not a one-shot
 // packaging run).
-const { assets: webAssets } = await buildWebAssetsWithVite();
+const { assets: webAssets, bundledPackageNames } = await buildWebAssetsWithVite();
+assertWebBundledPackageNames(bundledPackageNames);
 
 const result = await buildStandaloneProduct(standaloneCompiler, {
   entrypoints: process.platform === "win32"
@@ -354,6 +356,30 @@ async function smokePromptTokenizer(
   if (smoke.exitCode !== 0) {
     throw new Error(
       `Compiled prompt-tokenizer smoke failed (${smoke.exitCode}): ${smoke.stderr.trim()}`
+    );
+  }
+}
+
+/**
+ * The web analogue of `standalone-worker-build.test.ts` checking Bun's own
+ * metafile: the Vite bundle enters the compiled executable as a define
+ * string (`__AI_1667_WEB_ASSETS__`), which Bun's own bundler metafile cannot
+ * see into, so this compares Vite's own Rollup output against the reviewed
+ * inventory (`scripts/release-sbom-web.ts`) instead — the source the release
+ * SBOM's `NPM_BUNDLED_PACKAGES` entry for `web/` is built from. A mismatch in
+ * either direction (an unreviewed package newly bundled, or a reviewed one no
+ * longer bundled) fails the build by name rather than shipping an SBOM that
+ * describes a different bundle than the one compiled.
+ */
+function assertWebBundledPackageNames(actual: ReadonlySet<string>): void {
+  const expected = new Set<string>(WEB_BUNDLED_PACKAGE_NAMES);
+  const unexpected = [...actual].filter((name) => !expected.has(name)).sort();
+  const missing = [...expected].filter((name) => !actual.has(name)).sort();
+  if (unexpected.length > 0 || missing.length > 0) {
+    throw new Error(
+      "1667 web bundle's node_modules packages do not match scripts/release-sbom-web.ts's "
+        + `WEB_BUNDLED_PACKAGE_NAMES (unexpected: ${JSON.stringify(unexpected)}, `
+        + `missing: ${JSON.stringify(missing)})`
     );
   }
 }

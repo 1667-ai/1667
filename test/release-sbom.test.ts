@@ -275,6 +275,9 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     "msgpackr-extract",
     "node-gyp-build-optional-packages",
     "partial-json",
+    "react",
+    "react-dom",
+    "scheduler",
     "standardwebhooks",
     "tiktoken",
     "typebox",
@@ -316,6 +319,15 @@ test("a platform SBOM names the product, the embedded runtime and every bundled 
     ["partial-json", ["0.1.7", "MIT",
       "363bffe7d8476a891bfe14548dc7b71ddbf5db077ad0cb4cf59e4e9669fe9de8"
       + "5ed100c0b11b516c93ef27467dd53bac1744ae65122f9ccf92e25e8420ff2578"]],
+    ["react", ["19.3.0", "MIT",
+      "13c2d471bb415addb46db9766281dfc7864305dc554df38ab42667f5c0d22789"
+      + "7afe7ba8029729201723e3bb76c19a155fc836647b8c1db892860091d53e52a2"]],
+    ["react-dom", ["19.3.0", "MIT",
+      "24393c76089fe753a31680c4ef4f8e4fd202c98afeebd1e59a284dc29d7e36c7"
+      + "db9dadede6c22209af59264b43990e3fd5bfeb9f6ea1200476b985c332be6bd1"]],
+    ["scheduler", ["0.28.0", "MIT",
+      "8eea2b7c2988908c3cb53fa9e415d29ba3c98d017fc9c11898acb3511088b7f4"
+      + "5a64884bf8fba56d0f58bb6cf51dd3890dda834e5c40d7ec4a0661d726c73303"]],
     ["standardwebhooks", ["1.1.1", "MIT",
       "6c26d7f5913216458fb11cfb065dcdb90509a219b01927afff286beef85a18f9"
       + "5ce007c8aeca4845ae9c3d306e23522d9ab4c327877f4b6842b1f7b8faf4069d"]],

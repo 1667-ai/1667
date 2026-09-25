@@ -1,0 +1,83 @@
+/**
+ * Ported from `~/source/storytavern/web/src/story.css`: `.main`,
+ * `.story-view`, `.story-header`, `.story-title*`, `.story-stats`,
+ * `.story-kicker`, `.prose`, `.welcome`, `.story-empty`. Part, autoname,
+ * rewrite, and human-edit rules are dropped — none of that exists yet.
+ *
+ * `.connection-*` and `.recovery-banner` are new: StoryTavern has no
+ * equivalent (it never loses its own backend mid-session the way a browser
+ * tab can), styled to match the tokens and card language already here.
+ */
+
+.main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.welcome {
+  align-items: center; animation: rise 500ms ease both; display: flex; flex-direction: column;
+  gap: 18px; margin: auto; max-width: 44ch; padding: 40px; text-align: center;
+}
+.welcome h1 { color: var(--ink); font-family: var(--serif); font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.welcome p { color: var(--dim); font-size: 17px; line-height: 1.6; }
+.story-view { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+
+.story-header {
+  align-items: center; background: var(--bg); border-bottom: 1px solid var(--line);
+  display: flex; gap: 14px; min-height: 72px; padding: 10px 24px;
+}
+.story-identity { display: flex; flex: 1; flex-direction: column; min-width: 160px; }
+.story-kicker, .story-stats {
+  color: var(--faint); font-family: var(--mono); font-size: 9px; font-weight: 500;
+  letter-spacing: .12em; line-height: 1.2; text-transform: uppercase;
+}
+.story-kicker { margin-bottom: 1px; }
+.story-stats { margin-top: 2px; }
+.story-title-wrap { align-items: center; display: flex; gap: 4px; min-width: 0; }
+.story-title {
+  background: none; border: 0; border-bottom: 1px solid transparent; color: var(--ink);
+  font-family: var(--serif); font-size: 20px; font-weight: 600; letter-spacing: -.01em;
+  line-height: 1.15; min-width: 120px; outline: 0; padding: 1px 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.story-main { display: flex; flex: 1; min-height: 0; }
+.story-scroll { flex: 1; min-width: 0; overflow-y: auto; }
+.story-body {
+  font-family: var(--prose); font-size: var(--prose-size); margin: 0 auto;
+  max-width: 100ch; padding: 32px 48px 48px;
+}
+.story-empty { color: var(--faint); font-family: var(--prose); font-size: 17px; font-style: italic; margin-top: 12vh; text-align: center; }
+
+.prose p {
+  color: var(--ink); font-family: var(--prose); font-optical-sizing: auto; font-size: var(--prose-size);
+  line-height: 1.78; margin: 0 0 .9em; text-wrap: pretty;
+}
+.prose p:last-child { margin-bottom: 0; }
+.prose-plain {
+  color: var(--ink); font-family: var(--prose); font-optical-sizing: auto; font-size: var(--prose-size);
+  line-height: 1.78; white-space: pre-wrap;
+}
+
+/* ---------- connection screens (new) ---------- */
+.connection-screen {
+  align-items: center; display: flex; flex: 1; justify-content: center; padding: 40px;
+}
+.connection-card {
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
+  box-shadow: var(--dropdown-shadow); display: flex; flex-direction: column; gap: 14px;
+  max-width: 40ch; padding: 28px 30px; text-align: center;
+}
+.connection-card p { color: var(--ink); font-size: 15px; line-height: 1.6; }
+.connection-detail { color: var(--dim); font-family: var(--mono); font-size: 12.5px; }
+.connection-overlay {
+  align-items: center; background: rgba(15, 16, 28, 0.5); display: flex; inset: 0;
+  justify-content: center; padding: 24px; position: fixed; z-index: 90;
+}
+.connection-overlay .connection-card { animation: rise 200ms ease both; }
+
+/* ---------- recovery banner (new) ---------- */
+.recovery-banner {
+  background: var(--warn-soft); border-bottom: 1px solid var(--line);
+  padding: 10px 24px; display: flex; flex-direction: column; gap: 6px;
+}
+.recovery-banner-heading { color: var(--meter-warn); font-size: 13px; font-weight: 600; }
+.recovery-banner ul { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
+.recovery-banner li { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.recovery-banner li span { color: var(--dim); font-size: 13px; }

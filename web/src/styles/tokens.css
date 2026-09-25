@@ -1,0 +1,110 @@
+/**
+ * Design tokens ported from `~/source/storytavern/web/src/base.css`'s
+ * `:root` / `:root[data-theme="dark"]` / `:root[data-palette="…"]` blocks,
+ * restated as `light-dark()` pairs so the page follows the OS light/dark
+ * setting with no pre-paint script (CSP has no `'unsafe-inline'` script or
+ * style — see `host/web-server.ts`). `color-scheme: light dark` on `:root`
+ * makes every `light-dark()` value here track the OS; `[data-theme]` forces
+ * one branch for the explicit override `main.tsx` applies from
+ * localStorage. A token unchanged between light and dark (fonts, shadows, a
+ * few status colors) stays a plain value.
+ */
+:root {
+  color-scheme: light dark;
+
+  --bg: light-dark(#f7f8fa, #131318);
+  --surface: light-dark(#ffffff, #1a1b20);
+  --sb: light-dark(#eef0f4, #101015);
+  --ink: light-dark(#191a1f, #e7e8ee);
+  --dim: light-dark(#5f626c, #9a9cab);
+  --faint: light-dark(#a2a5b0, #66697a);
+  --line: light-dark(#e4e6ec, #292b33);
+  --accent: light-dark(#4b45c9, #9490f5);
+  --accent-soft: light-dark(rgba(75, 69, 201, 0.12), rgba(148, 144, 245, 0.16));
+  --accent-ink: light-dark(#ffffff, #15161c);
+  --summary: light-dark(#0e9c8a, #58cdbd);
+  --summary-soft: light-dark(rgba(14, 156, 138, 0.13), rgba(88, 205, 189, 0.16));
+  --prose: "Newsreader Variable", "Newsreader", Georgia, serif;
+  --prose-size: 18.5px;
+  --danger: light-dark(#c53b30, #f0938a);
+  --danger-soft: light-dark(rgba(197, 59, 48, 0.12), rgba(240, 147, 138, 0.16));
+  --danger-ink: light-dark(#ffffff, #15161c);
+  --chip: light-dark(rgba(0, 0, 0, 0.05), rgba(255, 255, 255, 0.06));
+  --warn-soft: light-dark(rgba(201, 138, 43, 0.1), rgba(201, 138, 43, 0.14));
+  --row-hover: light-dark(rgba(0, 0, 0, 0.03), rgba(255, 255, 255, 0.04));
+  --meter-warn: #c98a2b;
+  --meter-over: #d64541;
+  --ok: #2f9e6b;
+  --ok-soft: rgba(47, 158, 107, 0.14);
+  --canon: #e0a83c;
+  --meta: light-dark(#5f626c, #b7b9c5);
+  --meta-soft: light-dark(#6f727c, #a8abb8);
+  --summary-teal: light-dark(#0b7d70, #58cdbd);
+  --summary-body: light-dark(#3f5f5b, #b5d6d1);
+  --summary-note: light-dark(#33635c, #9bcac3);
+  --stale-amber: light-dark(#8a6414, #e6ba67);
+  --over-red: light-dark(#c53b30, #f0938a);
+  --take-purple: light-dark(#4b45c9, #9490f5);
+  --panel-shadow: -24px 0 60px -24px rgba(15, 16, 28, 0.4);
+  --dropdown-shadow: 0 20px 50px -16px rgba(20, 22, 40, 0.4);
+  --serif: "Newsreader Variable", "Newsreader", Georgia, serif;
+  --mono: "Spline Sans Mono Variable", "Spline Sans Mono", ui-monospace, monospace;
+  --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+}
+
+/* The explicit override `main.tsx` applies from `1667.web.theme` in
+   localStorage; absent, `:root`'s `color-scheme: light dark` above already
+   follows the OS. */
+:root[data-theme="light"] { color-scheme: light; }
+:root[data-theme="dark"] { color-scheme: dark; }
+
+:root[data-palette="typewriter"] {
+  --bg: light-dark(#f6f5f2, #151512);
+  --surface: light-dark(#ffffff, #1d1d1a);
+  --sb: light-dark(#edece7, #111110);
+  --ink: light-dark(#1d1d1a, #e9e7e0);
+  --dim: light-dark(#64635d, #a09e95);
+  --faint: light-dark(#a3a29a, #6b6a62);
+  --line: light-dark(#e5e3dd, #2c2b27);
+  --accent: light-dark(#b8342c, #e2685e);
+  --accent-soft: light-dark(rgba(184, 52, 44, 0.12), rgba(226, 104, 94, 0.16));
+  --accent-ink: light-dark(#ffffff, #2b100d);
+  --summary: light-dark(#208f80, #63c8b8);
+  --summary-soft: light-dark(rgba(32, 143, 128, 0.13), rgba(99, 200, 184, 0.16));
+  --prose: "Spline Sans Mono Variable", "Spline Sans Mono", ui-monospace, monospace;
+  --prose-size: 16px;
+}
+
+:root[data-palette="grove"] {
+  --bg: light-dark(#f3f6f2, #0f130e);
+  --surface: light-dark(#ffffff, #161b14);
+  --sb: light-dark(#e9efe6, #0b0e0a);
+  --ink: light-dark(#182018, #e3e9e1);
+  --dim: light-dark(#5c675c, #96a394);
+  --faint: light-dark(#9aa79a, #5f6b5d);
+  --line: light-dark(#dfe7dc, #252c22);
+  --accent: light-dark(#2e7d52, #7cc492);
+  --accent-soft: light-dark(rgba(46, 125, 82, 0.12), rgba(124, 196, 146, 0.16));
+  --accent-ink: light-dark(#ffffff, #10241a);
+  --summary: light-dark(#238d7d, #63c6b4);
+  --summary-soft: light-dark(rgba(35, 141, 125, 0.13), rgba(99, 198, 180, 0.16));
+  --prose: "Newsreader Variable", "Newsreader", Georgia, serif;
+  --prose-size: 18.5px;
+}
+
+:root[data-palette="nocturne"] {
+  --bg: light-dark(#f4f5f9, #0d0f16);
+  --surface: light-dark(#ffffff, #151824);
+  --sb: light-dark(#eaecf3, #0a0c12);
+  --ink: light-dark(#171a24, #e5e8f2);
+  --dim: light-dark(#5c6170, #949bb0);
+  --faint: light-dark(#9ba1b2, #5d6478);
+  --line: light-dark(#e1e4ee, #232839);
+  --accent: light-dark(#8a621d, #d5a44a);
+  --accent-soft: light-dark(rgba(138, 98, 29, 0.12), rgba(213, 164, 74, 0.16));
+  --accent-ink: light-dark(#ffffff, #241a05);
+  --summary: light-dark(#168f85, #5fc6b9);
+  --summary-soft: light-dark(rgba(22, 143, 133, 0.13), rgba(95, 198, 185, 0.16));
+  --prose: "Spectral", Georgia, serif;
+  --prose-size: 18px;
+}

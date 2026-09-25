@@ -33,7 +33,8 @@ export async function smokeStandaloneWeb(
     if (index.status !== 200) {
       throw new Error(`Standalone web smoke could not fetch / (${index.status})`);
     }
-    const scriptSrc = scriptSrcFrom(await index.text());
+    const indexBody = await index.text();
+    const scriptSrc = scriptSrcFrom(indexBody);
     const appJs = await fetch(`${parsed.origin}${scriptSrc}`);
     if (appJs.status !== 200) {
       throw new Error(`Standalone web smoke could not fetch ${scriptSrc} (${appJs.status})`);
@@ -41,6 +42,21 @@ export async function smokeStandaloneWeb(
     const appJsBody = await appJs.text();
     if (!appJsBody.includes(WEB_BRIDGE_PATH)) {
       throw new Error(`Standalone web smoke's ${scriptSrc} does not reference the bridge`);
+    }
+
+    const cssHref = stylesheetHrefFrom(indexBody);
+    const cssResponse = await fetch(`${parsed.origin}${cssHref}`);
+    if (cssResponse.status !== 200) {
+      throw new Error(`Standalone web smoke could not fetch ${cssHref} (${cssResponse.status})`);
+    }
+    const fontPath = fontHrefFrom(await cssResponse.text());
+    const fontResponse = await fetch(`${parsed.origin}${fontPath}`);
+    if (fontResponse.status !== 200) {
+      throw new Error(`Standalone web smoke could not fetch ${fontPath} (${fontResponse.status})`);
+    }
+    const fontMagic = Buffer.from(await fontResponse.arrayBuffer()).subarray(0, 4).toString("ascii");
+    if (fontMagic !== "wOF2") {
+      throw new Error(`Standalone web smoke's ${fontPath} is not a woff2 file (magic: ${fontMagic})`);
     }
 
     const socket = new WebSocket(`ws://${parsed.host}${WEB_BRIDGE_PATH}`, {
@@ -85,6 +101,20 @@ export async function smokeStandaloneWeb(
 function scriptSrcFrom(html: string): string {
   const match = /<script[^>]*\ssrc="([^"]+)"/u.exec(html);
   if (match === null) throw new Error("Standalone web smoke's index has no <script src>");
+  return match[1]!;
+}
+
+function stylesheetHrefFrom(html: string): string {
+  const match = /<link[^>]*\srel="stylesheet"[^>]*\shref="([^"]+)"/u.exec(html);
+  if (match === null) throw new Error("Standalone web smoke's index has no stylesheet <link>");
+  return match[1]!;
+}
+
+/** A bundled font is referenced only from inside the stylesheet's own
+ * `@font-face src: url(...)` rules, never from the index page directly. */
+function fontHrefFrom(css: string): string {
+  const match = /url\((\/[^)]+\.woff2)\)/u.exec(css);
+  if (match === null) throw new Error("Standalone web smoke's stylesheet references no woff2 font");
   return match[1]!;
 }
 
