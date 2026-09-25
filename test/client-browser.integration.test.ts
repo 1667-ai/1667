@@ -15,6 +15,7 @@ import type * as Demo from "../client/demo.js";
 import type * as Decoders from "../client/api-response-decoders.js";
 import type * as Facade from "../client/worker-story-api.js";
 import type * as WebBridge from "../client/web-bridge-transport.js";
+import type * as WebBridgeConnect from "../client/web-bridge-connect.js";
 
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -29,27 +30,29 @@ test("the shared client runs with browser globals only", async (t) => {
     `import * as decoders from ${JSON.stringify(path.join(root, "client/api-response-decoders.ts"))};`,
     `import * as facade from ${JSON.stringify(path.join(root, "client/worker-story-api.ts"))};`,
     `import * as webBridge from ${JSON.stringify(path.join(root, "client/web-bridge-transport.ts"))};`,
-    "globalThis.browserClient = { demo, decoders, facade, webBridge };"
+    `import * as webBridgeConnect from ${JSON.stringify(path.join(root, "client/web-bridge-connect.ts"))};`,
+    "globalThis.browserClient = { demo, decoders, facade, webBridge, webBridgeConnect };"
   ].join("\n"));
   await execFileAsync("bun", [
     "build", entry, "--target=browser", "--format=iife", `--outfile=${bundle}`
   ], { cwd: root, timeout: 60_000 });
 
-  // Keep all four export surfaces in the bundle. No Node globals or module
+  // Keep all five export surfaces in the bundle. No Node globals or module
   // loader are supplied: the renderer must own a real browser-only client.
   const browser = {
-    TextEncoder, TextDecoder, URL, AbortController, AbortSignal,
+    TextEncoder, TextDecoder, URL, URLSearchParams, AbortController, AbortSignal,
     structuredClone, setTimeout, clearTimeout, crypto: webcrypto,
     browserClient: undefined as {
       demo: typeof Demo;
       decoders: typeof Decoders;
       facade: typeof Facade;
       webBridge: typeof WebBridge;
+      webBridgeConnect: typeof WebBridgeConnect;
     } | undefined
   };
   runInNewContext(await readFile(bundle, "utf8"), browser, { timeout: 10_000 });
   assert.ok(browser.browserClient);
-  const { demo, decoders, facade, webBridge } = browser.browserClient;
+  const { demo, decoders, facade, webBridge, webBridgeConnect } = browser.browserClient;
   const api = demo.demoStoryApi(demo.createDemoController());
   const stories = await api.listStories();
   assert.ok(stories.length > 0);
@@ -95,12 +98,15 @@ test("the shared client runs with browser globals only", async (t) => {
       recoveryWarnings: []
     })
   });
-  const bridgeTransport = await opening;
-  // `recoveryWarningsSeen[0]` is an Array from the sandboxed realm: compare
-  // its length rather than its identity or `assert.deepEqual` fails on the
+  const { transport: bridgeTransport, recoveryWarnings } = await opening;
+  // The `hello` frame's own snapshot arrives on the resolved value, not the
+  // `onRecoveryWarnings` callback — that fires only for a later frame, and
+  // this connection never sends one.
+  assert.equal(recoveryWarningsSeen.length, 0);
+  // `recoveryWarnings` is an Array from the sandboxed realm: compare its
+  // length rather than its identity or `assert.deepEqual` fails on the
   // cross-realm prototype mismatch alone.
-  assert.equal(recoveryWarningsSeen.length, 1);
-  assert.equal((recoveryWarningsSeen[0] as readonly unknown[]).length, 0);
+  assert.equal(recoveryWarnings.length, 0);
 
   const operationId = { workerInstanceId: "a".repeat(32), sequence: 1n };
   const listing = bridgeTransport.call("listStories", {});
@@ -115,6 +121,22 @@ test("the shared client runs with browser globals only", async (t) => {
   });
   assert.equal((await listing as readonly unknown[]).length, 0);
   bridgeTransport.close();
+
+  // client/web-bridge-connect.ts: the "no token anywhere" outcome, still
+  // inside the same browser-only VM — proves `connectWebBridge` needs
+  // nothing beyond its own parameters (plus the browser globals above,
+  // now including `URLSearchParams`) to run this far. `fetch` and
+  // `WebSocket` here throw if called at all: with no token, neither should be.
+  const locked = await webBridgeConnect.connectWebBridge({
+    location: { hash: "", host: "127.0.0.1:1", pathname: "/", search: "" },
+    storage: { getItem: () => null, setItem: () => undefined },
+    clearTokenFragment: () => undefined,
+    fetch: (() => { throw new Error("fetch must not run with no token"); }) as unknown as typeof fetch,
+    WebSocket: class {
+      constructor() { throw new Error("WebSocket must not run with no token"); }
+    } as unknown as new (url: string, protocols: string[]) => WebBridge.WebBridgeSocket
+  });
+  assert.equal(locked.kind, "locked");
 });
 
 /** A minimal `WebBridgeSocket` driven by hand — no real network, no DOM. */
@@ -127,8 +149,6 @@ function createFakeBridgeSocket(): {
   const listeners: Record<"message" | "close", FakeListener[]> = { message: [], close: [] };
   const sent: string[] = [];
   const socket: WebBridge.WebBridgeSocket = {
-    readyState: 1,
-    protocol: "1667.bridge.1",
     send: (data) => sent.push(data),
     close: () => undefined,
     addEventListener: (type, listener) => {

@@ -57,7 +57,7 @@ function openSocket(
 }
 
 async function openBridge(web: ReadyWeb): Promise<WebBridgeTransport> {
-  return await openWebBridgeTransport(openSocket(web));
+  return (await openWebBridgeTransport(openSocket(web))).transport;
 }
 
 /** Also hands back the raw socket, for a test that needs to close the
@@ -67,7 +67,7 @@ async function openBridgeWithSocket(
   web: ReadyWeb
 ): Promise<{ readonly socket: WebSocket; readonly transport: WebBridgeTransport }> {
   const socket = openSocket(web);
-  const transport = await openWebBridgeTransport(socket);
+  const { transport } = await openWebBridgeTransport(socket);
   return { socket, transport };
 }
 
@@ -156,6 +156,34 @@ test("list, create, load, and list again round-trip over the bridge", async () =
     const after = await api.listStories();
     expect(after.length).toBe(before.length + 1);
     expect(after.some((summary) => summary.id === created.id)).toBeTrue();
+  } finally {
+    transport.close();
+  }
+}, 30_000);
+
+test("importCard's cardBytes (a binary field) round-trips over the bridge", async () => {
+  // The same plain-JSON V2 card fixture `cli/test/card-import-cli.test.ts`
+  // uses — `importCard` accepts a card's raw file bytes, JSON or not, so
+  // this needs no PNG or other native-image tooling to stay portable.
+  const cardBytes = new TextEncoder().encode(JSON.stringify({
+    spec: "chara_card_v2",
+    spec_version: "2.0",
+    data: {
+      name: "Mira",
+      description: "A cartographer.",
+      personality: "Exacting but kind.",
+      scenario: ""
+    }
+  }));
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const transport = await openBridge(web);
+  try {
+    const api = storyApiFromWorkerTransport(transport);
+    const story = await api.createStory("Bridge binary import");
+    const { payload, plan } = await api.importCard(story.id, cardBytes);
+    expect(plan.name).toBe("Mira");
+    expect(payload.facts.some((fact) => fact.tag === "Character")).toBeTrue();
   } finally {
     transport.close();
   }
@@ -427,7 +455,7 @@ test("a second `1667 web` fails with the existing lock message while a bridge is
   // Boxed rather than a bare `let`: TypeScript otherwise keeps narrowing this
   // variable to its initial `null` across the `onClose` closure's reassignment.
   const closeState: { error: Error | null } = { error: null };
-  const transport = await openWebBridgeTransport(openSocket(web), {
+  const { transport } = await openWebBridgeTransport(openSocket(web), {
     onClose: (error) => { closeState.error = error; }
   });
   try {

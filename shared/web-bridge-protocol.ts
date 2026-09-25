@@ -38,15 +38,6 @@ export const WEB_BRIDGE_TOKEN_PREFIX = "1667.token.";
 /** The one path `host/web-bridge-server.ts` upgrades. */
 export const WEB_BRIDGE_PATH = "/api/bridge";
 
-/** Bun's `ws` shim does not enforce its own `maxPayload` (verified against
- * Bun 1.3.14): the bridge server checks every inbound frame's byte length
- * itself and closes 1009 over this bound. */
-export const MAX_BRIDGE_MESSAGE_BYTES = 32 * 1024 * 1024;
-
-/** One browser can open several tabs; each tab gets its own bridge over the
- * shared host, up to this many at once. */
-export const MAX_BRIDGE_CONNECTIONS = 8;
-
 /** Keep the browser-facing credit window equal to the Worker-facing bound. */
 export const WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES = MAX_UNACKNOWLEDGED_DELTA_BATCHES;
 
@@ -150,62 +141,7 @@ export type BridgeHostMessage =
       readonly warnings: readonly BridgeRecoveryWarning[];
     };
 
-export const CALL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
-
-/**
- * `WorkerOperationId.sequence` is a native `bigint`. `JSON.stringify` throws
- * on one without a replacer — the removed desktop bridge never needed this,
- * because Electron's `MessagePort` carries a `bigint` through structured
- * clone unchanged, and this bridge's frames are JSON text instead. Every
- * frame on this bridge goes through `encodeBridgeMessage`/
- * `decodeBridgeMessageText` rather than a bare `JSON.stringify`/`JSON.parse`,
- * so this is the one place that conversion happens. The reviver requires a
- * `workerInstanceId` sibling before it treats a `"sequence"` string as one,
- * because `ack` and `delta` each carry their own unrelated numeric
- * `sequence` alongside an `id`.
- */
-function bridgeJsonReplacer(this: unknown, _key: string, value: unknown): unknown {
-  return typeof value === "bigint" ? value.toString() : value;
-}
-
-function bridgeJsonReviver(this: unknown, key: string, value: unknown): unknown {
-  return key === "sequence"
-    && isRecord(this)
-    && typeof this.workerInstanceId === "string"
-    && typeof value === "string"
-    && /^[0-9]+$/u.test(value)
-    ? BigInt(value)
-    : value;
-}
-
-/** Encode one frame for the wire. Both ends of this bridge use this instead
- * of a bare `JSON.stringify`, for `bridgeJsonReplacer` above. */
-export function encodeBridgeMessage(
-  message: BridgeClientMessage | BridgeHostMessage
-): string {
-  return JSON.stringify(message, bridgeJsonReplacer);
-}
-
-/** Parse one frame off the wire, before `decodeBridgeClientMessage` /
- * `decodeBridgeHostMessage` validate its shape. Returns `null` rather than
- * throwing on text that is not valid JSON, matching every other decoder in
- * this module. */
-export function decodeBridgeMessageText(raw: string): unknown {
-  try {
-    return JSON.parse(raw, bridgeJsonReviver);
-  } catch {
-    return null;
-  }
-}
-
-/** The three methods that carry a binary field the JSON wire cannot hold
- * directly (verified against `shared/worker-protocol.ts`'s `WorkerMethodContract`).
- * Every other method's input crosses the bridge unchanged. */
-const BINARY_INPUT_FIELD: Partial<Record<WorkerMethod, string>> = {
-  importLorebook: "archiveBytes",
-  importCard: "cardBytes",
-  stageStoryImage: "bytes"
-};
+const CALL_ID_PATTERN = /^[A-Za-z0-9_-]{1,128}$/u;
 
 const BASE64_CHUNK_LENGTH = 0x8000;
 
@@ -230,25 +166,63 @@ function base64ToBridgeBytes(base64: string): Uint8Array {
   return bytes;
 }
 
-/** Replace a request's binary field with base64 before it joins a JSON
- * frame. Every other method's input returns unchanged. */
-export function encodeBridgeRequestInput(method: WorkerMethod, input: unknown): unknown {
-  const field = BINARY_INPUT_FIELD[method];
-  if (field === undefined || !isRecord(input)) return input;
-  const bytes = input[field];
-  return bytes instanceof Uint8Array
-    ? { ...input, [field]: bridgeBytesToBase64(bytes) }
-    : input;
+/**
+ * `WorkerOperationId.sequence` is a native `bigint`, and three request
+ * methods (`importLorebook.archiveBytes`, `importCard.cardBytes`,
+ * `stageStoryImage.bytes` — verified against `shared/worker-protocol.ts`)
+ * carry a `Uint8Array`. `JSON.stringify` throws on the first and silently
+ * mangles the second into a plain number array — the removed desktop bridge
+ * needed neither conversion, because Electron's `MessagePort` carries both
+ * through structured clone unchanged, and this bridge's frames are JSON text
+ * instead. Every frame on this bridge goes through `encodeBridgeMessage`/
+ * `decodeBridgeMessageText` rather than a bare `JSON.stringify`/`JSON.parse`,
+ * so this is the one place either conversion happens, for every field of
+ * either type anywhere in the message — no per-method table to keep in sync
+ * with `shared/worker-protocol.ts`. Each becomes a single-key tag object
+ * (`{"$bigint":"12"}`, `{"$bytes":"<base64>"}`) that the reviver undoes; a
+ * legitimate payload object is never mistaken for one because a tag is
+ * recognized only by having exactly that one key and no other — a request or
+ * response field named literally `$bigint` or `$bytes` is the one shape this
+ * still cannot round-trip, and none of this protocol's fields are named that.
+ */
+function bridgeJsonReplacer(this: unknown, _key: string, value: unknown): unknown {
+  if (typeof value === "bigint") return { $bigint: value.toString() };
+  if (value instanceof Uint8Array) return { $bytes: bridgeBytesToBase64(value) };
+  return value;
 }
 
-/** Reverse `encodeBridgeRequestInput` once a request's JSON frame is parsed. */
-export function decodeBridgeRequestInput(method: WorkerMethod, input: unknown): unknown {
-  const field = BINARY_INPUT_FIELD[method];
-  if (field === undefined || !isRecord(input)) return input;
-  const encoded = input[field];
-  return typeof encoded === "string"
-    ? { ...input, [field]: base64ToBridgeBytes(encoded) }
-    : input;
+function bridgeJsonReviver(this: unknown, _key: string, value: unknown): unknown {
+  if (isRecord(value)) {
+    const keys = Object.keys(value);
+    if (keys.length === 1 && keys[0] === "$bigint") {
+      const encoded = value.$bigint;
+      if (typeof encoded === "string" && /^[0-9]+$/u.test(encoded)) return BigInt(encoded);
+    } else if (keys.length === 1 && keys[0] === "$bytes") {
+      const encoded = value.$bytes;
+      if (typeof encoded === "string") return base64ToBridgeBytes(encoded);
+    }
+  }
+  return value;
+}
+
+/** Encode one frame for the wire. Both ends of this bridge use this instead
+ * of a bare `JSON.stringify`, for `bridgeJsonReplacer` above. */
+export function encodeBridgeMessage(
+  message: BridgeClientMessage | BridgeHostMessage
+): string {
+  return JSON.stringify(message, bridgeJsonReplacer);
+}
+
+/** Parse one frame off the wire, before `decodeBridgeClientMessage` /
+ * `decodeBridgeHostMessage` validate its shape. Returns `null` rather than
+ * throwing on text that is not valid JSON, matching every other decoder in
+ * this module. */
+export function decodeBridgeMessageText(raw: string): unknown {
+  try {
+    return JSON.parse(raw, bridgeJsonReviver);
+  } catch {
+    return null;
+  }
 }
 
 /** Decode a browser message before it reaches the Host. */

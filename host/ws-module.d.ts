@@ -28,13 +28,12 @@ declare module "ws" {
   }
 
   export class WebSocket {
-    readonly protocol: string;
-    readonly readyState: number;
     send(data: string): void;
     close(code?: number, reason?: string): void;
-    terminate(): void;
     on(event: "message", listener: (data: Buffer, isBinary: boolean) => void): this;
     on(event: "close", listener: (code: number, reason: Buffer) => void): this;
+    /** An unhandled "error" throws on an EventEmitter, so `host/web-bridge-server.ts`
+     * always registers one. */
     on(event: "error", listener: (error: Error) => void): this;
   }
 
@@ -46,7 +45,5 @@ declare module "ws" {
       head: Buffer,
       callback: (ws: WebSocket, request: IncomingMessage) => void
     ): void;
-    emit(event: "connection", ws: WebSocket, request: IncomingMessage): boolean;
-    on(event: "connection", listener: (ws: WebSocket, request: IncomingMessage) => void): this;
   }
 }

@@ -16,7 +16,6 @@ import {
   decodeBridgeHostMessage,
   decodeBridgeMessageText,
   encodeBridgeMessage,
-  encodeBridgeRequestInput,
   workerOperationKey,
   type BridgeCallId,
   type BridgeClientMessage,
@@ -29,8 +28,6 @@ import {
  * hands over a fake, so nothing here may depend on a DOM `WebSocket` member
  * this interface does not list. */
 export interface WebBridgeSocket {
-  readonly readyState: number;
-  readonly protocol: string;
   send(data: string): void;
   close(code?: number, reason?: string): void;
   addEventListener(type: "open" | "message" | "close" | "error", listener: EventListener): void;
@@ -74,12 +71,23 @@ interface PendingCall {
   stoppedReasoningText: string;
 }
 
+/** What `openWebBridgeTransport` resolves with: the live transport, plus the
+ * `hello` frame's own recovery-warning snapshot — the one frame
+ * `options.onRecoveryWarnings` never sees, since it exists before the
+ * returned promise does. `options.onRecoveryWarnings` fires only for a later
+ * `recoveryWarnings` frame. */
+export interface OpenWebBridgeResult {
+  readonly transport: WebBridgeTransport;
+  readonly recoveryWarnings: readonly BridgeRecoveryWarning[];
+}
+
 /**
  * Open the bridge: wait for the server's `hello`, then hand back a live
- * transport. `socket` must already be connecting (or connected) — this
- * function only attaches listeners, it never constructs the socket, so a
- * caller stays free to choose the exact `WebSocket` constructor arguments
- * (see `webBridgeProtocols`/`webBridgeUrl`).
+ * transport and that frame's own recovery-warning snapshot. `socket` must
+ * already be connecting (or connected) — this function only attaches
+ * listeners, it never constructs the socket, so a caller stays free to
+ * choose the exact `WebSocket` constructor arguments (see
+ * `webBridgeProtocols`/`webBridgeUrl`).
  *
  * A `hello` whose `workerProtocolVersion` this bundle does not share with
  * the running server closes the socket and rejects: a browser tab left open
@@ -89,8 +97,8 @@ interface PendingCall {
 export async function openWebBridgeTransport(
   socket: WebBridgeSocket,
   options: WebBridgeTransportOptions = {}
-): Promise<WebBridgeTransport> {
-  return await new Promise<WebBridgeTransport>((resolve, reject) => {
+): Promise<OpenWebBridgeResult> {
+  return await new Promise<OpenWebBridgeResult>((resolve, reject) => {
     const cleanup = (): void => {
       socket.removeEventListener("message", onMessage);
       socket.removeEventListener("close", onClose);
@@ -123,8 +131,7 @@ export async function openWebBridgeTransport(
       }
       cleanup();
       const transport = new WebBridgeTransport(socket, options);
-      options.onRecoveryWarnings?.(message.recoveryWarnings);
-      resolve(transport);
+      resolve({ transport, recoveryWarnings: message.recoveryWarnings });
     }) as EventListener;
     const onClose = ((event: CloseEvent) => {
       fail(new Error(`1667 web connection closed before it opened (code ${event.code})`));
@@ -207,7 +214,7 @@ export class WebBridgeTransport implements StoryWorkerTransport {
           type: "request",
           callId,
           method,
-          input: encodeBridgeRequestInput(method, input),
+          input,
           ...(options.expectedAggregateVersion === undefined
             ? {}
             : { expectedAggregateVersion: options.expectedAggregateVersion })
