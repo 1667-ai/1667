@@ -1,15 +1,22 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { StoryApi } from "../../../client/api.js";
+import type { StoryPayload } from "../../../shared/types.js";
 import { navigate } from "../app/router.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
-import { errorMessage, pushToast, runAction } from "../app/toasts.js";
+import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
+import type { DialogState } from "./state.js";
+
+export interface LibraryActionDependencies {
+  /** Notifies the story slice after a rename, instead of the Library writing
+   * `state.story` itself (review fix B3). */
+  readonly titleChanged: (updated: StoryPayload) => void;
+}
 
 export interface LibraryActions {
   refresh(): Promise<void>;
   setQuery(query: string): void;
   create(): Promise<void>;
-  openStory(id: string): Promise<void>;
   startRename(id: string, title: string): void;
   startDelete(id: string, title: string): void;
   cancelDialog(): void;
@@ -23,100 +30,89 @@ function requireApi(store: Store<AppState>): StoryApi {
   return connection.api;
 }
 
+function setDialog(store: Store<AppState>, dialog: DialogState): void {
+  store.set((state) => ({ ...state, library: { ...state.library, dialog } }));
+}
+
 /**
  * `web/src/app/store.ts`'s pattern applied to the Library: one module of
  * plain functions closing over `store`, no class, no React. `listStories()`
  * runs on connect, after each mutation here, and on `visibilitychange` (see
- * `App.tsx`), never inline in a component.
+ * `app/bootstrap.ts`), never inline in a component.
+ *
+ * Every function here is the public, never-rejecting boundary
+ * (`catchAtBoundary`) around an internal `runAction` call that still throws —
+ * a UI caller's `void actions.library.x()` never produces an unhandled
+ * rejection (review fix B7), including when `requireApi` throws because the
+ * bridge is not connected.
  */
-export function createLibraryActions(store: Store<AppState>): LibraryActions {
+export function createLibraryActions(
+  store: Store<AppState>,
+  deps: LibraryActionDependencies
+): LibraryActions {
   const refreshUnwrapped = async (): Promise<void> => {
     const api = requireApi(store);
     const stories = await api.listStories();
     store.set((state) => ({ ...state, library: { ...state.library, stories } }));
   };
-  const refresh = (): Promise<void> => runAction(store, "Load library", refreshUnwrapped);
 
   return {
-    refresh,
+    refresh: () => catchAtBoundary(() => runAction(store, "Load library", refreshUnwrapped)),
 
     setQuery: (query) => {
       store.set((state) => ({ ...state, library: { ...state.library, query } }));
     },
 
-    create: async () => {
+    create: () => catchAtBoundary(() => runAction(store, "New story", async () => {
       const api = requireApi(store);
-      const created = await runAction(store, "New story", () => api.createStory());
+      const created = await api.createStory();
       await refreshUnwrapped();
       navigate({ kind: "story", id: created.id });
-    },
+    })),
 
-    openStory: async (id) => {
-      const api = requireApi(store);
-      const payload = await runAction(store, "Open story", () => api.loadStory(id));
-      // Stale responses: adopt the payload only if the route still names
-      // this id — a fast second click on another row must not have its
-      // first (slower) response land after the user has already moved on.
-      store.set((state) => (
-        state.route.kind === "story" && state.route.id === id
-          ? { ...state, openStory: payload }
-          : state
-      ));
-    },
+    startRename: (id, title) => setDialog(store, { kind: "rename", storyId: id, title }),
+    startDelete: (id, title) => setDialog(store, { kind: "delete", storyId: id, title }),
+    cancelDialog: () => setDialog(store, { kind: "none" }),
 
-    startRename: (id, title) => {
-      store.set((state) => ({ ...state, dialog: { kind: "rename", storyId: id, title } }));
-    },
-
-    startDelete: (id, title) => {
-      store.set((state) => ({ ...state, dialog: { kind: "delete", storyId: id, title } }));
-    },
-
-    cancelDialog: () => {
-      store.set((state) => ({ ...state, dialog: { kind: "none" } }));
-    },
-
-    confirmRename: async (title) => {
-      const dialog = store.get().dialog;
+    // The throwing inner call keeps the dialog open on failure: `setDialog`
+    // to "none" only runs after `api.renameStory` succeeds, so an error
+    // thrown from it (and reported by `runAction`) skips straight past that
+    // line and the rename dialog stays up for another try.
+    confirmRename: (title) => catchAtBoundary(() => runAction(store, "Rename story", async () => {
+      const dialog = store.get().library.dialog;
       if (dialog.kind !== "rename") return;
       const trimmed = title.trim();
       if (trimmed.length === 0) return;
       const api = requireApi(store);
-      const updated = await runAction(
-        store,
-        "Rename story",
-        () => api.renameStory(dialog.storyId, trimmed)
-      );
-      store.set((state) => ({
-        ...state,
-        dialog: { kind: "none" },
-        openStory: state.openStory !== null && state.openStory.id === updated.id
-          ? updated
-          : state.openStory
-      }));
+      const updated = await api.renameStory(dialog.storyId, trimmed);
+      setDialog(store, { kind: "none" });
+      deps.titleChanged(updated);
       await refreshUnwrapped();
-    },
+    })),
 
-    confirmDelete: async () => {
-      const dialog = store.get().dialog;
+    // Review fix B4: `storyId` and the "was this the open story" check both
+    // read the CURRENT route after `deleteStory` resolves, not before — a
+    // route captured before the `await` could name a story the owner has
+    // since navigated away from (or back to), and navigating "home" on its
+    // account would then be wrong.
+    confirmDelete: () => catchAtBoundary(() => runAction(store, "Delete story", async () => {
+      const dialog = store.get().library.dialog;
       if (dialog.kind !== "delete") return;
+      const storyId = dialog.storyId;
       const api = requireApi(store);
-      store.set((state) => ({ ...state, dialog: { kind: "none" } }));
-      const route = store.get().route;
-      const wasOpenStory = route.kind === "story" && route.id === dialog.storyId;
+      setDialog(store, { kind: "none" });
       try {
-        await api.deleteStory(dialog.storyId);
+        await api.deleteStory(storyId);
       } catch (error) {
-        if (apiErrorCode(error) === "not_found") {
-          pushToast(store, "That story is already gone.");
-        } else {
-          pushToast(store, `Delete story failed: ${errorMessage(error)}`);
+        if (apiErrorCode(error) !== "not_found") {
           await refreshUnwrapped();
-          return;
+          throw error;
         }
+        pushToast(store, errorMessage(error, { not_found: "That story is already gone." }));
       }
-      if (wasOpenStory) navigate({ kind: "library" });
+      const route = store.get().route;
+      if (route.kind === "story" && route.id === storyId) navigate({ kind: "library" });
       await refreshUnwrapped();
-    }
+    }))
   };
 }

@@ -1,14 +1,7 @@
 import { createContext, useContext, type ReactNode } from "react";
-import type { LibraryActions } from "../library/actions.js";
+import type { AppActions } from "./actions.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
-
-export interface AppActions {
-  readonly library: LibraryActions;
-  readonly reconnect: () => void;
-  readonly toggleTheme: () => void;
-  readonly selectPalette: (paletteId: string) => void;
-}
 
 export interface AppContextValue {
   readonly store: Store<AppState>;

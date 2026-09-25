@@ -1,27 +1,43 @@
 import { useEffect } from "react";
+import { countWords } from "../../../shared/story-text.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
+import { storyIdOf } from "./state.js";
 
 /**
  * `#/story/:id` for step 3: title, stats, and the active path's plain text —
  * read-only, clearly a placeholder. Steps 4+ replace this with the real
  * manuscript view (streaming, retake/edit, tags/chapters/facts, map).
+ *
+ * Review fix B3: a failed `loadStory` (e.g. a route naming a story someone
+ * just deleted) used to leave this on "Loading…" forever, because
+ * `state.openStory: StoryPayload | null` had no way to represent "this id
+ * does not exist". `state.story`'s `missing` variant is that state.
  */
 export function StoryPlaceholder({ storyId }: { readonly storyId: string }) {
   const { store, actions } = useAppContext();
-  const payload = useStore(store, (state) => (
-    state.openStory !== null && state.openStory.id === storyId ? state.openStory : null
-  ));
+  const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
 
   useEffect(() => {
-    void actions.library.openStory(storyId);
+    void actions.story.load(storyId);
   }, [storyId, actions]);
 
-  if (payload === null) {
+  if (story === null || story.kind === "idle" || story.kind === "loading") {
     return <p className="story-empty">Loading…</p>;
   }
 
-  const words = payload.path.reduce((total, node) => total + wordCount(node.text), 0);
+  if (story.kind === "missing") {
+    return (
+      <div className="welcome">
+        <h1>This story no longer exists</h1>
+        <p>It may have been deleted in another tab, or its link was old.</p>
+        <a className="btn btn-primary" href="#/">Back to the Library</a>
+      </div>
+    );
+  }
+
+  const payload = story.payload;
+  const words = payload.path.reduce((total, node) => total + countWords(node.text), 0);
   const activeText = payload.path.map((node) => node.text).join("");
 
   return (
@@ -49,9 +65,4 @@ export function StoryPlaceholder({ storyId }: { readonly storyId: string }) {
       </div>
     </div>
   );
-}
-
-function wordCount(text: string): number {
-  const trimmed = text.trim();
-  return trimmed.length === 0 ? 0 : trimmed.split(/\s+/u).length;
 }

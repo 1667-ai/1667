@@ -1,6 +1,7 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { App } from "./App.js";
+import { createApp } from "./app/bootstrap.js";
 import { applyPalette, applyTheme, readStoredPalette, readStoredTheme } from "./theme/apply.js";
 import { DEFAULT_PALETTE, type ThemeMode } from "./theme/themes.js";
 import "./styles/index.css";
@@ -24,11 +25,17 @@ try {
   // it starts with no explicit override instead.
 }
 
+// Built once, outside React (review fix A1): `App.tsx` only starts it (in an
+// effect whose cleanup calls the disposer `start()` returns) and provides it
+// to the component tree — it never rebuilds the store or the connection
+// itself.
+const app = createApp(theme, palette);
+
 const container = document.getElementById("app");
 if (container === null) throw new Error("1667 web: index.html has no #app element");
 
 createRoot(container).render(
   <StrictMode>
-    <App initialTheme={theme} initialPalette={palette} />
+    <App app={app} />
   </StrictMode>
 );

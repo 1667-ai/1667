@@ -1,11 +1,12 @@
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
+import { Modal } from "../ui/Modal.js";
 
 /**
- * A native `<dialog>` (never `window.confirm`): `showModal()` gives it the
- * browser's own focus trap and `::backdrop`, and its `cancel` event already
- * fires on Escape, so this only has to wire that event to `onCancel`. Enter
- * submits because the title field sits in a `<form>` the Save button
- * belongs to — no keybinding code needed for either.
+ * A native `<dialog>`, via the shared lifecycle in `ui/Modal.tsx`:
+ * `showModal()` gives it the browser's own focus trap and `::backdrop`, and
+ * its `cancel` event already fires on Escape. Enter submits because the
+ * title field sits in a `<form>` the Save button belongs to — no keybinding
+ * code needed for either.
  */
 export function RenameDialog(
   { title, onCancel, onSave }: {
@@ -14,28 +15,11 @@ export function RenameDialog(
     readonly onSave: (title: string) => void;
   }
 ) {
-  const dialogRef = useRef<HTMLDialogElement>(null);
   const [value, setValue] = useState(title);
   const trimmed = value.trim();
 
-  useEffect(() => {
-    const dialog = dialogRef.current;
-    if (dialog === null) return;
-    dialog.showModal();
-    const onCancelEvent = (event: Event): void => {
-      event.preventDefault();
-      onCancel();
-    };
-    dialog.addEventListener("cancel", onCancelEvent);
-    return () => {
-      dialog.removeEventListener("cancel", onCancelEvent);
-      if (dialog.open) dialog.close();
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
   return (
-    <dialog ref={dialogRef} className="modal" aria-label="Rename story">
+    <Modal onCancel={onCancel} ariaLabel="Rename story">
       <form
         method="dialog"
         onSubmit={(event) => {
@@ -60,6 +44,6 @@ export function RenameDialog(
           <button type="submit" className="btn btn-primary" disabled={trimmed.length === 0}>Save</button>
         </div>
       </form>
-    </dialog>
+    </Modal>
   );
 }
