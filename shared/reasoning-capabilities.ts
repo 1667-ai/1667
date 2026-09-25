@@ -203,6 +203,9 @@ function openai(
 export const ANTHROPIC_REASONING_CAPABILITIES: ReadonlyMap<string, AnthropicReasoningCapability> = new Map([
   ["claude-fable-5", anthropic("claude-fable-5", "adaptive", "on", LOW_TO_MAX, { disabled: false })],
   ["claude-mythos-5", anthropic("claude-mythos-5", "adaptive", "on", LOW_TO_MAX, { disabled: false })],
+  ["claude-fable-5-1", anthropic("claude-fable-5-1", "adaptive", "on", LOW_TO_MAX, { disabled: false })],
+  ["claude-mythos-5-1", anthropic("claude-mythos-5-1", "adaptive", "on", LOW_TO_MAX, { disabled: false })],
+  ["claude-opus-5-5", anthropic("claude-opus-5-5", "adaptive", "on", LOW_TO_MAX, { disabled: false })],
   ["claude-mythos-preview", anthropic("claude-mythos-preview", "adaptive", "on", LOW_TO_MAX_NO_XHIGH, { disabled: false })],
   ["claude-opus-5", anthropic("claude-opus-5", "adaptive", "on", LOW_TO_MAX, {
     disabled: true,

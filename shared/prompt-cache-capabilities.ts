@@ -119,6 +119,9 @@ const OPENAI_LEGACY_AUTOMATIC_MODELS = new Set([
 const ANTHROPIC_MINIMUM_TOKENS = new Map<string, number>([
   ["claude-fable-5", 512],
   ["claude-mythos-5", 512],
+  ["claude-fable-5-1", 512],
+  ["claude-mythos-5-1", 512],
+  ["claude-opus-5-5", 512],
   ["claude-mythos-preview", 2_048],
   ["claude-opus-5", 512],
   ["claude-opus-4-8", 1_024],
