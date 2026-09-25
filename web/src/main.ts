@@ -5,42 +5,15 @@
  * build-time data — everything here comes from `/api/status` and the
  * WebSocket bridge, the same way step 3's real page will have to.
  */
-import {
-  openWebBridgeTransport,
-  webBridgeProtocols,
-  webBridgeUrl,
-  type WebBridgeTransport
-} from "../../client/web-bridge-transport.js";
+import { connectWebBridge } from "../../client/web-bridge-connect.js";
+import type { WebBridgeTransport } from "../../client/web-bridge-transport.js";
 import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
 import type { StoryApi } from "../../client/api.js";
 import { WORKER_PROTOCOL_VERSION } from "../../shared/worker-protocol.js";
 import type { BridgeRecoveryWarning } from "../../shared/web-bridge-protocol.js";
 import type { StoryPayload, StorySummary } from "../../shared/types.js";
 
-const TOKEN_STORAGE_KEY = "1667.web.token";
-
 const app = document.getElementById("app")!;
-
-/** Read the per-run token the way step 1's placeholder did: the URL
- * fragment first (and only once — it is cleared immediately after), then
- * `sessionStorage` for a reload. */
-function readToken(): string | null {
-  const fromHash = new URLSearchParams(location.hash.replace(/^#/, "")).get("token");
-  if (fromHash !== null) {
-    try {
-      sessionStorage.setItem(TOKEN_STORAGE_KEY, fromHash);
-    } catch {
-      // Private browsing can refuse storage; the fragment already carried it.
-    }
-    history.replaceState(null, "", location.pathname + location.search);
-    return fromHash;
-  }
-  try {
-    return sessionStorage.getItem(TOKEN_STORAGE_KEY);
-  } catch {
-    return null;
-  }
-}
 
 function showLocked(): void {
   app.textContent = "";
@@ -184,46 +157,38 @@ function activePathText(payload: StoryPayload): string {
 }
 
 async function main(): Promise<void> {
-  const token = readToken();
-  if (token === null) {
-    showLocked();
-    return;
-  }
-
   const elements = buildShell();
   setStatus(elements, { connection: "connecting" });
 
-  const statusResponse = await fetch("/api/status", {
-    headers: { authorization: `Bearer ${token}` }
+  // `transport` does not exist yet when `connectWebBridge` needs this
+  // callback, but `onRecoveryWarnings` only ever fires for a frame after
+  // `hello` — never before `transport` below is assigned — so the closure
+  // can read it lazily with no special handling.
+  const dismissWarning = (mutationId: string): void => {
+    void transport.dismissArchivedMutation(mutationId);
+  };
+  const outcome = await connectWebBridge({
+    location,
+    storage: sessionStorage,
+    clearTokenFragment: () => history.replaceState(null, "", location.pathname + location.search),
+    fetch,
+    WebSocket,
+    onRecoveryWarnings: (warnings) => renderRecoveryWarnings(elements, warnings, dismissWarning),
+    onClose: (error) => setStatus(elements, { connection: `closed: ${error.message}` })
   });
-  if (statusResponse.status === 401) {
+  if (outcome.kind === "locked") {
     showLocked();
     return;
   }
-  if (!statusResponse.ok) {
-    setStatus(elements, { connection: `failed (status ${statusResponse.status})` });
+  if (outcome.kind === "failed") {
+    setStatus(elements, { connection: `failed: ${outcome.error.message}` });
     return;
   }
-  const { project, version } = await statusResponse.json() as { project: string; version: string };
-  setStatus(elements, { project, version });
-
-  let transport: WebBridgeTransport;
-  try {
-    const socket = new WebSocket(webBridgeUrl(location), webBridgeProtocols(token));
-    transport = await openWebBridgeTransport(socket, {
-      // `hello` can carry warnings before this promise resolves, so the
-      // Dismiss handler reads `transport` at click time, not now.
-      onRecoveryWarnings: (warnings) => renderRecoveryWarnings(elements, warnings, (mutationId) => {
-        void transport.dismissArchivedMutation(mutationId);
-      }),
-      onClose: (error) => setStatus(elements, { connection: `closed: ${error.message}` })
-    });
-  } catch (error) {
-    setStatus(elements, {
-      connection: `failed: ${error instanceof Error ? error.message : String(error)}`
-    });
-    return;
-  }
+  const transport: WebBridgeTransport = outcome.transport;
+  setStatus(elements, { project: outcome.status.project, version: outcome.status.version });
+  // `hello`'s own snapshot arrives on the outcome, not through
+  // `onRecoveryWarnings` — that fires only for a later frame.
+  renderRecoveryWarnings(elements, outcome.recoveryWarnings, dismissWarning);
   setStatus(elements, { connection: "connected", workerProtocolVersion: WORKER_PROTOCOL_VERSION });
 
   const api = storyApiFromWorkerTransport(transport);

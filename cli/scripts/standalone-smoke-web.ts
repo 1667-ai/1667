@@ -1,4 +1,7 @@
 import path from "node:path";
+import { webBridgeProtocols } from "../../client/web-bridge-transport.js";
+import { WEB_BRIDGE_PATH } from "../../shared/web-bridge-protocol.js";
+import { READY_LINE } from "../test/web-e2e-fixture.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 
 /**
@@ -31,12 +34,12 @@ export async function smokeStandaloneWeb(
       throw new Error(`Standalone web smoke could not fetch /app.js (${appJs.status})`);
     }
     const appJsBody = await appJs.text();
-    if (!appJsBody.includes("/api/bridge")) {
+    if (!appJsBody.includes(WEB_BRIDGE_PATH)) {
       throw new Error("Standalone web smoke's /app.js does not reference the bridge");
     }
 
-    const socket = new WebSocket(`ws://${parsed.host}/api/bridge`, {
-      protocols: ["1667.bridge.1", `1667.token.${token}`],
+    const socket = new WebSocket(`ws://${parsed.host}${WEB_BRIDGE_PATH}`, {
+      protocols: webBridgeProtocols(token),
       headers: { origin: parsed.origin }
     });
     await new Promise<void>((resolve, reject) => {
@@ -81,8 +84,8 @@ async function readWebReadyUrl(stream: ReadableStream<Uint8Array>): Promise<stri
       const { done, value } = await reader.read();
       if (done) break;
       buffered += decoder.decode(value, { stream: true });
-      const match = /^1667 web: serving .+ at (http:\/\/\S+)$/m.exec(buffered);
-      if (match !== null) return match[1]!;
+      const match = READY_LINE.exec(buffered);
+      if (match !== null) return match[2]!;
     }
     throw new Error(`Standalone web smoke exited before readiness: ${buffered}`);
   } finally {

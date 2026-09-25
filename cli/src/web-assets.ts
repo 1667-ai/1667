@@ -31,16 +31,7 @@ export async function loadWebAssets(): Promise<ReadonlyMap<string, WebAsset>> {
  * Step 3 replaces this one function with a Vite build; nothing else here
  * (the embed, the caller, `host/web-server.ts`'s asset map) has to change. */
 export async function buildWebAssets(): Promise<ReadonlyMap<string, WebAsset>> {
-  const bun = (globalThis as unknown as {
-    Bun: {
-      build(options: Record<string, unknown>): Promise<{
-        success: boolean;
-        logs: readonly unknown[];
-        outputs: readonly { text(): Promise<string> }[];
-      }>;
-    };
-  }).Bun;
-  const result = await bun.build({
+  const result = await Bun.build({
     entrypoints: [path.join(webRoot, "src", "main.ts")],
     target: "browser",
     format: "esm",

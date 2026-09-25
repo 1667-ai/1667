@@ -19,7 +19,10 @@ import { fileURLToPath } from "node:url";
 export type WebChildProcess = ChildProcessByStdio<null, Readable, Readable>;
 
 export const STANDALONE_ENTRY = fileURLToPath(new URL("../src/standalone.ts", import.meta.url));
-const READY_LINE = /^1667 web: serving (.+) at (http:\/\/\S+)$/m;
+/** Also used by `cli/scripts/standalone-smoke-web.ts`, so a compiled
+ * `1667 web`'s own startup line is matched the same way this fixture's own
+ * spawns are. */
+export const READY_LINE = /^1667 web: serving (.+) at (http:\/\/\S+)$/m;
 
 const roots: string[] = [];
 const children: WebChildProcess[] = [];
