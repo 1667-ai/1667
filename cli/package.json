@@ -3,6 +3,7 @@
   "type": "module",
   "scripts": {
     "start": "bun src/standalone.ts",
+    "web:dev": "bun scripts/web-dev.ts",
     "build:standalone": "bun scripts/build-standalone.ts",
     "test": "bun test --timeout=30000",
     "typecheck": "tsc --noEmit"

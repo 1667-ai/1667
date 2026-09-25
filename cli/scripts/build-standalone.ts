@@ -40,7 +40,7 @@ import {
   buildPromptTokenizerSmoke,
   buildStandaloneProduct
 } from "./standalone-build-requests.js";
-import { buildWebAssets } from "../src/web-assets.js";
+import { buildWebAssetsWithVite } from "./web-build.js";
 
 const cliRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(cliRoot);
@@ -78,8 +78,11 @@ const embeddedWorkerSource = process.platform === "win32"
     )
   : undefined;
 // Every platform embeds the web assets, not only Windows: a compiled
-// executable has no `web/` directory to build them from at runtime.
-const webAssets = await buildWebAssets();
+// executable has no `web/` directory to build them from at runtime. A
+// release build always builds fresh, bypassing `cli/src/web-assets.ts`'s
+// content-hash cache (meant for repeated test/dev spawns, not a one-shot
+// packaging run).
+const { assets: webAssets } = await buildWebAssetsWithVite();
 
 const result = await buildStandaloneProduct(standaloneCompiler, {
   entrypoints: process.platform === "win32"

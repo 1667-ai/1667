@@ -6,7 +6,7 @@
   "license": "Apache-2.0",
   "type": "module",
   "scripts": {
-    "build": "npm run schema:check && npm run notes:check && tsc --noEmit",
+    "build": "npm run schema:check && npm run notes:check && tsc --noEmit && tsc -p web --noEmit",
     "import": "tsx server/import-cli.ts",
     "migrate-data": "tsx server/migrate-data-cli.ts",
     "release:pack": "node --import tsx scripts/release-pack.ts",
@@ -14,7 +14,7 @@
     "release:stage": "node --import tsx scripts/release-stage-packages.ts",
     "release:verify-install-upgrade": "node --import tsx scripts/release-install-upgrade-e2e.ts",
     "test": "node --import tsx --import ./test/setup.ts --test test/*.test.ts",
-    "typecheck": "npm run schema:check && npm run notes:check && tsc --noEmit",
+    "typecheck": "npm run schema:check && npm run notes:check && tsc --noEmit && tsc -p web --noEmit",
     "schema:check": "tsx scripts/story-schema.ts --check && tsx scripts/mutation-ledger-schema.ts --check && tsx scripts/settings-v2-schema.ts --check && tsx scripts/settings-v4-schema.ts --check && tsx scripts/settings-v5-schema.ts --check",
     "schema:write": "tsx scripts/story-schema.ts --write && tsx scripts/mutation-ledger-schema.ts --write && tsx scripts/settings-v2-schema.ts --write && tsx scripts/settings-v4-schema.ts --write && tsx scripts/settings-v5-schema.ts --write",
     "notes:check": "tsx scripts/release-notes.ts --check",
@@ -31,8 +31,13 @@
   },
   "devDependencies": {
     "@types/node": "^24.0.0",
+    "@types/react": "^19.3.0",
+    "@types/react-dom": "^19.3.0",
+    "@vitejs/plugin-react": "^6.1.1",
     "ajv": "^8.20.0",
+    "playwright-core": "^1.63.0",
     "tsx": "^4.19.0",
-    "typescript": "^5.8.0"
+    "typescript": "^5.8.0",
+    "vite": "^8.3.1"
   }
 }

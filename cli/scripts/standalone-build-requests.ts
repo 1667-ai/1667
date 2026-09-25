@@ -51,7 +51,13 @@ export function buildStandaloneProduct<Result>(
           : JSON.stringify(options.embeddedWorkerSource),
       __AI_1667_WEB_ASSETS__: JSON.stringify(encodeWebAssets(options.webAssets))
     },
-    external: ["koffi"],
+    // `vite` is a second guard behind `cli/src/web-assets.ts`'s non-literal
+    // `import()` of its builder: even if Bun's bundler tried to resolve that
+    // dynamic import anyway, `external` stops it from pulling `vite` (never
+    // installed for a compiled build, and never needed — a compiled
+    // executable's `__AI_1667_WEB_ASSETS__` define means that code path
+    // never runs) into the executable.
+    external: ["koffi", "vite"],
     minify: true
   });
 }

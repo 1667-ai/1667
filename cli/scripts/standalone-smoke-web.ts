@@ -29,13 +29,18 @@ export async function smokeStandaloneWeb(
       throw new Error(`Standalone web smoke printed a URL with no token: ${readyUrl}`);
     }
 
-    const appJs = await fetch(`${parsed.origin}/app.js`);
+    const index = await fetch(parsed.origin);
+    if (index.status !== 200) {
+      throw new Error(`Standalone web smoke could not fetch / (${index.status})`);
+    }
+    const scriptSrc = scriptSrcFrom(await index.text());
+    const appJs = await fetch(`${parsed.origin}${scriptSrc}`);
     if (appJs.status !== 200) {
-      throw new Error(`Standalone web smoke could not fetch /app.js (${appJs.status})`);
+      throw new Error(`Standalone web smoke could not fetch ${scriptSrc} (${appJs.status})`);
     }
     const appJsBody = await appJs.text();
     if (!appJsBody.includes(WEB_BRIDGE_PATH)) {
-      throw new Error("Standalone web smoke's /app.js does not reference the bridge");
+      throw new Error(`Standalone web smoke's ${scriptSrc} does not reference the bridge`);
     }
 
     const socket = new WebSocket(`ws://${parsed.host}${WEB_BRIDGE_PATH}`, {
@@ -73,6 +78,14 @@ export async function smokeStandaloneWeb(
       );
     }
   }
+}
+
+/** The hashed entry script Vite's build wrote into the index page — never a
+ * fixed name, unlike the Bun.build era's `/app.js`. */
+function scriptSrcFrom(html: string): string {
+  const match = /<script[^>]*\ssrc="([^"]+)"/u.exec(html);
+  if (match === null) throw new Error("Standalone web smoke's index has no <script src>");
+  return match[1]!;
 }
 
 async function readWebReadyUrl(stream: ReadableStream<Uint8Array>): Promise<string> {
