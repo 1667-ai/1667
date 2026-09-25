@@ -10,7 +10,6 @@ import {
   WEB_BRIDGE_SUBPROTOCOL,
   WEB_BRIDGE_TOKEN_PREFIX
 } from "../shared/web-bridge-protocol.js";
-import { WEB_APP_JS, WEB_SHELL_HTML } from "./web-placeholder.js";
 
 /** 32 random bytes, hex-encoded: matches the story-scope capability length,
  * so a candidate of the wrong shape never reaches `timingSafeEqual` with
@@ -42,13 +41,23 @@ function securityHeaders(port: number): Record<string, string> {
   };
 }
 
+/** One static file the app bundle needs served publicly: `cli/src/web-assets.ts`
+ * builds `"/"` (`web/index.html`) and `"/app.js"` (`web/src/main.ts`, bundled).
+ * Step 3 adds hashed `/assets/*` entries; this server does not care which
+ * paths are present, only that every one of them is public GET/HEAD. */
+export interface WebAsset {
+  readonly contentType: string;
+  readonly body: string;
+}
+
 export interface WebServerOptions {
   readonly port: number;
   /** Shared with `host/web-bridge-server.ts` — see `generateWebToken`. */
   readonly token: string;
-  /** The project root, shown on the placeholder page. */
+  readonly assets: ReadonlyMap<string, WebAsset>;
+  /** The project root, shown once `/api/status` is authorized. */
   readonly projectLabel: string;
-  /** The running build's version, shown on the placeholder page. */
+  /** The running build's version, shown once `/api/status` is authorized. */
   readonly version: string;
 }
 
@@ -81,6 +90,7 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
   const context: RequestContext = {
     port: address.port,
     tokenBuffer: Buffer.from(options.token, "hex"),
+    assets: options.assets,
     projectLabel: options.projectLabel,
     version: options.version
   };
@@ -132,6 +142,7 @@ export interface AuthorizationContext {
 }
 
 interface RequestContext extends AuthorizationContext {
+  readonly assets: ReadonlyMap<string, WebAsset>;
   readonly projectLabel: string;
   readonly version: string;
 }
@@ -149,19 +160,9 @@ interface Route {
   readonly handle: (context: RequestContext) => RouteResponse;
 }
 
+/** Every path here is app data, never a static asset — those come from
+ * `context.assets` instead (see `handleRequest`). */
 const ROUTES: readonly Route[] = [
-  {
-    path: "/",
-    methods: new Set(["GET", "HEAD"]),
-    credential: "none",
-    handle: () => ({ status: 200, contentType: "text/html; charset=utf-8", body: WEB_SHELL_HTML })
-  },
-  {
-    path: "/app.js",
-    methods: new Set(["GET", "HEAD"]),
-    credential: "none",
-    handle: () => ({ status: 200, contentType: "text/javascript; charset=utf-8", body: WEB_APP_JS })
-  },
   {
     path: "/api/status",
     methods: new Set(["GET"]),
@@ -254,14 +255,21 @@ function handleRequest(
     if (!authorization.ok) {
       return sendPage(response, method, authorization.status, authorization.page, context.port);
     }
-    if (route === undefined) {
-      return sendPage(response, method, 404, simplePage("Not found."), context.port);
+    if (route !== undefined) {
+      if (!route.methods.has(method)) {
+        return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
+      }
+      const result = route.handle(context);
+      return send(response, method, result.status, result.contentType, result.body, context.port);
     }
-    if (!route.methods.has(method)) {
-      return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
+    const asset = context.assets.get(pathname);
+    if (asset !== undefined) {
+      if (method !== "GET" && method !== "HEAD") {
+        return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
+      }
+      return send(response, method, 200, asset.contentType, asset.body, context.port);
     }
-    const result = route.handle(context);
-    return send(response, method, result.status, result.contentType, result.body, context.port);
+    return sendPage(response, method, 404, simplePage("Not found."), context.port);
   } catch {
     // A bug here still has to answer the socket, not crash the process.
     try {

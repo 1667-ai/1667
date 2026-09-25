@@ -64,6 +64,7 @@ test("the shell page and the client script are public, and every security header
   expect(script.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
   const scriptBody = await script.text();
   expect(scriptBody).toContain("/api/status");
+  expect(scriptBody).toContain("/api/bridge");
   expect(scriptBody).toContain("1667.web.token");
   assertSecurityHeaders(script, web.port);
 }, 30_000);

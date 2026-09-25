@@ -6,6 +6,7 @@ import { formatBuildVersion } from "../../shared/build-identity.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { embeddedVaultOptions, openProject } from "./embedded-project.js";
 import { inlineValue, separatedValue } from "./project-command.js";
+import { loadWebAssets } from "./web-assets.js";
 
 /** A fresh port on every run gives every run a fresh browser origin, so
  * nothing an earlier program left on that origin (a service worker, say) can
@@ -94,11 +95,13 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
     if (stop.settled()) return await finishStop(stop.outcome);
 
     const token = generateWebToken();
+    const assets = await loadWebAssets();
     let server: WebServer;
     try {
       server = await startWebServer({
         port: command.port,
         token,
+        assets,
         projectLabel: opened.project.root,
         version: formatBuildVersion()
       });
