@@ -37,7 +37,7 @@ HTTP server mode is available only on Linux. See
 
 ## `1667 web` (experimental)
 
-`1667 web` opens your project and serves a placeholder page. The server
+`1667 web` opens your project and serves a page in your browser. The server
 answers requests from your computer only.
 
 ```sh
@@ -50,8 +50,10 @@ bun start -- web --no-open
 The command prints a URL with a private token. Open the URL in a browser.
 By default, the command opens the URL for you.
 
-The page shows your project and the build version. It does not show your
-stories yet.
+The page shows your project and the build version. It connects to your
+project over a WebSocket. The page lists your stories. You can create a
+story and open a story. You can continue a story. The page shows the new
+text as the model writes it. You can stop a generation before it ends.
 
 ## Build a standalone executable
 

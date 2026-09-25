@@ -6,8 +6,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 ## Unreleased
 
 - **`1667 web` is a new, experimental command.** It opens your project and
-  serves a placeholder page on your computer only. Use `1667 web --help` for
-  the options.
+  serves a page on your computer only. The page lists your stories. You can
+  create a story and open a story. You can continue a story. Use
+  `1667 web --help` for the options.
 
 - **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
   the Anthropic provider, you can set effort for these models. 1667 shows
