@@ -52,10 +52,9 @@ The executable contains the CLI, the TUI, the backend worker, its
 dependencies, and the Bun runtime. It does not need Bun or Node.js at run
 time.
 
-The build checks the root, TUI, and CLI package versions, and the lockfile
-version. It also checks the embedded worker and the prompt tokenizer. The
-output is a development candidate. The command does not sign, archive, or
-publish it.
+The build checks the root, TUI, and lockfile versions. It also checks the
+embedded worker and the prompt tokenizer. The output is a development
+candidate. The command does not sign, archive, or publish it.
 
 The release publishes packages for macOS, Linux, and Windows x64. See
 [Platforms and standalone builds](../docs/platforms-and-builds.md).

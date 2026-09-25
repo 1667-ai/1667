@@ -150,10 +150,9 @@ async function deriveBuildIdentity(): Promise<PackagedBuildIdentity> {
     }
     return identity;
   }
-  const [rootPackage, tuiPackage, cliPackage, rootLock, sourceCommit, sourceStatus] = await Promise.all([
+  const [rootPackage, tuiPackage, rootLock, sourceCommit, sourceStatus] = await Promise.all([
     readJson(path.join(repositoryRoot, "package.json")),
     readJson(path.join(tuiRoot, "package.json")),
-    readJson(path.join(cliRoot, "package.json")),
     readJson(path.join(repositoryRoot, "package-lock.json")),
     git("rev-parse", "--verify", "HEAD^{commit}"),
     git("status", "--porcelain=v1", "--untracked-files=normal")
@@ -161,7 +160,6 @@ async function deriveBuildIdentity(): Promise<PackagedBuildIdentity> {
   const versions = [
     manifestVersion(rootPackage, "package.json"),
     manifestVersion(tuiPackage, "tui/package.json"),
-    manifestVersion(cliPackage, "cli/package.json"),
     manifestVersion(rootLock, "package-lock.json"),
     lockRootVersion(rootLock)
   ];

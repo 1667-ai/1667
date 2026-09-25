@@ -43,9 +43,9 @@ the TUI. It also contains the backend worker, dependencies, and Bun runtime.
 You can move the standalone executable to a different directory. It does not
 need Bun or Node.js at run time.
 
-The build verifies the root version, the TUI version, the CLI version, and the
-lockfile version. It reads the build identity from the executable. It also
-tests the embedded worker and the prompt tokenizer.
+The build verifies the root version, TUI version, and lockfile version. It
+reads the build identity from the executable. It also tests the embedded
+worker and the prompt tokenizer.
 
 This standalone executable is a development candidate. The build does not sign
 or publish the file. It does not create an archive or an installer.
