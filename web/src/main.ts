@@ -271,7 +271,14 @@ async function main(): Promise<void> {
         elements.continueButton.hidden = false;
         elements.stopButton.hidden = true;
         elements.instruction.value = "";
+        const stoppedText = elements.streamPreview.textContent;
         await openStory(currentStory!.id);
+        // Saving a stopped generation's text is step 5 of #409; until then,
+        // keep it on screen so Stop visibly did something.
+        if (controller.signal.aborted && stoppedText !== "") {
+          elements.streamPreview.textContent =
+            `Stopped. This text is not saved yet:\n${stoppedText}`;
+        }
       }
     })();
   });
