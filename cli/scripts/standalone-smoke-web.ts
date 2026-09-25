@@ -63,7 +63,10 @@ export async function smokeStandaloneWeb(
   } finally {
     child.kill("SIGINT");
     const exitCode = await child.exited;
-    if (exitCode !== 0) {
+    // Windows has no signal delivery between processes: kill("SIGINT")
+    // terminates the child outright, so a clean Ctrl+C exit can only be
+    // checked where signals exist. The cli e2e tests cover it there.
+    if (exitCode !== 0 && process.platform !== "win32") {
       throw new Error(
         `Standalone web smoke did not stop cleanly (${exitCode}): `
           + await new Response(child.stderr).text()
