@@ -19,10 +19,11 @@ const TOKEN_HEX_PATTERN = /^[0-9a-f]{64}$/;
 const INVALID_TOKEN = Buffer.alloc(WEB_TOKEN_BYTES);
 const BEARER_PREFIX = "Bearer ";
 
-/** Mint one per-run token. The caller (`cli/src/web-command.ts`) shares it
- * with `host/web-bridge-server.ts`, so an HTTP request and a WebSocket
- * upgrade on the same run accept exactly the same credential. */
-export function generateWebToken(): string {
+/** Mint one per-run token. Minted and kept inside `startWebServer`: neither
+ * the caller (`cli/src/web-command.ts`) nor `host/web-bridge-server.ts` ever
+ * holds the raw token — the server hands out `url` (which carries it once,
+ * for the browser) and `authorizeUpgrade` (which checks it, for the bridge). */
+function generateWebToken(): string {
   return randomBytes(WEB_TOKEN_BYTES).toString("hex");
 }
 
@@ -52,8 +53,6 @@ export interface WebAsset {
 
 export interface WebServerOptions {
   readonly port: number;
-  /** Shared with `host/web-bridge-server.ts` — see `generateWebToken`. */
-  readonly token: string;
   readonly assets: ReadonlyMap<string, WebAsset>;
   /** The project root, shown once `/api/status` is authorized. */
   readonly projectLabel: string;
@@ -68,16 +67,24 @@ export interface WebServer {
    * `upgrade` handler to the exact same loopback socket rather than binding
    * a second port. */
   readonly httpServer: Server;
+  /** The one credential `host/web-bridge-server.ts`'s `upgrade` handler
+   * needs before it calls `wss.handleUpgrade`: Host valid, Origin required
+   * and valid, the bridge subprotocol offered, and the per-run token offered
+   * alongside it — checked against this server's own copy, which the caller
+   * never sees. No HTTP status can be written once Node hands over the raw
+   * socket for an upgrade, so a caller that gets `false` only destroys it. */
+  authorizeUpgrade(request: IncomingMessage): boolean;
   close(): Promise<void>;
 }
 
 /**
  * A small loopback HTTP server for `1667 web`. Every route is guarded by a
- * per-run token minted by the caller and handed to the browser only in the
- * URL fragment — unlike a cookie, a fragment is never sent to another
- * loopback port, so a malicious local service on a different port cannot
- * replay it. It does not touch the story backend; the caller holds that
- * separately.
+ * per-run token, minted here and handed to the browser only in the URL
+ * fragment — unlike a cookie, a fragment is never sent to another loopback
+ * port, so a malicious local service on a different port cannot replay it.
+ * The caller never sees the raw token itself, only `url` (which already
+ * carries it) and `authorizeUpgrade` (which checks it). This server does not
+ * touch the story backend; the caller holds that separately.
  */
 export async function startWebServer(options: WebServerOptions): Promise<WebServer> {
   const server = createServer();
@@ -87,9 +94,10 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     server.close();
     throw new Error("1667 web server bound without a loopback network address");
   }
+  const token = generateWebToken();
   const context: RequestContext = {
     port: address.port,
-    tokenBuffer: Buffer.from(options.token, "hex"),
+    tokenBuffer: Buffer.from(token, "hex"),
     assets: options.assets,
     projectLabel: options.projectLabel,
     version: options.version
@@ -98,9 +106,10 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     handleRequest(request, response, context);
   });
   return {
-    url: `http://127.0.0.1:${address.port}/#token=${options.token}`,
+    url: `http://127.0.0.1:${address.port}/#token=${token}`,
     port: address.port,
     httpServer: server,
+    authorizeUpgrade: (request) => authorizeUpgrade(request, context),
     close: () => new Promise<void>((resolve, reject) => {
       let settled = false;
       const settle = (error?: NodeJS.ErrnoException): void => {
@@ -114,15 +123,12 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
       // Idle keep-alive sockets otherwise hold `close()` open indefinitely;
       // the shell page has nothing worth draining gracefully for.
       server.closeAllConnections();
-      // Once any connection has been `upgrade`d, Bun's `node:http` server
-      // never invokes `close`'s callback at all — verified against Bun
-      // 1.3.14, even after `closeAllConnections()` and after the upgraded
-      // socket is independently confirmed fully destroyed
-      // (`host/web-bridge-server.ts`'s own `WsBridgeSocket.close` does that
-      // itself, for the same reason). This fallback is what lets `1667 web`
-      // exit after SIGINT with a bridge connected; it is a no-op timer that
-      // clears immediately in the plain-HTTP case, where `close` already
-      // resolves this way well within the window.
+      // `host/web-bridge-server.ts`'s hub already destroys every upgraded
+      // bridge socket itself before a caller closes this server (Bun does
+      // not reliably hand one back through `closeAllConnections` on its
+      // own), so this is a generic backstop, not a wait on that: a plain
+      // `close` callback that never fires for some other reason still lets
+      // `1667 web` exit.
       const fallback = setTimeout(() => settle(), 500);
     })
   };
@@ -132,16 +138,9 @@ function isAlreadyClosed(error: NodeJS.ErrnoException): boolean {
   return error.code === "ERR_SERVER_NOT_RUNNING";
 }
 
-/** The one credential an upgrade needs to authorize a bridge connection —
- * `authorizeRequest`'s "websocket" mode needs no more than this, so
- * `host/web-bridge-server.ts` can share it without importing the rest of
- * this module's private per-run state. */
-export interface AuthorizationContext {
+interface RequestContext {
   readonly port: number;
   readonly tokenBuffer: Buffer;
-}
-
-interface RequestContext extends AuthorizationContext {
   readonly assets: ReadonlyMap<string, WebAsset>;
   readonly projectLabel: string;
   readonly version: string;
@@ -156,7 +155,7 @@ interface RouteResponse {
 interface Route {
   readonly path: string;
   readonly methods: ReadonlySet<string>;
-  readonly credential: "none" | "bearer";
+  readonly requireBearer: boolean;
   readonly handle: (context: RequestContext) => RouteResponse;
 }
 
@@ -166,7 +165,7 @@ const ROUTES: readonly Route[] = [
   {
     path: "/api/status",
     methods: new Set(["GET"]),
-    credential: "bearer",
+    requireBearer: true,
     handle: (context) => ({
       status: 200,
       contentType: "application/json; charset=utf-8",
@@ -183,50 +182,27 @@ type Authorization =
   | { readonly ok: true }
   | { readonly ok: false; readonly status: 401 | 403; readonly page: string };
 
-/** How a request proves it may proceed. An ordinary page route needs
- * nothing (`"none"`); `/api/status` needs the bearer token (`"bearer"`);
- * `host/web-bridge-server.ts`'s upgrade needs the stronger `"websocket"`
- * proof below — Origin is required rather than merely checked when present,
- * and the token travels as a `Sec-WebSocket-Protocol` offer instead of an
- * `Authorization` header, because an upgrade request carries no such header. */
-export type AuthorizationCredential = "none" | "bearer" | "websocket";
-
 /**
- * The DNS-rebinding and token gate every request passes through, in order:
- * the `Host` header, then `Origin`, then the credential itself. It works
- * from an `IncomingMessage` alone (no `ServerResponse`), so
- * `host/web-bridge-server.ts`'s `upgrade` handler calls this same function
- * before a response exists — an upgrade refusal can write no HTTP status at
- * all, only destroy the socket, so `status`/`page` go unread there.
+ * The DNS-rebinding and token gate every ordinary request passes through, in
+ * order: the `Host` header, then `Origin` (when present), then the bearer
+ * token for a route that requires one. `host/web-bridge-server.ts`'s upgrade
+ * uses the separate, stricter `authorizeUpgrade` below instead — an upgrade
+ * has no response to answer with, so it needs no `Authorization` value back,
+ * only a boolean.
  */
-export function authorizeRequest(
+function authorizeRequest(
   request: IncomingMessage,
-  context: AuthorizationContext,
-  credential: AuthorizationCredential
+  context: RequestContext,
+  requireBearer: boolean
 ): Authorization {
   if (!validHost(request.headers.host, context.port)) {
     return { ok: false, status: 403, page: simplePage("Forbidden.") };
   }
   const origin = request.headers.origin;
-  if (credential === "websocket") {
-    if (origin === undefined || !validOrigin(origin, context.port)) {
-      return { ok: false, status: 403, page: simplePage("Forbidden.") };
-    }
-    const protocols = offeredProtocols(request.headers["sec-websocket-protocol"]);
-    if (!protocols.includes(WEB_BRIDGE_SUBPROTOCOL)
-      || !matchesToken(bridgeTokenOffer(protocols), context.tokenBuffer)) {
-      return {
-        ok: false,
-        status: 401,
-        page: simplePage("Open the address that <code>1667 web</code> printed in the terminal.")
-      };
-    }
-    return { ok: true };
-  }
   if (origin !== undefined && !validOrigin(origin, context.port)) {
     return { ok: false, status: 403, page: simplePage("Forbidden.") };
   }
-  if (credential === "bearer" && !matchesToken(bearerToken(request.headers.authorization), context.tokenBuffer)) {
+  if (requireBearer && !matchesToken(bearerToken(request.headers.authorization), context.tokenBuffer)) {
     return {
       ok: false,
       status: 401,
@@ -234,6 +210,26 @@ export function authorizeRequest(
     };
   }
   return { ok: true };
+}
+
+/**
+ * The upgrade-only credential `host/web-bridge-server.ts`'s `upgrade`
+ * handler needs before it calls `wss.handleUpgrade`: Host valid, Origin
+ * REQUIRED and valid (unlike `authorizeRequest`, an upgrade has no same-origin
+ * page to fall back on when Origin is absent), the bridge subprotocol
+ * offered, and the per-run token offered alongside it as a
+ * `Sec-WebSocket-Protocol` entry instead of an `Authorization` header,
+ * because an upgrade request carries no such header. No HTTP status can be
+ * written once Node hands over the raw socket for an upgrade, so a refusal
+ * here is a plain `false`: the caller only destroys the socket.
+ */
+function authorizeUpgrade(request: IncomingMessage, context: RequestContext): boolean {
+  if (!validHost(request.headers.host, context.port)) return false;
+  const origin = request.headers.origin;
+  if (origin === undefined || !validOrigin(origin, context.port)) return false;
+  const protocols = offeredProtocols(request.headers["sec-websocket-protocol"]);
+  return protocols.includes(WEB_BRIDGE_SUBPROTOCOL)
+    && matchesToken(bridgeTokenOffer(protocols), context.tokenBuffer);
 }
 
 function handleRequest(
@@ -251,7 +247,7 @@ function handleRequest(
       return sendPage(response, method, 400, simplePage("Bad request."), context.port);
     }
     const route = findRoute(pathname);
-    const authorization = authorizeRequest(request, context, route?.credential ?? "none");
+    const authorization = authorizeRequest(request, context, route?.requireBearer ?? false);
     if (!authorization.ok) {
       return sendPage(response, method, authorization.status, authorization.page, context.port);
     }

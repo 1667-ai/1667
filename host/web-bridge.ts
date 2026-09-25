@@ -6,7 +6,6 @@ import {
   WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES,
   decodeBridgeClientMessage,
   decodeBridgeMessageText,
-  decodeBridgeRequestInput,
   encodeBridgeMessage,
   workerOperationKey,
   type BridgeCallId,
@@ -51,6 +50,21 @@ interface ActiveRequest {
   terminalTimer: ReturnType<typeof setTimeout> | null;
 }
 
+/** The one caller, `host/web-bridge-server.ts`'s `upgrade` handler, has every
+ * field in hand at once — an options object keeps that call site readable
+ * without positional-argument order to track. */
+export interface WebBridgeOptions {
+  readonly host: WorkerHost;
+  readonly socket: BridgeSocket;
+  readonly onClosed: () => void;
+  /** Fired after this connection dismisses an archived mutation, so the
+   * hub (`host/web-bridge-server.ts`) can broadcast the changed snapshot
+   * to every other open connection — the dismisser's own view comes from
+   * this instance's own `post` below, same as before. `WebBridge` owns no
+   * registry of siblings, so it cannot broadcast this itself. */
+  readonly onRecoveryWarningsChanged: () => void;
+}
+
 /**
  * Bridge one browser connection to the shared, already-started
  * `WorkerTransport` that `1667 web` holds. The Host allocates the
@@ -64,34 +78,47 @@ interface ActiveRequest {
  * hands every connection the same `WorkerHost`.
  */
 export class WebBridge {
+  private readonly host: WorkerHost;
+  private readonly socket: BridgeSocket;
+  private readonly onClosed: () => void;
+  private readonly onRecoveryWarningsChanged: () => void;
   private readonly activeByCall = new Map<BridgeCallId, ActiveRequest>();
   private readonly activeByOperation = new Map<string, ActiveRequest>();
   private closed = false;
 
-  constructor(
-    private readonly host: WorkerHost,
-    private readonly socket: BridgeSocket,
-    private readonly onClosed: () => void = () => undefined,
-    /** Fired after this connection dismisses an archived mutation, so the
-     * hub (`host/web-bridge-server.ts`) can broadcast the changed snapshot
-     * to every other open connection — the dismisser's own view comes from
-     * this instance's own `post` below, same as before. `WebBridge` owns no
-     * registry of siblings, so it cannot broadcast this itself. */
-    private readonly onRecoveryWarningsChanged: () => void = () => undefined
-  ) {
-    socket.on("message", (data) => this.onMessage(data));
-    socket.on("close", () => this.close());
+  constructor(options: WebBridgeOptions) {
+    this.host = options.host;
+    this.socket = options.socket;
+    this.onClosed = options.onClosed;
+    this.onRecoveryWarningsChanged = options.onRecoveryWarningsChanged;
+    this.socket.on("message", (data) => this.onMessage(data));
+    this.socket.on("close", () => this.close());
+  }
+
+  /** Send the handshake. Split from the constructor so the caller can add
+   * this instance to its active set first: a `hello` whose send fails closes
+   * the bridge synchronously (through `onClosed`), and a bridge that closes
+   * itself before the caller could ever remove it from that set would occupy
+   * a connection slot forever. Call this right after adding, never before. */
+  start(): void {
     this.post({
       type: "hello",
       workerProtocolVersion: WORKER_PROTOCOL_VERSION,
       build: WORKER_BUILD_IDENTITY,
-      recoveryWarnings: host.recoveryWarnings.map(toBridgeRecoveryWarning)
+      recoveryWarnings: this.host.recoveryWarnings.map(toBridgeRecoveryWarning)
     });
   }
 
-  publishRecoveryWarnings(warnings: readonly WorkerRecoveryWarning[]): void {
+  /** Publish the live snapshot (`host.recoveryWarnings`), never the argument
+   * that triggered this call — every caller (a dismissal here, or the Worker
+   * host on any new or resolved warning) wants the same full, current list,
+   * never a delta. */
+  publishRecoveryWarnings(): void {
     if (this.closed) return;
-    this.post({ type: "recoveryWarnings", warnings: warnings.map(toBridgeRecoveryWarning) });
+    this.post({
+      type: "recoveryWarnings",
+      warnings: this.host.recoveryWarnings.map(toBridgeRecoveryWarning)
+    });
   }
 
   /** Fail this connection when the shared Host can no longer serve calls. */
@@ -183,7 +210,7 @@ export class WebBridge {
           onAccepted?: (id: WorkerOperationId) => void;
         }
       ) => Promise<unknown>;
-      const value = await call(message.method, decodeBridgeRequestInput(message.method, message.input), {
+      const value = await call(message.method, message.input, {
         signal: request.controller.signal,
         onAccepted: (id) => {
           if (request.id !== undefined) {

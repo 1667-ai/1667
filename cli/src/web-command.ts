@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { createWorkerHost, type WorkerHost, type WorkerRecoveryWarning } from "../../host/worker-host.js";
-import { generateWebToken, startWebServer, type WebServer } from "../../host/web-server.js";
+import { startWebServer, type WebServer } from "../../host/web-server.js";
 import { startWebBridgeServer, type WebBridgeHub } from "../../host/web-bridge-server.js";
 import { formatBuildVersion } from "../../shared/build-identity.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
@@ -72,12 +72,14 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
   // needs an `onRecoveryWarnings` callback now. This cell lets that callback
   // reach the hub once it does. It returns `void`, never `true`: the web UI
   // surfaces a recovery warning with its own Dismiss affordance instead of
-  // the interactive TUI's hard fence, so a new mutation is never blocked on it.
+  // the interactive TUI's hard fence, so a new mutation is never blocked on
+  // it. The hub always re-reads the live snapshot itself, so the warnings
+  // this callback receives go unused.
   let hub: WebBridgeHub | null = null;
   const host: WorkerHost = await createWorkerHost({
     dataDir: opened.project.directory,
     ...embeddedVaultOptions(opened.vault),
-    onRecoveryWarnings: (warnings) => { hub?.broadcastRecoveryWarnings(warnings); }
+    onRecoveryWarnings: () => { hub?.broadcastRecoveryWarnings(); }
   });
   // Listen for Ctrl+C before anything is printed: once the URL is out, a
   // signal must always reach this handler and shut down cleanly, and a
@@ -94,13 +96,11 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
 
     if (stop.settled()) return await finishStop(stop.outcome);
 
-    const token = generateWebToken();
     const assets = await loadWebAssets();
     let server: WebServer;
     try {
       server = await startWebServer({
         port: command.port,
-        token,
         assets,
         projectLabel: opened.project.root,
         version: formatBuildVersion()
@@ -112,11 +112,7 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
       );
     }
     try {
-      hub = startWebBridgeServer({
-        httpServer: server.httpServer,
-        host,
-        context: { port: server.port, tokenBuffer: Buffer.from(token, "hex") }
-      });
+      hub = startWebBridgeServer({ webServer: server, host });
       process.stdout.write(
         `1667 web: serving ${terminalLineText(opened.project.root)} at ${server.url}\n`
       );
@@ -139,9 +135,9 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
       await finishStop(stop.outcome);
     } finally {
       // The http server's own connection draining may not reach an
-      // already-upgraded WebSocket (host/web-bridge-server.ts's `closeAll`
-      // doc explains why), so the hub closes those first.
-      hub?.closeAll();
+      // already-upgraded WebSocket (host/web-bridge-server.ts's `close`
+      // doc explains why), so the hub closes and destroys those first.
+      await hub?.close();
       await server.close();
     }
   } finally {
