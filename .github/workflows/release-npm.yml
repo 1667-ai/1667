@@ -173,7 +173,7 @@ jobs:
         run: node --import tsx scripts/release-github-assets.ts runner "$TARGET"
 
       - name: Build and smoke-test the executable
-        working-directory: tui
+        working-directory: cli
         run: bun run build:standalone
 
       - name: Observe the native executable
@@ -187,7 +187,7 @@ jobs:
             process.stdout.write(basename(releaseTargetForArtifact(process.argv[1]).executable));
           ' "$TARGET")"
           mkdir -p "dist/builds/$TARGET" dist/observations
-          cp "tui/dist/$executable" "dist/builds/$TARGET/$executable"
+          cp "cli/dist/$executable" "dist/builds/$TARGET/$executable"
           chmod 0755 "dist/builds/$TARGET/$executable"
           node --import tsx scripts/release-npm-observation.ts \
             "$TARGET" "dist/builds/$TARGET/$executable" > "dist/observations/$TARGET.json"

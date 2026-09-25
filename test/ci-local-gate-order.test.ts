@@ -29,11 +29,12 @@ test("Linux container setup installs tui's bun dependencies before any gate runs
   );
 
   // The regression this guards against: root npm test spawns
-  // tui/src/standalone.ts (see test/character-card-import.test.ts and
-  // test/story-novelai-import-integration.test.ts), which needs
-  // @opentui/core from tui/node_modules. That module only exists once tui's
-  // bun dependencies are installed, so the test gate must never run before
-  // that install, in either the container setup or the per-target run.
+  // cli/src/standalone.ts (see test/character-card-import.test.ts and
+  // test/story-novelai-import-integration.test.ts), which reaches
+  // @opentui/core through tui/src, so it needs tui/node_modules. That module
+  // only exists once tui's bun dependencies are installed, so the test gate
+  // must never run before that install, in either the container setup or the
+  // per-target run.
   const run = extractFunctionBody(source, "run_linux");
   const ensureContainerCallAt = run.indexOf('ensure_container "$platform" "$name"');
   const runtimeTestAt = run.indexOf("${runtime_test}");

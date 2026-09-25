@@ -494,7 +494,7 @@ export async function runInstallUpgradeE2e(
     throw new StepError(10, "Bun reported an empty executable path.");
   }
 
-  const sourceEntry = path.join("tui", "src", "standalone.ts");
+  const sourceEntry = path.join("cli", "src", "standalone.ts");
   const runSource = async (upgradeArgs: readonly string[], label: string) => {
     const result = await execProcess(
       "bun",

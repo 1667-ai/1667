@@ -204,7 +204,7 @@ test("1667 import routes a .story file to a project", async (t) => {
   );
 
   const imported = await runBunCli(
-    [path.resolve("tui/src/standalone.ts"), "import", "--data", project.root, sampleStory],
+    [path.resolve("cli/src/standalone.ts"), "import", "--data", project.root, sampleStory],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );
   assert.match(imported.stdout, /imported "Sanitized NovelAI V2 export"/u);
@@ -232,7 +232,7 @@ test("1667 import routes a real-shaped legacy .scenario through the service", as
   await writeFile(scenarioFile, JSON.stringify(legacyNovelAiScenario(0)), "utf8");
 
   const imported = await runBunCli(
-    [path.resolve("tui/src/standalone.ts"), "import", "--data", project.root, scenarioFile],
+    [path.resolve("cli/src/standalone.ts"), "import", "--data", project.root, scenarioFile],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }
   );
   assert.match(imported.stdout, /imported "Legacy Scenario v0"/u);
@@ -268,7 +268,7 @@ test("1667 import-lorebook routes a real-shaped legacy Lorebook through the serv
   await writeFile(lorebookFile, JSON.stringify(legacyNovelAiLorebook(4)), "utf8");
   const imported = await runBunCli(
     [
-      path.resolve("tui/src/standalone.ts"),
+      path.resolve("cli/src/standalone.ts"),
       "import-lorebook",
       "--data", project.root,
       "--story", story.id,

@@ -1,0 +1,13 @@
+{
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "bun src/standalone.ts",
+    "build:standalone": "bun scripts/build-standalone.ts",
+    "test": "bun test --timeout=30000",
+    "typecheck": "tsc --noEmit"
+  },
+  "engines": {
+    "bun": ">=1.4.0"
+  }
+}

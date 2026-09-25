@@ -1,11 +1,12 @@
 # 1667 TUI
 
-The TUI is the full-screen terminal interface for 1667. By default, it starts
-an embedded backend worker without a network port.
+The TUI is the full-screen terminal interface for 1667. It has no executable
+of its own. The `1667` command lives in [`cli/`](../cli/README.md). By
+default, it starts the TUI over an embedded backend worker, without a network
+port.
 
-## Run from source
-
-Install the root dependencies and the TUI dependencies:
+Install the TUI dependencies before you run the CLI from source or build the
+standalone executable:
 
 ```sh
 cd ..
@@ -14,46 +15,8 @@ cd tui
 bun install --frozen-lockfile
 ```
 
-Start the TUI:
-
-```sh
-bun start
-bun start -- --story <id>
-bun start -- --data /path/to/project
-bun start -- --demo
-bun start -- --demo --render-once --size 120x36
-bun start -- --url http://127.0.0.1:7373
-```
-
-`--data` selects a project root. Without this option, 1667 searches the current
-directory and its parent directories for `.1667/`.
-
-HTTP server mode is available only on Linux. See
-[Run 1667 from source](../docs/run-from-source.md) and
+See [Run 1667 from source](../docs/run-from-source.md) and
 [Story storage](../docs/story-storage.md).
-
-## Build a standalone executable
-
-Use Bun 1.4.0 or newer:
-
-```sh
-bun run build:standalone
-./dist/1667 --version
-./dist/1667 --version --json
-./dist/1667 --demo --render-once --size 120x36
-```
-
-On Windows, use `.\dist\1667.exe`.
-
-The executable contains the TUI, the backend worker, its dependencies, and the
-Bun runtime. It does not need Bun or Node.js at run time.
-
-The build checks the root, TUI, and lockfile versions. It also checks the
-embedded worker and the prompt tokenizer. The output is a development
-candidate. The command does not sign, archive, or publish it.
-
-The release publishes packages for macOS, Linux, and Windows x64. See
-[Platforms and standalone builds](../docs/platforms-and-builds.md).
 
 ## Use the TUI
 
@@ -87,5 +50,4 @@ one. See [Model providers](../docs/model-providers.md#generation-record).
 bun run typecheck
 bun run test
 bun bench/perf.ts
-bun run build:standalone
 ```

@@ -10,7 +10,7 @@ import {
 import {
   buildPromptTokenizerSmoke,
   buildStandaloneProduct
-} from "../tui/scripts/standalone-build-requests.js";
+} from "../cli/scripts/standalone-build-requests.js";
 
 test("arm64 standalone builds keep the native Bun runtime", () => {
   assert.equal(standaloneCompileTarget("darwin-arm64"), undefined);

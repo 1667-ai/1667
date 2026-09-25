@@ -100,8 +100,16 @@ jobs:
         working-directory: tui
         run: bun run test
 
+      - name: Type-check CLI
+        working-directory: cli
+        run: bun run typecheck
+
+      - name: Test CLI
+        working-directory: cli
+        run: bun run test
+
       - name: Build and smoke-test native standalone
-        working-directory: tui
+        working-directory: cli
         run: bun run build:standalone
 
       - name: Install Btrfs tools
@@ -133,18 +141,18 @@ jobs:
           AI_1667_BTRFS_TEST_MOUNT="${mount_point}" \
             node --import tsx --test \
               test/http-btrfs-node-integration.test.ts
-          bun tui/scripts/standalone-btrfs-identity.ts capture \
-            tui/dist/1667 "${mount_point}/project" "${state}" "${first}"
+          bun cli/scripts/standalone-btrfs-identity.ts capture \
+            cli/dist/1667 "${mount_point}/project" "${state}" "${first}"
           btrfs subvolume snapshot \
             "${mount_point}/project" "${mount_point}/snapshot"
-          bun tui/scripts/standalone-btrfs-identity.ts capture \
-            tui/dist/1667 "${mount_point}/snapshot" "${state}" "${snapshot}"
+          bun cli/scripts/standalone-btrfs-identity.ts capture \
+            cli/dist/1667 "${mount_point}/snapshot" "${state}" "${snapshot}"
           sudo umount "${mount_point}"
           cp --reflink=never "${image}" "${clone_image}"
           sudo mount --options loop "${clone_image}" "${mount_point}"
-          bun tui/scripts/standalone-btrfs-identity.ts capture \
-            tui/dist/1667 "${mount_point}/project" "${state}" "${clone}"
-          bun tui/scripts/standalone-btrfs-identity.ts verify \
+          bun cli/scripts/standalone-btrfs-identity.ts capture \
+            cli/dist/1667 "${mount_point}/project" "${state}" "${clone}"
+          bun cli/scripts/standalone-btrfs-identity.ts verify \
             "${first}" "${snapshot}" "${clone}"
 
       - name: Test non-Btrfs clone rejection
@@ -250,9 +258,14 @@ jobs:
         working-directory: tui
         run: bun run test
 
-      - name: Run Windows upgrade, ownership, and clipboard tests
+      - name: Run CLI tests
+        if: matrix.target != 'darwin-x64' && matrix.target != 'windows-x64'
+        working-directory: cli
+        run: bun run test
+
+      - name: Run Windows upgrade, ownership, and install tests
         if: matrix.target == 'windows-x64'
-        working-directory: tui
+        working-directory: cli
         run: >-
           bun test --timeout 30000
           test/upgrade-cli.test.ts
@@ -260,6 +273,12 @@ jobs:
           test/windows-powershell-upgrade-recovery.test.ts
           test/windows-powershell-upgrade-compat.test.ts
           test/install-ownership-authority.test.ts
+
+      - name: Run Windows clipboard tests
+        if: matrix.target == 'windows-x64'
+        working-directory: tui
+        run: >-
+          bun test --timeout 30000
           test/clipboard-command-runner.test.ts
           test/clipboard-windows.test.ts
 
@@ -268,8 +287,13 @@ jobs:
         working-directory: tui
         run: bun run test -- --max-concurrency=1
 
+      - name: Run Intel macOS CLI tests without filesystem contention
+        if: matrix.target == 'darwin-x64'
+        working-directory: cli
+        run: bun run test -- --max-concurrency=1
+
       - name: Build and execute packaged candidate
-        working-directory: tui
+        working-directory: cli
         env:
           AI_1667_WINDOWS_DEFAULT_STATE_SMOKE: ${{ matrix.target == 'windows-x64' && '1' || '0' }}
         run: bun run build:standalone

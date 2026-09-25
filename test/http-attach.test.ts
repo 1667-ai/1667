@@ -7,7 +7,7 @@ import { startHttpListener } from "../server/http-listener.js";
 import { createApi } from "../tui/src/api.js";
 import { attachHttpServer } from "../tui/src/http-attach.js";
 import { resolveHttpAuthRecordPaths } from "../server/http-auth-record.js";
-import { runAuthShow } from "../tui/src/http-commands.js";
+import { runAuthShow } from "../cli/src/http-commands.js";
 import { HttpOperationClient } from "../shared/http-operation-client.js";
 import { createDurableMutationId } from "../shared/durable-mutation-id.js";
 

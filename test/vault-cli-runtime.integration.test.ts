@@ -29,7 +29,7 @@ test("E2E integration: the Bun runtime seals and unseals a project vault", async
   const passphraseFile = path.join(root, "passphrase.txt");
   await writeFile(passphraseFile, `${PASSPHRASE}\n`);
 
-  const entrypoint = path.resolve("tui/src/standalone.ts");
+  const entrypoint = path.resolve("cli/src/standalone.ts");
   const env = { ...process.env, AI_1667_STATE: path.join(root, "machine") };
   const vaultCommand = async (command: "encrypt" | "decrypt"): Promise<void> => {
     await runBunCli(

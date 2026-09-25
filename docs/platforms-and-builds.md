@@ -28,7 +28,7 @@ newer.
 ## Build a standalone executable
 
 ```sh
-cd tui
+cd cli
 bun run build:standalone
 ./dist/1667 --version
 ./dist/1667 --version --json
@@ -37,15 +37,15 @@ bun run build:standalone
 
 On Windows, use `.\dist\1667.exe` for these commands.
 
-The build writes `tui/dist/1667` on macOS and Linux. The build writes
-`tui/dist/1667.exe` on Windows. The standalone executable contains the TUI. It
-also contains the backend worker, dependencies, and Bun runtime. You can move
-the standalone executable to a different directory. It does not need Bun or
-Node.js at run time.
+The build writes `cli/dist/1667` on macOS and Linux. The build writes
+`cli/dist/1667.exe` on Windows. The standalone executable contains the CLI and
+the TUI. It also contains the backend worker, dependencies, and Bun runtime.
+You can move the standalone executable to a different directory. It does not
+need Bun or Node.js at run time.
 
-The build verifies the root version, TUI version, and lockfile version. It reads
-the build identity from the executable. It also tests the embedded worker and
-the prompt tokenizer.
+The build verifies the root version, TUI version, and lockfile version. It
+reads the build identity from the executable. It also tests the embedded
+worker and the prompt tokenizer.
 
 This standalone executable is a development candidate. The build does not sign
 or publish the file. It does not create an archive or an installer.

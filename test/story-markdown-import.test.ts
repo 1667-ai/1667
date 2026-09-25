@@ -8,7 +8,7 @@ import { promisify } from "node:util";
 import { StoryService } from "../server/story-service.js";
 import { partsFromMarkdown } from "../server/import-md.js";
 import { storyFromImport } from "../server/import-st.js";
-import { parseImportCommand } from "../tui/src/import-cli.js";
+import { parseImportCommand } from "../cli/src/import-cli.js";
 import { initializeProject } from "../server/project-discovery.js";
 import { stripInheritedAcl } from "./state-root-fixture.js";
 import type { StoryPayload } from "../shared/types.js";
@@ -473,7 +473,7 @@ test("E2E integration: 1667 import routes to a project and returns a failure exi
   const sampleMd = path.join(root, "sample.md");
   await writeFile(sampleMd, "\uFEFF# TUI Imported Story\n\nFirst paragraph.", "utf8");
 
-  const entrypoint = path.resolve("tui/src/standalone.ts");
+  const entrypoint = path.resolve("cli/src/standalone.ts");
   const imported = await runBunCli(
     [entrypoint, "import", "--data", project.root, sampleMd],
     { env: { ...process.env, AI_1667_STATE: path.join(root, "machine") } }

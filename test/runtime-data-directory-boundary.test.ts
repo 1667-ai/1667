@@ -4,7 +4,7 @@ import path from "node:path";
 import test from "node:test";
 
 const ROOT = path.resolve(import.meta.dirname, "..");
-const PRODUCTION_ROOTS = ["server", "tui/src"] as const;
+const PRODUCTION_ROOTS = ["server", "tui/src", "cli/src"] as const;
 const RAW_LOCK_IMPORT = /from\s+["'][^"']*data-directory-lock\.js["']/;
 const ALLOWED_RAW_IMPORTS = [
   "server/data-directory-migration.ts",

@@ -21,7 +21,7 @@ Set WaitTimeout 15s
 Hide
 Type "readme_capture_root=$(mktemp -d /tmp/1667-readme.XXXXXX)"
 Enter
-Type "cd tui && AI_1667_STATE=$readme_capture_root/state XDG_CONFIG_HOME=$readme_capture_root/config bun start -- --data $readme_capture_root/project"
+Type "cd cli && AI_1667_STATE=$readme_capture_root/state XDG_CONFIG_HOME=$readme_capture_root/config bun start -- --data $readme_capture_root/project"
 Enter
 Wait+Screen /Welcome to 1667/
 Show

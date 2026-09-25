@@ -13,8 +13,6 @@
     "1667": "./bin/1667"
   },
   "scripts": {
-    "start": "bun src/standalone.ts",
-    "build:standalone": "bun scripts/build-standalone.ts",
     "test": "bun scripts/test-shards.ts",
     "typecheck": "tsc --noEmit"
   },

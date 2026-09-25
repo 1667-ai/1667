@@ -453,8 +453,8 @@ function decodeChildResultMessage(value: unknown): ChildResultMessage | null {
  *
  * A compiled 1667 executable has no separate file for this module: it is
  * bundled into the single binary the same way `server/worker.ts` is (see
- * `tui/scripts/build-standalone.ts`). Source-mode detection follows
- * `tui/src/serve-supervisor.ts` exactly: when the currently running
+ * `cli/scripts/build-standalone.ts`). Source-mode detection follows
+ * `cli/src/serve-supervisor.ts` exactly: when the currently running
  * process's own entry ends in `.ts`, this is a source checkout, and the
  * child is spawned by file path (through `tsx` under plain Node, or
  * directly under Bun, which runs `.ts` natively). Otherwise this process is

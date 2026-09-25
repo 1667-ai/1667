@@ -14,6 +14,7 @@ import {
   samplingKnobLabel,
   samplingUnavailableReasonCompact
 } from "../../shared/sampling-capabilities.js";
+import { settingsActivationFailureText } from "../../shared/settings-activation-text.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
@@ -64,7 +65,6 @@ import {
   disarmSettingsConflict,
   initialSettingsOverlay,
   sameSettingsDraft,
-  settingsActivationFailureText,
   settingsDraftChanged,
   settingsRowHasArrows,
   settingsRowIsNonActionable,

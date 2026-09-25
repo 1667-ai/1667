@@ -22,7 +22,7 @@ import {
   parseServeArguments,
   ServeSupervisor,
   sanitizedSupervisorChildEnvironment
-} from "../tui/src/serve-supervisor.js";
+} from "../cli/src/serve-supervisor.js";
 import {
   assertSupervisedMachineTierOutsideProject,
   credentialNames,
@@ -60,7 +60,7 @@ const ROOT = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 
 test("serve supervisor import closure excludes application and provider modules", async () => {
   const source = await readFile(
-    path.join(ROOT, "tui", "src", "serve-supervisor.ts"),
+    path.join(ROOT, "cli", "src", "serve-supervisor.ts"),
     "utf8"
   );
   for (const forbidden of [
