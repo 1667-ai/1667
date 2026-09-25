@@ -43,40 +43,56 @@ async function main(): Promise<void> {
     { stdio: ["ignore", "pipe", "inherit"] }
   );
 
-  const backendUrl = await waitForReadyUrl(backend);
-  const parsedBackendUrl = new URL(backendUrl);
-  const token = new URLSearchParams(parsedBackendUrl.hash.replace(/^#/, "")).get("token");
-  if (token === null) {
-    throw new Error(`1667 web printed a URL with no token fragment: ${backendUrl}`);
-  }
-
-  // `configure` in `web/vite.config.ts` reads `process.env.AI_1667_WEB_DEV_TARGET`
-  // directly (it runs as plain Node code, not through Vite's own env
-  // pipeline), so this has to be a real process environment variable, set
-  // before `createServer` loads that config file.
-  process.env.AI_1667_WEB_DEV_TARGET = parsedBackendUrl.origin;
-  const vite = await createServer({ configFile: viteConfigFile });
-  await vite.listen();
-
-  const devUrl = `${DEV_URL_BASE}/#token=${token}`;
-  process.stdout.write(`1667 web dev: ${devUrl}\n`);
-  process.stdout.write("Press Ctrl+C to stop.\n");
+  // The backend already holds the project lock the instant it spawns above
+  // (deliberately first: its own readiness line hands Vite the origin to
+  // proxy to). Everything from here through `vite.listen()` can still fail
+  // -- most concretely, Vite's `strictPort` rejecting because 5173 is
+  // already taken -- so this is wrapped: a failure here must kill the
+  // backend (and close Vite, if it got that far) before propagating, or the
+  // backend outlives this whole script's failed startup, keeping the lock
+  // with nothing left to release it.
+  let vite: Awaited<ReturnType<typeof createServer>> | null = null;
   try {
-    await openInBrowser(devUrl);
+    const backendUrl = await waitForReadyUrl(backend);
+    const parsedBackendUrl = new URL(backendUrl);
+    const token = new URLSearchParams(parsedBackendUrl.hash.replace(/^#/, "")).get("token");
+    if (token === null) {
+      throw new Error(`1667 web printed a URL with no token fragment: ${backendUrl}`);
+    }
+
+    // `configure` in `web/vite.config.ts` reads `process.env.AI_1667_WEB_DEV_TARGET`
+    // directly (it runs as plain Node code, not through Vite's own env
+    // pipeline), so this has to be a real process environment variable, set
+    // before `createServer` loads that config file.
+    process.env.AI_1667_WEB_DEV_TARGET = parsedBackendUrl.origin;
+    vite = await createServer({ configFile: viteConfigFile });
+    await vite.listen();
+
+    const devUrl = `${DEV_URL_BASE}/#token=${token}`;
+    process.stdout.write(`1667 web dev: ${devUrl}\n`);
+    process.stdout.write("Press Ctrl+C to stop.\n");
+    try {
+      await openInBrowser(devUrl);
+    } catch (error) {
+      process.stderr.write(
+        `1667 web dev: could not open a browser automatically (${errorMessage(error)}). `
+          + "Open the address above yourself.\n"
+      );
+    }
   } catch (error) {
-    process.stderr.write(
-      `1667 web dev: could not open a browser automatically (${errorMessage(error)}). `
-        + "Open the address above yourself.\n"
-    );
+    await vite?.close().catch(() => {});
+    backend.kill("SIGINT");
+    throw error;
   }
 
+  const readyVite = vite;
   const shutdown = (): void => {
-    void vite.close().finally(() => backend.kill("SIGINT"));
+    void readyVite.close().finally(() => backend.kill("SIGINT"));
   };
   process.once("SIGINT", shutdown);
   process.once("SIGTERM", shutdown);
   backend.once("exit", (code) => {
-    void vite.close().finally(() => process.exit(code ?? 0));
+    void readyVite.close().finally(() => process.exit(code ?? 0));
   });
 }
 
