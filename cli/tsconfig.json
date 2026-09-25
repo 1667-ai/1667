@@ -10,5 +10,5 @@
     "noEmit": true,
     "skipLibCheck": true
   },
-  "include": ["src", "test", "../shared", "../tui/src/bun-test.d.ts"]
+  "include": ["src", "test", "../shared", "../tui/src/bun-test.d.ts", "../host/ws-module.d.ts"]
 }

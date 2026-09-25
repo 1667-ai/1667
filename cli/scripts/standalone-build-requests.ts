@@ -2,6 +2,7 @@ import type { BuildIdentity } from "../../shared/build-identity.js";
 import type {
   StandaloneCompiler
 } from "../../shared/standalone-compile-target.js";
+import type { WebAsset } from "../../host/web-server.js";
 
 export interface StandaloneProductBuildOptions {
   readonly entrypoints: string[];
@@ -10,6 +11,10 @@ export interface StandaloneProductBuildOptions {
   readonly tiktokenWasmBase64: string;
   readonly photonWasmBase64: string;
   readonly embeddedWorkerSource: string | undefined;
+  /** Embedded so a compiled `1667` never needs `web/` on disk at runtime —
+   *  unlike `embeddedWorkerSource`, every platform gets this, not only
+   *  Windows. See `cli/src/web-assets.ts`. */
+  readonly webAssets: ReadonlyMap<string, WebAsset>;
 }
 
 export interface PromptTokenizerBuildOptions {
@@ -42,7 +47,8 @@ export function buildStandaloneProduct<Result>(
       __AI_1667_EMBEDDED_WORKER_SOURCE__:
         options.embeddedWorkerSource === undefined
           ? "undefined"
-          : JSON.stringify(options.embeddedWorkerSource)
+          : JSON.stringify(options.embeddedWorkerSource),
+      __AI_1667_WEB_ASSETS__: JSON.stringify(Object.fromEntries(options.webAssets))
     },
     external: ["koffi"],
     minify: true

@@ -1,10 +1,12 @@
 import { spawn } from "node:child_process";
 import { createWorkerHost, type WorkerHost, type WorkerRecoveryWarning } from "../../host/worker-host.js";
 import { startWebServer, type WebServer } from "../../host/web-server.js";
+import { startWebBridgeServer, type WebBridgeHub } from "../../host/web-bridge-server.js";
 import { formatBuildVersion } from "../../shared/build-identity.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { embeddedVaultOptions, openProject } from "./embedded-project.js";
 import { inlineValue, separatedValue } from "./project-command.js";
+import { loadWebAssets } from "./web-assets.js";
 
 /** A fresh port on every run gives every run a fresh browser origin, so
  * nothing an earlier program left on that origin (a service worker, say) can
@@ -57,19 +59,27 @@ function webPort(value: string): number {
 
 /**
  * `1667 web`: open the story project exactly like the embedded TUI does, hold
- * the Worker host so the project lock stays taken, and serve a placeholder
- * page on loopback behind a per-run token. Step 1 of the web UI (#409) — no
- * WebSocket bridge and no app bundle yet, only proof that the local server
- * runs.
+ * the Worker host so the project lock stays taken, and serve the app plus a
+ * WebSocket bridge to that Worker on loopback, behind a per-run token.
  */
 export async function runWebCommand(argv: readonly string[]): Promise<void> {
   const command = parseWebCommand(argv);
   const opened = await openProject({ data: command.data, global: command.global });
   if (opened === null) return;
 
+  // The hub does not exist until after the Worker host starts (it wraps the
+  // http server the host has no reason to know about), but `createWorkerHost`
+  // needs an `onRecoveryWarnings` callback now. This cell lets that callback
+  // reach the hub once it does. It returns `void`, never `true`: the web UI
+  // surfaces a recovery warning with its own Dismiss affordance instead of
+  // the interactive TUI's hard fence, so a new mutation is never blocked on
+  // it. The hub always re-reads the live snapshot itself, so the warnings
+  // this callback receives go unused.
+  let hub: WebBridgeHub | null = null;
   const host: WorkerHost = await createWorkerHost({
     dataDir: opened.project.directory,
-    ...embeddedVaultOptions(opened.vault)
+    ...embeddedVaultOptions(opened.vault),
+    onRecoveryWarnings: () => { hub?.broadcastRecoveryWarnings(); }
   });
   // Listen for Ctrl+C before anything is printed: once the URL is out, a
   // signal must always reach this handler and shut down cleanly, and a
@@ -86,10 +96,12 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
 
     if (stop.settled()) return await finishStop(stop.outcome);
 
+    const assets = await loadWebAssets();
     let server: WebServer;
     try {
       server = await startWebServer({
         port: command.port,
+        assets,
         projectLabel: opened.project.root,
         version: formatBuildVersion()
       });
@@ -100,6 +112,7 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
       );
     }
     try {
+      hub = startWebBridgeServer({ webServer: server, host });
       process.stdout.write(
         `1667 web: serving ${terminalLineText(opened.project.root)} at ${server.url}\n`
       );
@@ -121,6 +134,10 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
       // it from that path.
       await finishStop(stop.outcome);
     } finally {
+      // The http server's own connection draining may not reach an
+      // already-upgraded WebSocket (host/web-bridge-server.ts's `close`
+      // doc explains why), so the hub closes and destroys those first.
+      await hub?.close();
       await server.close();
     }
   } finally {

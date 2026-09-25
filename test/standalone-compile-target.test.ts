@@ -35,7 +35,8 @@ test("product build request receives the selected baseline target", async () => 
     }),
     tiktokenWasmBase64: "d2FzbQ==",
     photonWasmBase64: "cGhvdG9u",
-    embeddedWorkerSource: undefined
+    embeddedWorkerSource: undefined,
+    webAssets: new Map()
   });
   assert.deepEqual(calls, ["product"]);
   assert.equal(observed[0]?.compile.target, "bun-darwin-x64-baseline");

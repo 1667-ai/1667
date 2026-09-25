@@ -31,4 +31,11 @@ declare module "bun:test" {
 
 declare const Bun: {
   spawnSync(command: string[], options: { stdin: "inherit"; stdout: "inherit"; stderr: "inherit" }): { exitCode: number };
+  /** `cli/src/web-assets.ts` bundles `web/src/main.ts` for the browser with
+   * this at every source run. */
+  build(options: Record<string, unknown>): Promise<{
+    success: boolean;
+    logs: readonly unknown[];
+    outputs: readonly { text(): Promise<string> }[];
+  }>;
 };

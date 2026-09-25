@@ -35,10 +35,12 @@ import {
   runStandalone
 } from "./standalone-smoke-process.js";
 import { smokeSupervisedServe } from "./standalone-smoke-serve.js";
+import { smokeStandaloneWeb } from "./standalone-smoke-web.js";
 import {
   buildPromptTokenizerSmoke,
   buildStandaloneProduct
 } from "./standalone-build-requests.js";
+import { buildWebAssets } from "../src/web-assets.js";
 
 const cliRoot = path.dirname(path.dirname(fileURLToPath(import.meta.url)));
 const repositoryRoot = path.dirname(cliRoot);
@@ -75,6 +77,9 @@ const embeddedWorkerSource = process.platform === "win32"
       photonWasmBase64
     )
   : undefined;
+// Every platform embeds the web assets, not only Windows: a compiled
+// executable has no `web/` directory to build them from at runtime.
+const webAssets = await buildWebAssets();
 
 const result = await buildStandaloneProduct(standaloneCompiler, {
   entrypoints: process.platform === "win32"
@@ -84,7 +89,8 @@ const result = await buildStandaloneProduct(standaloneCompiler, {
   buildIdentity,
   tiktokenWasmBase64,
   photonWasmBase64,
-  embeddedWorkerSource
+  embeddedWorkerSource,
+  webAssets
 });
 
 if (!result.success) {
@@ -291,6 +297,7 @@ async function smokeStandalone(executable: string, expectedIdentity: BuildIdenti
     ));
     await smokeInstalledDefaultData(executable, directory, environment);
     await smokeSupervisedServe(executable, directory, environment);
+    await smokeStandaloneWeb(executable, directory, environment);
     if (process.platform === "win32") {
       const digest = await smokeWindowsNpmPackage(
         executable,
