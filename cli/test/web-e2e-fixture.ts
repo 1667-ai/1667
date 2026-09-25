@@ -24,6 +24,20 @@ export const STANDALONE_ENTRY = fileURLToPath(new URL("../src/standalone.ts", im
  * spawns are. */
 export const READY_LINE = /^1667 web: serving (.+) at (http:\/\/\S+)$/m;
 
+/** Bun's `WebSocket` accepts `{ protocols, headers }` as its second
+ * constructor argument (verified against Bun 1.3.14); the DOM lib type only
+ * declares `string | string[]`. Shared by `web-bridge-e2e.test.ts` and
+ * `cli/test-web-ui/web-ui-fixture.ts` — both open a bridge socket as an
+ * external client, so both need this same cast. */
+type BunWebSocketConstructor = new (
+  url: string,
+  init?: {
+    readonly protocols?: readonly string[];
+    readonly headers?: Readonly<Record<string, string>>;
+  }
+) => WebSocket;
+export const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
+
 const roots: string[] = [];
 const children: WebChildProcess[] = [];
 

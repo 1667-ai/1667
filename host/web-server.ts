@@ -48,11 +48,11 @@ function securityHeaders(port: number): Record<string, string> {
   };
 }
 
-/** One static file the app bundle needs served publicly: `cli/src/web-assets.ts`
- * builds `"/"` (`web/index.html`) and `"/app.js"` (`web/src/main.ts`, bundled).
- * Step 3 adds hashed `/assets/*` entries, including binary fonts, so the body
- * is raw bytes rather than a UTF-8 string; this server does not care which
- * paths are present, only that every one of them is public GET/HEAD. */
+/** The app bundle's static files, served publicly: `cli/src/web-assets.ts`
+ * builds `"/"` (`web/index.html`) plus one hashed `/assets/*` entry per Vite
+ * output chunk, including binary fonts, so the body is raw bytes rather than
+ * a UTF-8 string; this server does not care which paths are present, only
+ * that every one of them is public GET/HEAD. */
 export interface WebAsset {
   readonly contentType: string;
   readonly body: Uint8Array;

@@ -8,7 +8,7 @@ import {
   type WebBridgeTransport
 } from "../../client/web-bridge-transport.js";
 import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
-import type { ReadyWeb } from "../test/web-e2e-fixture.js";
+import { BunWebSocket, type ReadyWeb } from "../test/web-e2e-fixture.js";
 
 /**
  * `playwright-core` driving the system Chrome (owner decision), shared by
@@ -16,19 +16,6 @@ import type { ReadyWeb } from "../test/web-e2e-fixture.js";
  * CSS class selector, which is an implementation detail the design is free
  * to rename.
  */
-
-/** Bun's `WebSocket` accepts `{ protocols, headers }` as its second
- * constructor argument (verified against Bun 1.3.14, same as
- * `cli/test/web-bridge-e2e.test.ts`); the DOM lib type only declares
- * `string | string[]`. */
-type BunWebSocketConstructor = new (
-  url: string,
-  init?: {
-    readonly protocols?: readonly string[];
-    readonly headers?: Readonly<Record<string, string>>;
-  }
-) => WebSocket;
-const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
 
 /**
  * A real Chrome, launched the same way in every test file. `channel: "chrome"`

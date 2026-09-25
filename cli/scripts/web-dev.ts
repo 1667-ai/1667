@@ -3,6 +3,7 @@ import { Socket } from "node:net";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createServer } from "vite";
+import { errorMessage, openInBrowser } from "../src/open-browser.js";
 import { READY_LINE, STANDALONE_ENTRY } from "../test/web-e2e-fixture.js";
 
 /** Bun 1.3.14's `node:net` has no `Socket.prototype.destroySoon` (verified
@@ -96,28 +97,6 @@ function waitForReadyUrl(child: ReturnType<typeof spawn>): Promise<string> {
     child.stdout?.on("data", onData);
     child.once("exit", onExit);
   });
-}
-
-function openInBrowser(url: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const [command, args] = platformOpenCommand(url);
-    const child = spawn(command, args, { stdio: "ignore", detached: true });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolve();
-    });
-  });
-}
-
-function platformOpenCommand(url: string): readonly [string, readonly string[]] {
-  if (process.platform === "darwin") return ["open", [url]];
-  if (process.platform === "win32") return ["cmd", ["/c", "start", "", url]];
-  return ["xdg-open", [url]];
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 await main();
