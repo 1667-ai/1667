@@ -116,7 +116,7 @@ test("Q catalog recovery completes a physically committed reap residue", async (
   const catalog = new StoryCatalog(fixture.dataDir, {
     recoverResidue: async (kind, storyId) => {
       assert.equal(kind, "reap");
-      await recovery.reapIfEligible(storyId);
+      await recovery.reapIfIdle(storyId);
     }
   });
   t.after(() => catalog.dispose());
@@ -134,12 +134,41 @@ test("Q catalog skips an unresolved deleted story without failing its page", asy
     { now: eligibleClock }
   );
   const catalog = new StoryCatalog(fixture.dataDir, {
-    reapDeleted: async (storyId) => await reaper.reapIfEligible(storyId)
+    reapDeleted: async (storyId) => await reaper.reapIfIdle(storyId)
   });
   t.after(() => catalog.dispose());
   const page = await catalog.listPage({ cursor: null, maxEntries: 64 });
   assert.deepEqual(page.items, []);
   await access(fixture.canonical);
+});
+
+test("Q catalog listing skips reaping a deleted story that a live mutation holds", async (t) => {
+  const fixture = await deletedFixture(t);
+  const coordinator = createMutationCoordinator();
+  const reaper = new StoryReaper(
+    fixture.dataDir,
+    coordinator,
+    { now: () => new Date(Date.parse(DELETED_AT) + STORY_REAP_RETENTION_MS) }
+  );
+  const catalog = new StoryCatalog(fixture.dataDir, {
+    reapDeleted: async (storyId) => await reaper.reapIfIdle(storyId)
+  });
+  t.after(() => catalog.dispose());
+  // A live mutation on the deleted story (e.g. the delete still settling)
+  // holds its scope while the library is listed.
+  let release!: () => void;
+  const held = coordinator.runStoryMaintenance(
+    STORY_ID,
+    () => new Promise<void>((resolve) => { release = resolve; })
+  );
+  const page = await catalog.listPage({ cursor: null, maxEntries: 64 });
+  assert.deepEqual(page.items, []);
+  await access(fixture.canonical);
+  release();
+  await held;
+  // Once the scope is free, the next listing reaps it.
+  await catalog.listPage({ cursor: null, maxEntries: 64 });
+  await assert.rejects(access(fixture.canonical), hasFsCode("ENOENT"));
 });
 
 async function deletedFixture(

@@ -460,11 +460,11 @@ export abstract class StoryServiceRuntime {
         if (kind === "create") {
           await this.storyCreations.recoverResidue(storyId);
         } else {
-          await this.storyReaper.reapIfEligible(storyId);
+          await this.storyReaper.reapIfIdle(storyId);
         }
       },
       reapDeleted: async (storyId) =>
-        await this.storyReaper.reapIfEligible(storyId),
+        await this.storyReaper.reapIfIdle(storyId),
       maintainStory: async (storyId) =>
         await this.stories.schedulePendingCleanup(storyId)
     });
