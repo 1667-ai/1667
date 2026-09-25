@@ -50,9 +50,26 @@ export function createLibraryActions(
   store: Store<AppState>,
   deps: LibraryActionDependencies
 ): LibraryActions {
+  // Refresh race (Codex review): `listStories()` runs on connect, on
+  // visibilitychange, and after every mutation below, so calls overlap —
+  // and their responses can resolve out of order. `refreshSequence` tags
+  // each call with the order it was ISSUED in (not resolved in), so a
+  // response is only applied if no later call has since started; comparing
+  // the captured `connection` object by reference also drops a response
+  // that arrives after a reconnect has replaced it, even if (in some future
+  // change) that reconnect did not itself trigger a newer refresh. Without
+  // both checks, a slow response from a refresh issued before a delete or
+  // rename could land after that mutation's own (faster) refresh and
+  // resurrect a deleted row or an old title.
+  let refreshSequence = 0;
+
   const refreshUnwrapped = async (): Promise<void> => {
-    const api = requireApi(store);
-    const stories = await api.listStories();
+    const connection = store.get().connection;
+    if (connection.kind !== "connected") throw new Error("1667 web: not connected");
+    const ticket = ++refreshSequence;
+    const stories = await connection.api.listStories();
+    if (ticket !== refreshSequence) return; // a newer refresh has already started
+    if (store.get().connection !== connection) return; // the connection has since changed
     store.set((state) => ({ ...state, library: { ...state.library, stories } }));
   };
 
