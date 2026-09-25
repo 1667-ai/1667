@@ -71,6 +71,10 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
     dataDir: opened.project.directory,
     ...embeddedVaultOptions(opened.vault)
   });
+  // Listen for Ctrl+C before anything is printed: once the URL is out, a
+  // signal must always reach this handler and shut down cleanly, and a
+  // signal during startup should still release the project lock.
+  const stop = listenForStop(host);
   try {
     const recoveryWarnings: readonly WorkerRecoveryWarning[] = await host.recovery;
     if (recoveryWarnings.length > 0) {
@@ -79,6 +83,8 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
           + `${recoveryWarnings.length === 1 ? "" : "s"} from startup.\n`
       );
     }
+
+    if (stop.settled()) return await finishStop(stop.outcome);
 
     let server: WebServer;
     try {
@@ -113,12 +119,12 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
       // `BackendRestartRequiredError` its own exit path — the same one the
       // interactive TUI uses. Printing and swallowing it here would divert
       // it from that path.
-      const outcome = await waitForStop(host);
-      if (outcome.kind === "failure") throw outcome.error;
+      await finishStop(stop.outcome);
     } finally {
       await server.close();
     }
   } finally {
+    stop.dispose();
     // `host.dispose()` can itself throw `BackendRestartRequiredError` (it
     // keeps the project lock when the worker's exit is unproven). Letting
     // that propagate from a `finally` — rather than catching it — is what
@@ -131,22 +137,41 @@ type StopOutcome =
   | { readonly kind: "signal" }
   | { readonly kind: "failure"; readonly error: Error };
 
-/** Wait for a shutdown signal or the Worker dying on its own, whichever
- * comes first. Both listeners are always removed, so a run that stops one
- * way does not leave the other armed. */
-async function waitForStop(host: WorkerHost): Promise<StopOutcome> {
-  let onSignal: () => void = () => undefined;
-  try {
-    return await new Promise<StopOutcome>((resolve) => {
-      onSignal = () => resolve({ kind: "signal" });
-      process.once("SIGINT", onSignal);
-      process.once("SIGTERM", onSignal);
-      void host.failure.then((error) => resolve({ kind: "failure", error }));
-    });
-  } finally {
-    process.off("SIGINT", onSignal);
-    process.off("SIGTERM", onSignal);
-  }
+interface StopListener {
+  readonly outcome: Promise<StopOutcome>;
+  settled(): boolean;
+  dispose(): void;
+}
+
+/** Listen for a shutdown signal or the Worker dying on its own, whichever
+ * comes first. `dispose` removes both signal listeners, so a run that stops
+ * one way does not leave the other armed. */
+function listenForStop(host: WorkerHost): StopListener {
+  let settled = false;
+  let resolveOutcome: (outcome: StopOutcome) => void = () => undefined;
+  const outcome = new Promise<StopOutcome>((resolve) => {
+    resolveOutcome = (value) => {
+      settled = true;
+      resolve(value);
+    };
+  });
+  const onSignal = () => resolveOutcome({ kind: "signal" });
+  process.once("SIGINT", onSignal);
+  process.once("SIGTERM", onSignal);
+  void host.failure.then((error) => resolveOutcome({ kind: "failure", error }));
+  return {
+    outcome,
+    settled: () => settled,
+    dispose: () => {
+      process.off("SIGINT", onSignal);
+      process.off("SIGTERM", onSignal);
+    }
+  };
+}
+
+async function finishStop(outcome: Promise<StopOutcome>): Promise<void> {
+  const stopped = await outcome;
+  if (stopped.kind === "failure") throw stopped.error;
 }
 
 /** Launch the platform opener. An opener that never starts (missing binary,
