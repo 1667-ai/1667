@@ -137,6 +137,23 @@ test("the shared client runs with browser globals only", async (t) => {
     } as unknown as new (url: string, protocols: string[]) => WebBridge.WebBridgeSocket
   });
   assert.equal(locked.kind, "locked");
+
+  // A browser's fetch throws "Illegal invocation" when called with any
+  // receiver other than the window; this fake enforces the same rule, and
+  // a 401 answer ends the attempt before any WebSocket opens.
+  const refused = await webBridgeConnect.connectWebBridge({
+    location: { hash: `#token=${"a".repeat(64)}`, host: "127.0.0.1:1", pathname: "/", search: "" },
+    storage: { getItem: () => null, setItem: () => undefined },
+    clearTokenFragment: () => undefined,
+    fetch: function (this: unknown) {
+      if (this !== undefined && this !== globalThis) throw new TypeError("Illegal invocation");
+      return Promise.resolve({ status: 401, ok: false, json: async () => ({}) });
+    } as unknown as typeof fetch,
+    WebSocket: class {
+      constructor() { throw new Error("WebSocket must not run after a 401"); }
+    } as unknown as new (url: string, protocols: string[]) => WebBridge.WebBridgeSocket
+  });
+  assert.equal(refused.kind, "locked");
 });
 
 /** A minimal `WebBridgeSocket` driven by hand — no real network, no DOM. */

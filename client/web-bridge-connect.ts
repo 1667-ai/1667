@@ -104,7 +104,11 @@ export async function connectWebBridge(
 
   let statusResponse: Response;
   try {
-    statusResponse = await options.fetch("/api/status", {
+    // Call `fetch` detached: invoked as `options.fetch(...)` its receiver is
+    // `options`, and a browser's fetch throws "Illegal invocation" unless
+    // its receiver is the window (or undefined).
+    const fetchStatus = options.fetch;
+    statusResponse = await fetchStatus("/api/status", {
       headers: { authorization: `Bearer ${token}` }
     });
   } catch (error) {
