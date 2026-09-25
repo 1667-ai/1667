@@ -176,6 +176,63 @@ test("the / key focuses search (section 5's one keybinding beyond native)", asyn
   expect(focused).toBeTrue();
 }, 30_000);
 
+test("opening a story that no longer exists shows a 'no longer exists' state "
+  + "with a link back to the Library (review fix B3)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Vanishing");
+  await api.deleteStory(created.id);
+
+  const page = await openTestPage(await sharedBrowser());
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await page.evaluate((id) => {
+    location.hash = `#/story/${id}`;
+  }, created.id);
+
+  await page.getByRole("heading", { name: "This story no longer exists" }).waitFor();
+  await page.getByRole("link", { name: "Back to the Library" }).click();
+  await expectHash(page, "#/");
+  await page.getByRole("button", { name: "New story" }).waitFor();
+}, 30_000);
+
+test("deleting the open story while navigating to another story lands on the "
+  + "other story, not the Library (review fix B4)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const storyA = await api.createStory("Story A");
+  const storyB = await api.createStory("Story B");
+
+  const page = await openTestPage(await sharedBrowser());
+  await page.goto(web.url);
+  await page.evaluate((id) => {
+    location.hash = `#/story/${id}`;
+  }, storyA.id);
+  await page.getByRole("heading", { name: "Story A" }).waitFor();
+
+  // Anchored — see the case 5 comment above.
+  await page.getByRole("button", { name: /^Story A/ }).hover();
+  await page.getByRole("button", { name: "More for Story A" }).click();
+  await page.getByRole("menuitem", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: "Delete story" })
+    .getByRole("button", { name: "Delete" })
+    .click();
+  // Deliberately do not wait for the delete to resolve: navigate to a
+  // different story right away, the way a fast double-click would. The old
+  // code captured "was this the open story" from the route BEFORE the
+  // `deleteStory` await, so it would navigate home out from under this
+  // already-different route once the delete finally resolved.
+  await page.evaluate((id) => {
+    location.hash = `#/story/${id}`;
+  }, storyB.id);
+
+  await page.getByRole("heading", { name: "Story B" }).waitFor();
+  expect(await page.evaluate(() => location.hash)).toBe(`#/story/${storyB.id}`);
+  expect((await api.listStories()).some((summary) => summary.id === storyA.id)).toBeFalse();
+}, 30_000);
+
 test("case 9: the placeholder shows the active path text of a story "
   + "seeded through the bridge's createNode", async () => {
   const project = await scratchProject();

@@ -105,6 +105,53 @@ test("case 10: theme follows the OS by default; the toggle sets an explicit over
     .toBe("rgb(247, 248, 250)");
 }, 30_000);
 
+test("a Reconnect after the connection drops (backend still running) reloads "
+  + "the Library (review fix A2)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+
+  const page = await openTestPage(await sharedBrowser());
+  // Records every WebSocket the page opens, installed before any page
+  // script runs (so it is armed before the app's own bridge connection) —
+  // lets this test force-close the bridge socket itself, a client-side
+  // network drop the backend never sees, unlike case 11's SIGKILL (which
+  // can never come back).
+  await page.addInitScript(() => {
+    const NativeWebSocket = window.WebSocket;
+    const sockets: WebSocket[] = [];
+    (window as unknown as { __testSockets: WebSocket[] }).__testSockets = sockets;
+    class RecordingWebSocket extends NativeWebSocket {
+      constructor(url: string | URL, protocols?: string | string[]) {
+        super(url, protocols);
+        sockets.push(this);
+      }
+    }
+    window.WebSocket = RecordingWebSocket as unknown as typeof WebSocket;
+  });
+
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+
+  await page.evaluate(() => {
+    const sockets = (window as unknown as { __testSockets: WebSocket[] }).__testSockets;
+    sockets[sockets.length - 1]?.close();
+  });
+  await page.getByText("The connection to 1667 closed.").waitFor();
+
+  // Created while disconnected, so the page has never seen it: only an
+  // actual re-fetch after Reconnect can show this row, not the Closed
+  // overlay simply going away over stale content. With the old code
+  // (`hasConnectedOnce` only ever true once), a Reconnect's own successful
+  // connect never re-triggered a library refresh, so this row would never
+  // appear without a full page reload.
+  await api.createStory("Created While Offline");
+
+  await page.getByRole("button", { name: "Reconnect" }).click();
+
+  await page.getByRole("button", { name: /Created While Offline/ }).waitFor();
+}, 30_000);
+
 test("case 11: killing the backend shows the Closed overlay with a Reconnect button", async () => {
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
