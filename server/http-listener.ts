@@ -1,5 +1,6 @@
-import { createServer, type Server } from "node:http";
+import { createServer } from "node:http";
 import type { HttpAuthRecord } from "../shared/http-auth.js";
+import { listenLoopback } from "./loopback-listen.js";
 import {
   createHttpAuthRecord,
   type HttpAuthRecordStoreOptions
@@ -236,7 +237,7 @@ export async function startHttpListener(
 
   try {
     try {
-      await listen(server, port);
+      await listenLoopback(server, port);
     } catch (error) {
       throw publicBindFailure(error);
     }
@@ -395,20 +396,4 @@ function publicStartupFailure(error: unknown): PublicRuntimeError {
       ? message
       : "1667 backend startup configuration is invalid"
   );
-}
-
-async function listen(server: Server, port: number): Promise<void> {
-  await new Promise<void>((resolve, reject) => {
-    const onError = (error: Error) => {
-      server.off("listening", onListening);
-      reject(error);
-    };
-    const onListening = () => {
-      server.off("error", onError);
-      resolve();
-    };
-    server.once("error", onError);
-    server.once("listening", onListening);
-    server.listen(port, "127.0.0.1");
-  });
 }

@@ -4,6 +4,8 @@
  * lines cannot find the command they wanted, so detail lives on the page of the
  * command it belongs to and the front page stays a map. */
 
+// `web` is left off this page on purpose while it only serves a placeholder
+// (#409); `1667 web --help` still works.
 export const HELP = `1667 — a full-screen terminal environment for writing fiction
 Usage: 1667 [options]
        1667 <command> [options]
@@ -158,6 +160,32 @@ Options:
   --data <path>     Open this project root instead of discovering one
   --global          Open the machine-wide project instead of a folder`;
 
+export const WEB_HELP = `1667 web — serve a placeholder web page (experimental)
+
+Usage: 1667 web [--data <path>|--global] [--port <n>] [--no-open]
+
+1667 web opens the story project the same way the app does. It takes the
+project lock. The app, or another 1667 web, cannot open the project until
+you stop this command.
+
+1667 web serves a page on this computer only. It prints a URL with a
+private token. Open the URL in a browser to see the page. By default, the
+command opens the URL for you.
+
+The page shows the project root and the build version. It does not show a
+story yet.
+
+Press Ctrl+C to stop the command. This closes the page and frees the
+project.
+
+This command is experimental.
+
+Options:
+  --data <path>  Open this project root instead of discovering one
+  --global       Open the machine-wide project instead of a folder
+  --port <n>     Loopback port (default: a free port)
+  --no-open      Do not open the URL in a browser`;
+
 export const INIT_HELP = `1667 init — make a project in this directory
 
 Usage: 1667 init [--adopt [--from <legacy-data-dir>]]
@@ -247,7 +275,8 @@ const COMMAND_HELP: ReadonlyMap<string, string> = new Map([
   ["import", IMPORT_HELP],
   ["import-card", IMPORT_CARD_HELP],
   ["import-lorebook", IMPORT_LOREBOOK_HELP],
-  ["profile", PROFILE_HELP]
+  ["profile", PROFILE_HELP],
+  ["web", WEB_HELP]
 ]);
 
 /** The help page for a command, or null when the command has none. */

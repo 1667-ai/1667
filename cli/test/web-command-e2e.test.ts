@@ -1,0 +1,311 @@
+import { afterEach, expect, test } from "bun:test";
+import { spawn, type ChildProcessByStdio } from "node:child_process";
+import { createServer } from "node:http";
+import { connect } from "node:net";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
+import type { Readable } from "node:stream";
+import { fileURLToPath } from "node:url";
+
+/** `1667 web` reads no input, so stdin is closed and both output streams are
+ * piped for capture. */
+type WebChildProcess = ChildProcessByStdio<null, Readable, Readable>;
+
+/**
+ * `1667 web` is step 1 of the web UI (#409): open the project like the
+ * embedded TUI does, hold the Worker host so the project lock stays taken,
+ * and serve a placeholder page on loopback behind a per-run token. These
+ * tests spawn the real CLI (the standalone entrypoint, the same one the
+ * shell wrapper runs) and drive it as an external client only — an HTTP
+ * client, a raw socket, and OS signals — matching CLAUDE.md's preference for
+ * an end-to-end test over one that pokes at internal structure.
+ */
+
+const STANDALONE_ENTRY = fileURLToPath(new URL("../src/standalone.ts", import.meta.url));
+const READY_LINE = /^1667 web: serving (.+) at (http:\/\/\S+)$/m;
+
+const CSP = "default-src 'none'; script-src 'self'; connect-src 'self'; "
+  + "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
+
+const roots: string[] = [];
+const children: WebChildProcess[] = [];
+
+afterEach(async () => {
+  await Promise.all(children.splice(0).map(killChild));
+  await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
+});
+
+test("the printed URL carries the token in the fragment, never the query string", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  expect(web.url).toContain("/#token=");
+  expect(web.url).not.toContain("?token=");
+  expect(web.token).toMatch(/^[0-9a-f]{64}$/);
+}, 30_000);
+
+test("AI_1667_DATA selects the project, and the default port is a fresh one", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--no-open"], { ...project.env, AI_1667_DATA: project.dataDir });
+  expect(web.projectRoot.endsWith(`${path.sep}project`)).toBeTrue();
+  expect(web.port).not.toBe("1667");
+}, 30_000);
+
+test("the shell page and the client script are public, and every security header is present", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+
+  const page = await fetch(`${web.origin}/`);
+  expect(page.status).toBe(200);
+  const body = await page.text();
+  // The shell carries no project data; only an authorized `/api/status`
+  // fetch reveals it, so the initial HTML never leaks the project path.
+  expect(body).not.toContain(web.projectRoot);
+  expect(body).toContain("/app.js");
+  assertSecurityHeaders(page);
+
+  const script = await fetch(`${web.origin}/app.js`);
+  expect(script.status).toBe(200);
+  expect(script.headers.get("content-type")).toBe("text/javascript; charset=utf-8");
+  const scriptBody = await script.text();
+  expect(scriptBody).toContain("/api/status");
+  expect(scriptBody).toContain("1667.web.token");
+  assertSecurityHeaders(script);
+}, 30_000);
+
+test("/api/status answers with the project root and version once authorized with the bearer token", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+
+  const status = await fetch(`${web.origin}/api/status`, {
+    headers: { authorization: `Bearer ${web.token}` }
+  });
+  expect(status.status).toBe(200);
+  const body = await status.json() as { project: string; version: string };
+  expect(body.project).toBe(web.projectRoot);
+  expect(typeof body.version).toBe("string");
+  expect(body.version.length > 0).toBeTrue();
+  assertSecurityHeaders(status);
+}, 30_000);
+
+test("missing or wrong bearer, wrong Host, and a foreign Origin are all refused", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+
+  const noBearer = await fetch(`${web.origin}/api/status`);
+  expect(noBearer.status).toBe(401);
+  expect(await noBearer.text()).toContain("1667 web");
+
+  const wrongBearer = await fetch(`${web.origin}/api/status`, {
+    headers: { authorization: `Bearer ${"0".repeat(64)}` }
+  });
+  expect(wrongBearer.status).toBe(401);
+
+  const wrongHostRoot = await fetch(`${web.origin}/`, { headers: { host: "evil.example:1" } });
+  expect(wrongHostRoot.status).toBe(403);
+
+  const wrongHostStatus = await fetch(`${web.origin}/api/status`, {
+    headers: { host: "evil.example:1", authorization: `Bearer ${web.token}` }
+  });
+  expect(wrongHostStatus.status).toBe(403);
+
+  const foreignOrigin = await fetch(`${web.origin}/api/status`, {
+    headers: { authorization: `Bearer ${web.token}`, origin: "http://evil.example" }
+  });
+  expect(foreignOrigin.status).toBe(403);
+}, 30_000);
+
+test("a malformed request target answers 400 without taking the server down; "
+  + "an unknown path is 404 and a disallowed method is 405", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+
+  // `new URL("//bad:host", ...)` throws — "host" is not a valid port — and
+  // Node's own HTTP parser is lenient enough to hand this request line to
+  // the server instead of refusing it first.
+  const raw = await rawRequest(
+    Number(web.port),
+    `GET //bad:host HTTP/1.1\r\nHost: 127.0.0.1:${web.port}\r\nConnection: close\r\n\r\n`
+  );
+  expect(raw).toContain(" 400 ");
+
+  // The process is still serving afterward.
+  const afterward = await fetch(`${web.origin}/`);
+  expect(afterward.status).toBe(200);
+
+  const posted = await fetch(`${web.origin}/`, { method: "POST" });
+  expect(posted.status).toBe(405);
+
+  const unknown = await fetch(`${web.origin}/does-not-exist`);
+  expect(unknown.status).toBe(404);
+}, 30_000);
+
+test("a second `1667 web` on the same project fails with the existing project-lock message", async () => {
+  const project = await scratchProject();
+  await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+
+  const second = spawnWebRaw(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const result = await second.exit;
+  expect(result.code).not.toBe(0);
+  expect(second.stderrText()).toContain("already open by");
+}, 30_000);
+
+test("SIGINT stops the server and releases the project lock for the next instance", async () => {
+  const project = await scratchProject();
+  const first = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+
+  first.child.kill("SIGINT");
+  const result = await first.exit;
+  expect(result.code).toBe(0);
+  expect(result.signal).toBe(null);
+
+  // The lock is free again: a fresh instance on the same project starts.
+  const second = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  expect(second.url).toContain("http://127.0.0.1:");
+}, 30_000);
+
+test("a port that is already taken fails, and the message suggests --port", async () => {
+  const project = await scratchProject();
+  const blocker = createServer();
+  await new Promise<void>((resolve, reject) => {
+    blocker.once("error", reject);
+    blocker.listen(0, "127.0.0.1", resolve);
+  });
+  try {
+    const address = blocker.address();
+    if (address === null || typeof address === "string") {
+      throw new Error("blocking server bound without a network address");
+    }
+    const attempt = spawnWebRaw(
+      ["--data", project.dataDir, "--port", String(address.port), "--no-open"],
+      project.env
+    );
+    const result = await attempt.exit;
+    expect(result.code).not.toBe(0);
+    expect(attempt.stderrText()).toContain("--port");
+  } finally {
+    await new Promise<void>((resolve) => blocker.close(() => resolve()));
+  }
+}, 30_000);
+
+function assertSecurityHeaders(response: Response): void {
+  expect(response.headers.get("content-security-policy")).toBe(CSP);
+  expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+  expect(response.headers.get("referrer-policy")).toBe("no-referrer");
+  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("x-frame-options")).toBe("DENY");
+}
+
+/** Send a raw request line over a plain socket, bypassing `fetch`'s own URL
+ * parsing, and return everything the server writes back before it closes
+ * the connection. */
+async function rawRequest(port: number, raw: string): Promise<string> {
+  return await new Promise<string>((resolve, reject) => {
+    const socket = connect({ host: "127.0.0.1", port });
+    const chunks: Buffer[] = [];
+    const timer = setTimeout(() => {
+      socket.destroy();
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    }, 5_000);
+    socket.once("connect", () => socket.write(raw));
+    socket.on("data", (chunk: Buffer) => chunks.push(chunk));
+    socket.once("close", () => {
+      clearTimeout(timer);
+      resolve(Buffer.concat(chunks).toString("utf8"));
+    });
+    socket.once("error", (error) => {
+      clearTimeout(timer);
+      reject(error);
+    });
+  });
+}
+
+interface SpawnedWeb {
+  readonly child: WebChildProcess;
+  readonly exit: Promise<{ readonly code: number | null; readonly signal: NodeJS.Signals | null }>;
+  stdoutText(): string;
+  stderrText(): string;
+}
+
+interface ReadyWeb extends SpawnedWeb {
+  readonly url: string;
+  readonly origin: string;
+  readonly port: string;
+  readonly token: string;
+  readonly projectRoot: string;
+}
+
+interface ScratchProject {
+  readonly dataDir: string;
+  readonly env: NodeJS.ProcessEnv;
+}
+
+/** A fresh project directory and an isolated machine-tier override, so a test
+ * run never touches this machine's real 1667 state. */
+async function scratchProject(): Promise<ScratchProject> {
+  const root = await mkdtemp(path.join(tmpdir(), "1667-web-e2e-"));
+  roots.push(root);
+  return {
+    dataDir: path.join(root, "project"),
+    env: { ...process.env, AI_1667_STATE: path.join(root, "machine") }
+  };
+}
+
+/** Spawn `1667 web` without waiting for readiness — for scenarios where
+ * startup itself is expected to fail. */
+function spawnWebRaw(args: readonly string[], env: NodeJS.ProcessEnv): SpawnedWeb {
+  const child = spawn(process.execPath, [STANDALONE_ENTRY, "web", ...args], {
+    env,
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+  children.push(child);
+  let stdout = "";
+  let stderr = "";
+  child.stdout.on("data", (chunk: Buffer) => { stdout += chunk.toString("utf8"); });
+  child.stderr.on("data", (chunk: Buffer) => { stderr += chunk.toString("utf8"); });
+  const exit = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>((resolve) => {
+    child.once("exit", (code, signal) => resolve({ code, signal }));
+  });
+  return { child, exit, stdoutText: () => stdout, stderrText: () => stderr };
+}
+
+/** Spawn `1667 web` and wait for the line it prints once the server is up. */
+async function spawnWeb(
+  args: readonly string[],
+  env: NodeJS.ProcessEnv
+): Promise<ReadyWeb> {
+  const spawned = spawnWebRaw(args, env);
+  const { root, url } = await new Promise<{ root: string; url: string }>((resolve, reject) => {
+    const onData = () => {
+      const match = READY_LINE.exec(spawned.stdoutText());
+      if (match === null) return;
+      spawned.child.stdout.off("data", onData);
+      spawned.child.off("exit", onExit);
+      resolve({ root: match[1]!, url: match[2]! });
+    };
+    const onExit = (code: number | null, signal: NodeJS.Signals | null) => {
+      reject(new Error(
+        `1667 web exited before it printed its URL (code ${code}, signal ${signal}): `
+          + spawned.stderrText()
+      ));
+    };
+    spawned.child.stdout.on("data", onData);
+    spawned.child.once("exit", onExit);
+  });
+  const parsed = new URL(url);
+  const token = new URLSearchParams(parsed.hash.replace(/^#/, "")).get("token");
+  if (token === null) throw new Error(`printed URL has no token fragment: ${url}`);
+  return { ...spawned, url, origin: parsed.origin, port: parsed.port, token, projectRoot: root };
+}
+
+async function killChild(child: WebChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  child.kill("SIGKILL");
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, 3_000);
+    child.once("exit", () => {
+      clearTimeout(timer);
+      resolve();
+    });
+  });
+}
