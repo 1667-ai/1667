@@ -259,6 +259,51 @@ test("aborting after the first delta settles null; a new continue then completes
   }
 }, 30_000);
 
+test("a throwing onDelta rejects with its own error only after the host settles; "
+  + "the story then accepts a new continue", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const transport = await openBridge(web);
+  try {
+    const api = storyApiFromWorkerTransport(transport);
+    const story = await api.createStory("Bridge callback error");
+    const seeded = await api.createNode(story.id, { parentId: null, text: "Once upon a time" });
+    const parentId = seeded.path.at(-1)?.id;
+    if (parentId === undefined) throw new Error("seed produced no parent node");
+
+    let deltaCalls = 0;
+    const failure = await api.continueStory(
+      story.id,
+      "continue",
+      "bridge-callback-error-1",
+      { parentId },
+      () => {
+        deltaCalls += 1;
+        throw new Error("page callback failed");
+      },
+      new AbortController().signal
+    ).then(() => null, (error: unknown) => error);
+    expect(failure instanceof Error).toBe(true);
+    expect((failure as Error).message).toBe("page callback failed");
+    // No callback runs again after the first one threw.
+    expect(deltaCalls).toBe(1);
+
+    // The call was held until the host settled, so the story's mutation
+    // slot is free: a new continue on the same story completes.
+    const completed = await api.continueStory(
+      story.id,
+      "continue",
+      "bridge-callback-error-2",
+      { parentId },
+      () => undefined,
+      new AbortController().signal
+    );
+    expect(completed).not.toBeNull();
+  } finally {
+    transport.close();
+  }
+}, 30_000);
+
 test("closing the socket after the first delta rejects the pending call; "
   + "a new connection can rename and continue the same story", async () => {
   const project = await scratchProject();

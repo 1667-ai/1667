@@ -120,6 +120,39 @@ test("the shared client runs with browser globals only", async (t) => {
     data: encodeBridgeMessage({ type: "result", id: operationId, value: [] })
   });
   assert.equal((await listing as readonly unknown[]).length, 0);
+
+  // A throwing onDelta cancels the call but does not settle it: the host
+  // may still commit, so the error is reported only with the terminal.
+  const streamId = { workerInstanceId: "a".repeat(32), sequence: 2n };
+  let deltaCalls = 0;
+  let settled = false;
+  const streaming = bridgeTransport.call("continueStory", {} as never, {
+    onDelta: () => {
+      deltaCalls += 1;
+      throw new Error("page callback failed");
+    }
+  }).then(
+    () => { settled = true; return null; },
+    (error: unknown) => { settled = true; return error; }
+  );
+  const streamRequest = JSON.parse(fake.sent.at(-1)!) as { callId: string };
+  fake.emit("message", {
+    data: encodeBridgeMessage({ type: "accepted", callId: streamRequest.callId, id: streamId })
+  });
+  fake.emit("message", { data: encodeBridgeMessage({ type: "delta", id: streamId, sequence: 0, text: "a" }) });
+  fake.emit("message", { data: encodeBridgeMessage({ type: "delta", id: streamId, sequence: 1, text: "b" }) });
+  await Promise.resolve();
+  assert.equal(settled, false);
+  assert.equal(deltaCalls, 1);
+  const sentTypes = fake.sent.map((frame) => (JSON.parse(frame) as { type: string }).type);
+  assert.ok(sentTypes.includes("cancel"));
+  fake.emit("message", {
+    data: encodeBridgeMessage({ type: "complete", id: streamId, value: { committed: true } })
+  });
+  const streamFailure = await streaming;
+  // The callback's Error comes from this realm, so the sandboxed transport
+  // wraps it; only its text crosses intact.
+  assert.match((streamFailure as Error).message, /page callback failed/);
   bridgeTransport.close();
 
   // client/web-bridge-connect.ts: the "no token anywhere" outcome, still

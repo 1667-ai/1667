@@ -69,6 +69,10 @@ interface PendingCall {
   cancelled: boolean;
   stoppedText: string;
   stoppedReasoningText: string;
+  /** Set when the caller's own `onDelta`/`onReasoning` threw. The call is
+   * cancelled but stays tracked until its terminal frame, so a commit that
+   * races the cancel is still settled by the host, not guessed here. */
+  callbackError?: Error;
 }
 
 /** What `openWebBridgeTransport` resolves with: the live transport, plus the
@@ -344,8 +348,14 @@ export class WebBridgeTransport implements StoryWorkerTransport {
         this.send({ type: "ack", id: message.id, sequence: message.sequence });
       } catch (error) {
         pending.cancelled = true;
+        pending.callbackError ??= asError(error);
         this.sendCancelSafely(message.id);
-        this.failOne(pending, asError(error));
+        // Keep the credit window open so the host can reach its terminal.
+        try {
+          this.send({ type: "ack", id: message.id, sequence: message.sequence });
+        } catch {
+          // A send failure closes the transport, which rejects this call.
+        }
       }
       return;
     }
@@ -368,10 +378,13 @@ export class WebBridgeTransport implements StoryWorkerTransport {
     stoppedText: string | undefined
   ): void {
     try {
-      const proseTail = pending.stoppedText + (stoppedText ?? "");
-      if (proseTail.length > 0) pending.onStopped?.(proseTail);
-      if (pending.stoppedReasoningText.length > 0) {
-        pending.onReasoningStopped?.(pending.stoppedReasoningText);
+      // A caller whose callback already threw gets no more callbacks.
+      if (pending.callbackError === undefined) {
+        const proseTail = pending.stoppedText + (stoppedText ?? "");
+        if (proseTail.length > 0) pending.onStopped?.(proseTail);
+        if (pending.stoppedReasoningText.length > 0) {
+          pending.onReasoningStopped?.(pending.stoppedReasoningText);
+        }
       }
       this.send({ type: "terminalAck", id: message.id });
     } catch (error) {
@@ -383,11 +396,15 @@ export class WebBridgeTransport implements StoryWorkerTransport {
     pending.abortCleanup?.();
     this.removePending(pending);
     if (message.type === "error") {
+      // The host's failure carries the authoritative mutation outcome, so
+      // it wins over a callback error.
       pending.reject(new WebBridgeTransportError(
         message.failure,
         message.mutationOutcome ?? null,
         message.providerMutationId
       ));
+    } else if (pending.callbackError !== undefined) {
+      pending.reject(pending.callbackError);
     } else {
       pending.resolve(message.value);
     }
