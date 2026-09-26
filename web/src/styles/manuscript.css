@@ -1,0 +1,102 @@
+/**
+ * Ported from `~/source/storytavern/web/src/story.css` (the part/prose/
+ * chapter-summary rules) and `~/source/storytavern/web/src/chapters.css`
+ * (the chapter chrome) — read-only here, so every editing, rewrite,
+ * fork-seam, chapter-menu, window-gap, autoname, and line-chip rule is
+ * dropped; only what `PartCard.tsx`/`Prose.tsx`/`ChapterDivider.tsx` render
+ * is kept. Loaded after `story.css` (`styles/index.css`).
+ */
+
+.manuscript { list-style: none; margin: 0; padding: 0; }
+
+.part {
+  animation: rise 400ms ease both; margin-bottom: 30px; position: relative;
+  border-radius: 10px; scroll-margin-block: 84px;
+}
+/* A part hosting an open popover (take peek) must sit above siblings that
+   are mid-entrance-animation — their transform traps z-indexes below ours. */
+.part:focus-within { z-index: 2; }
+.part[aria-current="true"] {
+  box-shadow: inset 2px 0 0 var(--accent);
+  padding-left: 12px;
+  margin-left: -12px;
+}
+.part[aria-busy="true"] { opacity: .55; transition: opacity 120ms ease; }
+.part:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+
+.part-header {
+  align-items: center; display: flex; gap: 10px; justify-content: space-between; margin-bottom: 8px; min-height: 26px;
+}
+.part-number {
+  color: var(--faint); flex: 0 0 auto; font-family: var(--mono); font-size: 9px;
+  font-weight: 600; letter-spacing: .13em; line-height: 1; white-space: nowrap;
+}
+.part-meta { align-items: center; display: flex; flex: 1 1 auto; gap: 8px; min-width: 0; }
+.part-badges { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
+.part-badge {
+  align-items: center; background: var(--accent-soft); border-radius: 20px; color: var(--accent);
+  display: inline-flex; font-family: var(--mono); font-size: 9.5px; font-style: normal;
+  font-weight: 500; gap: 5px; letter-spacing: .06em; line-height: 1.4; padding: 3px 9px;
+  text-transform: lowercase; white-space: nowrap;
+}
+.part-badge-summary { background: var(--summary-soft); color: var(--summary); }
+
+.part-instruction {
+  border: 1px dashed var(--line); border-radius: 8px; color: var(--dim);
+  font-size: 14px; font-style: italic; line-height: 1.5;
+  margin-bottom: 13px; padding: 8px 12px;
+  position: sticky; top: 8px; background: var(--bg); z-index: 1;
+}
+
+.prose p {
+  color: var(--ink); font-family: var(--prose); font-optical-sizing: auto; font-size: var(--prose-size);
+  line-height: 1.78; margin: 0 0 .9em; text-wrap: pretty;
+}
+.prose p:last-child { margin-bottom: 0; }
+.human-edit-mark { background: var(--accent-soft); border-bottom: 1.5px solid var(--accent); border-radius: 2px; color: inherit; }
+
+.part-summary-body {
+  background: var(--summary-soft); border: 1px solid color-mix(in srgb, var(--summary) 40%, var(--line));
+  border-radius: 12px; box-shadow: inset 3px 0 0 var(--summary); padding: 16px 18px;
+}
+.summary-card-label {
+  background: var(--summary-soft); border-radius: 20px; color: var(--summary); display: inline-flex;
+  font-family: var(--mono); font-size: 8.5px; font-weight: 600; letter-spacing: .1em;
+  margin-bottom: 9px; padding: 4px 8px;
+}
+.part-summary-body .prose p { color: var(--dim); font-size: 15px; line-height: 1.7; margin-bottom: .8em; }
+.part-summary-note {
+  color: color-mix(in srgb, var(--summary) 70%, var(--dim)); display: block;
+  font-family: var(--mono); font-size: 10px; line-height: 1.5; margin-top: 7px;
+}
+
+/* Long stories: every part stays in the DOM (no windowing yet — owner
+   decision), but an off-screen one skips layout/paint until it nears the
+   viewport. The estimate keeps the scrollbar's size roughly honest. */
+.part { content-visibility: auto; contain-intrinsic-size: auto 260px; }
+
+.chapter-one-heading {
+  align-items: center; border-radius: 9px; display: flex; gap: 14px; justify-content: center;
+  margin: -8px 0 24px; padding: 8px;
+}
+.chapter-one-heading > span { background: var(--line); height: 1px; width: 34px; }
+.chapter-one-heading strong {
+  color: var(--meta); font-family: var(--mono); font-size: 9px; font-weight: 600;
+  letter-spacing: .2em; line-height: 1;
+}
+
+.chapter-divider { border-radius: 10px; margin: 2px 0 6px; padding: 20px 0 6px; position: relative; text-align: center; }
+.chapter-divider-kicker { align-items: center; display: flex; gap: 14px; justify-content: center; margin-bottom: 6px; }
+.chapter-divider-kicker > span { background: var(--line); height: 1px; width: 44px; }
+.chapter-divider-kicker strong {
+  color: var(--meta); font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  letter-spacing: .2em; line-height: 1;
+}
+.chapter-title {
+  color: var(--ink); font-family: var(--serif); font-size: 21px; font-weight: 500; line-height: 1.25; padding: 2px 6px;
+}
+.chapter-title.untitled { color: var(--meta-soft); font-size: 15px; font-style: italic; font-weight: 400; }
+.chapter-divider-meta {
+  color: var(--meta-soft); font-family: var(--mono); font-size: 8.5px; font-weight: 500;
+  letter-spacing: .08em; line-height: 1; margin-top: 5px;
+}

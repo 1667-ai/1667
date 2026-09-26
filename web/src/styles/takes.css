@@ -1,0 +1,79 @@
+/**
+ * Ported from `~/source/storytavern/web/src/loom.css`: the take stepper,
+ * its hover tooltip, the take-peek popover, and the label/canon chips a
+ * peek row can show. Fork-seam, line-chip, map, and toast rules there are
+ * dropped — none of that exists here. Loaded after `story.css`
+ * (`styles/index.css`).
+ */
+
+.take-stepper { align-items: center; display: inline-flex; gap: 2px; position: relative; }
+.take-arrow { position: relative; }
+.take-count {
+  background: transparent; border: 0; border-radius: 20px; color: var(--dim); cursor: pointer;
+  font-family: var(--mono); font-size: 10.5px; min-width: 40px; padding: 4px 8px;
+}
+.take-count:hover, .take-count:focus-visible { background: var(--row-hover); color: var(--accent); outline: 0; }
+.take-count[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
+.take-tooltip {
+  background: #1b1c22; border-radius: 8px; bottom: calc(100% + 7px); color: #f5f5f7;
+  display: flex; flex-direction: column; font-family: var(--mono); font-size: 8.5px; gap: 3px;
+  left: 50%; letter-spacing: .04em; line-height: 1.55; opacity: 0; padding: 8px 10px;
+  pointer-events: none; position: absolute; text-align: left; transform: translate(-50%, 4px);
+  transition: opacity 120ms ease, transform 120ms ease; width: 220px; z-index: 65;
+}
+.take-tooltip-meta.ends { color: #f0bd66; }
+.take-arrow:hover .take-tooltip, .take-arrow:focus-visible .take-tooltip { opacity: 1; transform: translate(-50%, 0); }
+
+/* ---------- dot strip (TUI ●◎○ glyph semantics) ---------- */
+.take-dots { align-items: center; display: inline-flex; gap: 5px; margin-left: 6px; }
+.take-dot {
+  background: transparent; border: 0; border-radius: 50%; color: var(--faint); cursor: pointer;
+  display: inline-flex; font-size: 9px; height: 16px; line-height: 1; padding: 0; width: 16px;
+  align-items: center; justify-content: center; transition: color 120ms ease;
+}
+.take-dot:hover, .take-dot:focus-visible { color: var(--accent); outline: 0; }
+.take-dot[aria-current="true"] { color: var(--accent); }
+
+/* ---------- take peek ---------- */
+.take-peek {
+  animation: rise 140ms ease both; background: var(--surface); border: 1px solid var(--line);
+  border-radius: 14px; box-shadow: var(--dropdown-shadow); color: var(--ink); left: 50%;
+  position: absolute; text-align: left; top: calc(100% + 5px); transform: translateX(-50%);
+  width: 320px; z-index: 62;
+}
+.take-peek > header {
+  border-bottom: 1px solid var(--line); color: var(--dim); font-family: var(--mono);
+  font-size: 9px; font-weight: 600; letter-spacing: .1em; padding: 12px 14px 10px;
+}
+.take-peek-list { max-height: 390px; overflow-y: auto; padding: 5px; }
+.take-peek-list.virtual { padding: 0; }
+.take-peek-window { position: relative; }
+.take-peek-row { background: transparent; border: 0; border-radius: 8px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; padding: 9px 10px; text-align: left; width: 100%; }
+.take-peek-row.virtual-row { left: 5px; position: absolute; right: 5px; width: auto; }
+.take-peek-row:hover:not(:disabled) { background: var(--row-hover); }
+.take-peek-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); opacity: 1; }
+.take-peek-heading { align-items: center; color: var(--dim); display: flex; font-family: var(--mono); font-size: 8.5px; gap: 6px; letter-spacing: .06em; width: 100%; }
+.take-peek-snippet {
+  color: var(--dim); display: -webkit-box; font-family: var(--serif); font-size: 12.5px;
+  font-style: italic; line-height: 1.35; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
+}
+.take-peek-meta { color: var(--faint); display: flex; font-family: var(--mono); font-size: 8px; justify-content: space-between; letter-spacing: .06em; }
+.take-peek-meta.ends { color: var(--meter-warn); }
+.take-peek > footer { border-top: 1px solid var(--line); color: var(--faint); font-family: var(--mono); font-size: 7.5px; letter-spacing: .08em; padding: 8px 12px 10px; }
+
+/* ---------- label + canon chips ---------- */
+.label-chip {
+  align-items: center; background: var(--chip); border: 0; border-radius: 20px; color: var(--dim);
+  display: inline-flex; font-family: var(--mono); font-size: 8.5px; font-weight: 600;
+  gap: 4px; letter-spacing: .07em; line-height: 1; padding: 4px 7px; text-transform: uppercase;
+}
+.label-canon { background: rgba(224, 168, 60, .18); color: var(--stale-amber); }
+.label-alt { background: var(--accent-soft); color: var(--accent); }
+.label-draft { background: var(--chip); color: var(--dim); }
+.label-discarded { background: var(--danger-soft); color: var(--danger); }
+.label-summary { background: var(--summary-soft); color: var(--summary); }
+.canon-mark { color: var(--canon); }
+
+@media (max-width: 720px) {
+  .take-peek { width: min(320px, calc(100vw - 24px)); }
+}
