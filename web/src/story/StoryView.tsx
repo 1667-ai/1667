@@ -119,6 +119,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
                   showDirections={showDirections}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
+                  onSwitchTo={actions.story.switchTakeTo}
                 />
               )}
           </div>

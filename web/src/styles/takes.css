@@ -34,6 +34,16 @@
 .take-dot:hover, .take-dot:focus-visible { color: var(--accent); outline: 0; }
 .take-dot[aria-current="true"] { color: var(--accent); }
 
+/* A line past 12 takes stops rendering one dot per take (illegible) and
+   shows a single-dot position gauge instead — jumping to an arbitrary take
+   that far out is `TakePeek`'s job (its virtualized list), not a click here. */
+.take-gauge { display: inline-flex; margin-left: 6px; width: 64px; }
+.take-gauge-track { background: var(--line); border-radius: 2px; display: block; height: 3px; position: relative; width: 100%; }
+.take-gauge-dot {
+  background: var(--accent); border-radius: 50%; height: 8px; position: absolute;
+  top: 50%; transform: translate(-50%, -50%); width: 8px;
+}
+
 /* ---------- take peek ---------- */
 .take-peek {
   animation: rise 140ms ease both; background: var(--surface); border: 1px solid var(--line);

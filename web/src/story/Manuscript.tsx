@@ -14,6 +14,7 @@ export interface ManuscriptProps {
   readonly showDirections: boolean;
   readonly onFocusPart: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
+  readonly onSwitchTo: (partId: string, targetId: string) => void;
 }
 
 /**
@@ -23,7 +24,7 @@ export interface ManuscriptProps {
  * changes (every mutation and landed switch replaces it wholesale, so
  * reference equality is exactly the right memo key).
  */
-export function Manuscript({ payload, focusedPartId, switching, showDirections, onFocusPart, onSwitch }: ManuscriptProps) {
+export function Manuscript({ payload, focusedPartId, switching, showDirections, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
   const model = useMemo(() => createManuscriptModel(payload), [payload]);
 
   const switchingAnchor = switching === null
@@ -46,12 +47,14 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
             <PartCard
               key={row.id}
               part={row}
+              payload={payload}
               focused={row.id === focusedPartId}
               busy={busyFromPathIndex !== null && row.pathIndex > busyFromPathIndex}
               showDirections={showDirections}
               displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
               onFocus={onFocusPart}
               onSwitch={onSwitch}
+              onSwitchTo={onSwitchTo}
             />
           );
         }
