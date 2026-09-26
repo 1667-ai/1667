@@ -1,0 +1,40 @@
+/**
+ * Ported from `~/source/storytavern/web/src/base.css`: resets, `.field`,
+ * `svg.icon`, keyframes, and `.mono-meta`. The palette tokens live in
+ * `tokens.css` instead (see there); story/manuscript-specific rules stay
+ * out of this step's scope entirely.
+ */
+* { box-sizing: border-box; margin: 0; }
+html, body, #app { height: 100%; }
+body { background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 15px; line-height: 1.5; }
+button, input, select, textarea { color: inherit; font-family: inherit; font-size: inherit; }
+::selection { background: var(--accent-soft); }
+* { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+
+.app { display: flex; height: 100%; }
+
+.mono-meta {
+  color: var(--faint); font-family: var(--mono); font-size: 9px;
+  letter-spacing: .09em; line-height: 1.2; text-transform: uppercase;
+}
+
+svg.icon {
+  fill: none; stroke: currentColor; stroke-linecap: round;
+  stroke-linejoin: round; stroke-width: 1.6;
+}
+
+.field { display: flex; flex-direction: column; gap: 6px; }
+.field > label {
+  color: var(--dim); font-family: var(--mono); font-size: 11px; font-weight: 500;
+  letter-spacing: .06em; text-transform: uppercase;
+}
+.field input, .field select, .field textarea {
+  background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+  font-size: 14px; outline: none; padding: 9px 12px;
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.field input:focus, .field select:focus, .field textarea:focus {
+  border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft);
+}
+
+@keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

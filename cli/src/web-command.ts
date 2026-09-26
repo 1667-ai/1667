@@ -1,10 +1,10 @@
-import { spawn } from "node:child_process";
 import { createWorkerHost, type WorkerHost, type WorkerRecoveryWarning } from "../../host/worker-host.js";
 import { startWebServer, type WebServer } from "../../host/web-server.js";
 import { startWebBridgeServer, type WebBridgeHub } from "../../host/web-bridge-server.js";
 import { formatBuildVersion } from "../../shared/build-identity.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
 import { embeddedVaultOptions, openProject } from "./embedded-project.js";
+import { errorMessage, openInBrowser } from "./open-browser.js";
 import { inlineValue, separatedValue } from "./project-command.js";
 import { loadWebAssets } from "./web-assets.js";
 
@@ -189,28 +189,4 @@ function listenForStop(host: WorkerHost): StopListener {
 async function finishStop(outcome: Promise<StopOutcome>): Promise<void> {
   const stopped = await outcome;
   if (stopped.kind === "failure") throw stopped.error;
-}
-
-/** Launch the platform opener. An opener that never starts (missing binary,
- * spawn failure) rejects; the caller treats that as advisory, not fatal. */
-function openInBrowser(url: string): Promise<void> {
-  return new Promise<void>((resolve, reject) => {
-    const [command, args] = platformOpenCommand(url);
-    const child = spawn(command, args, { stdio: "ignore", detached: true });
-    child.once("error", reject);
-    child.once("spawn", () => {
-      child.unref();
-      resolve();
-    });
-  });
-}
-
-function platformOpenCommand(url: string): readonly [string, readonly string[]] {
-  if (process.platform === "darwin") return ["open", [url]];
-  if (process.platform === "win32") return ["cmd", ["/c", "start", "", url]];
-  return ["xdg-open", [url]];
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }

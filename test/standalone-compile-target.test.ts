@@ -40,7 +40,7 @@ test("product build request receives the selected baseline target", async () => 
   });
   assert.deepEqual(calls, ["product"]);
   assert.equal(observed[0]?.compile.target, "bun-darwin-x64-baseline");
-  assert.deepEqual(observed[0]?.external, ["koffi"]);
+  assert.deepEqual(observed[0]?.external, ["koffi", "vite"]);
   // Both WASM payloads must reach the compiled binary. A missing define makes
   // the binary read the file from the build machine instead. That works on the
   // build machine and fails everywhere else.

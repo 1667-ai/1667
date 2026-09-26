@@ -68,6 +68,17 @@ export class StoryReaper {
     );
   }
 
+  /** The catalog reaps deleted stories while it lists them. That is
+   * opportunistic cleanup on a read path: when a live mutation (for example
+   * the delete that is still settling) holds the story, skip it rather than
+   * fail the listing. A later listing reaps it. */
+  async reapIfIdle(storyId: string): Promise<boolean> {
+    return await this.coordinator.runStoryMaintenanceWhenIdle(
+      storyId,
+      async () => await this.sweep(storyId, false)
+    ) ?? false;
+  }
+
   /** Read paths call this, so a story already claimed by a live mutation
    * skips instead of failing the read that asked for it. */
   async recoverResidue(storyId: string): Promise<boolean> {

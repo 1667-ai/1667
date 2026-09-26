@@ -50,10 +50,20 @@ bun start -- web --no-open
 The command prints a URL with a private token. Open the URL in a browser.
 By default, the command opens the URL for you.
 
-The page shows your project and the build version. It connects to your
-project over a WebSocket. The page lists your stories. You can create a
-story and open a story. You can continue a story. The page shows the new
-text as the model writes it. You can stop a generation before it ends.
+The page shows your project name and your Library. The Library lists your
+stories. You can create a story, open a story, rename a story, and delete a
+story. You can pick a light or dark look. You can pick a color palette.
+
+### Run the web page in development mode
+
+`bun run web:dev` starts `1667 web` and a Vite development server together.
+Vite reloads your page changes right away. Open the printed
+`http://127.0.0.1:5173/#token=...` address.
+
+```sh
+bun run web:dev
+bun run web:dev -- --data /path/to/project
+```
 
 ## Build a standalone executable
 

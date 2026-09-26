@@ -29,12 +29,18 @@ function generateWebToken(): string {
 
 /** A CSP is loopback-only and depends on the run's own port: Safari does not
  * treat `'self'` as covering a same-origin `ws:` connection, so the bridge
- * origin is named explicitly, in both host forms `loopbackHostForms` accepts. */
+ * origin is named explicitly, in both host forms `loopbackHostForms` accepts.
+ * No inline script or style (`'unsafe-inline'` is gone): the theme override
+ * goes on before paint through `data-theme`/`data-palette` attributes
+ * (`web/src/main.tsx`), not a pre-paint `<script>`, and React's `style={{}}`
+ * props go through the CSSOM rather than an inline `style` attribute value,
+ * so neither needs it. */
 function securityHeaders(port: number): Record<string, string> {
   return {
     "content-security-policy": "default-src 'none'; script-src 'self'; "
+      + "style-src 'self'; font-src 'self'; img-src 'self'; "
       + `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}; `
-      + "style-src 'unsafe-inline'; base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
+      + "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     "x-content-type-options": "nosniff",
     "referrer-policy": "no-referrer",
     "cache-control": "no-store",
@@ -42,13 +48,14 @@ function securityHeaders(port: number): Record<string, string> {
   };
 }
 
-/** One static file the app bundle needs served publicly: `cli/src/web-assets.ts`
- * builds `"/"` (`web/index.html`) and `"/app.js"` (`web/src/main.ts`, bundled).
- * Step 3 adds hashed `/assets/*` entries; this server does not care which
- * paths are present, only that every one of them is public GET/HEAD. */
+/** The app bundle's static files, served publicly: `cli/src/web-assets.ts`
+ * builds `"/"` (`web/index.html`) plus one hashed `/assets/*` entry per Vite
+ * output chunk, including binary fonts, so the body is raw bytes rather than
+ * a UTF-8 string; this server does not care which paths are present, only
+ * that every one of them is public GET/HEAD. */
 export interface WebAsset {
   readonly contentType: string;
-  readonly body: string;
+  readonly body: Uint8Array;
 }
 
 export interface WebServerOptions {
@@ -328,10 +335,10 @@ function send(
   method: string,
   status: number,
   contentType: string,
-  body: string,
+  body: string | Uint8Array,
   port: number
 ): void {
-  const payload = Buffer.from(body, "utf8");
+  const payload = typeof body === "string" ? Buffer.from(body, "utf8") : body;
   response.writeHead(status, {
     "content-type": contentType,
     "content-length": String(payload.length),

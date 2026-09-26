@@ -100,7 +100,9 @@ async function typescriptFiles(directory: string): Promise<string[]> {
     if (entry.isDirectory()) {
       if (!SKIPPED_DIRECTORIES.has(entry.name)) files.push(...await typescriptFiles(target));
     }
-    else if (entry.isFile() && entry.name.endsWith(".ts")) files.push(target);
+    else if (entry.isFile() && (entry.name.endsWith(".ts") || entry.name.endsWith(".tsx"))) {
+      files.push(target);
+    }
   }
   return files;
 }

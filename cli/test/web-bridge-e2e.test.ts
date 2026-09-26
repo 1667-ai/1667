@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import {
+  BunWebSocket,
   cleanupWebProcesses,
   scratchProject,
   spawnWeb,
@@ -27,18 +28,6 @@ import {
  */
 
 afterEach(cleanupWebProcesses);
-
-/** Bun's `WebSocket` accepts `{ protocols, headers }` as its second
- * constructor argument (verified against Bun 1.3.14); the DOM lib type only
- * declares `string | string[]`, so this is the one place that gap is bridged. */
-type BunWebSocketConstructor = new (
-  url: string,
-  init?: {
-    readonly protocols?: readonly string[];
-    readonly headers?: Readonly<Record<string, string>>;
-  }
-) => WebSocket;
-const BunWebSocket = WebSocket as unknown as BunWebSocketConstructor;
 
 function openSocket(
   web: ReadyWeb,

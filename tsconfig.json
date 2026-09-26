@@ -11,5 +11,5 @@
     "skipLibCheck": true,
     "types": ["node"]
   },
-  "include": ["client", "host", "server", "shared", "scripts", "test", "web"]
+  "include": ["client", "host", "server", "shared", "scripts", "test"]
 }

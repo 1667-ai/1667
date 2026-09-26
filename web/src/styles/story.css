@@ -1,0 +1,51 @@
+/**
+ * Ported from `~/source/storytavern/web/src/story.css`: `.main`,
+ * `.story-view`, `.story-header`, `.story-title*`, `.story-stats`,
+ * `.story-kicker`, `.prose-plain`, `.welcome`, `.story-empty`. Part,
+ * autoname, rewrite, and human-edit rules are dropped — none of that exists
+ * yet. `.connection-*` and `.recovery-banner*` moved to `styles/connection.css`
+ * (review fix D18) — they have nothing to do with the story view itself.
+ */
+
+.main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
+.welcome {
+  align-items: center; animation: rise 500ms ease both; display: flex; flex-direction: column;
+  gap: 18px; margin: auto; max-width: 44ch; padding: 40px; text-align: center;
+}
+.welcome h1 { color: var(--ink); font-family: var(--serif); font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.welcome p { color: var(--dim); font-size: 17px; line-height: 1.6; }
+.story-view { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
+
+.story-header {
+  align-items: center; background: var(--bg); border-bottom: 1px solid var(--line);
+  display: flex; gap: 14px; min-height: 72px; padding: 10px 24px;
+}
+.story-identity { display: flex; flex: 1; flex-direction: column; min-width: 160px; }
+.story-kicker, .story-stats {
+  color: var(--faint); font-family: var(--mono); font-size: 9px; font-weight: 500;
+  letter-spacing: .12em; line-height: 1.2; text-transform: uppercase;
+}
+.story-kicker { margin-bottom: 1px; }
+.story-stats { margin-top: 2px; }
+.story-title-wrap { align-items: center; display: flex; gap: 4px; min-width: 0; }
+/* `.story-title` styles an `<h1>` (review fix E: this used to be an
+   editable field, and carried input-reset properties — background, border,
+   outline, padding — an `<h1>` never needed). */
+.story-title {
+  color: var(--ink); font-family: var(--serif); font-size: 20px; font-weight: 600;
+  letter-spacing: -.01em; line-height: 1.15; min-width: 120px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+
+.story-main { display: flex; flex: 1; min-height: 0; }
+.story-scroll { flex: 1; min-width: 0; overflow-y: auto; }
+.story-body {
+  font-family: var(--prose); font-size: var(--prose-size); margin: 0 auto;
+  max-width: 100ch; padding: 32px 48px 48px;
+}
+.story-empty { color: var(--faint); font-family: var(--prose); font-size: 17px; font-style: italic; margin-top: 12vh; text-align: center; }
+
+.prose-plain {
+  color: var(--ink); font-family: var(--prose); font-optical-sizing: auto; font-size: var(--prose-size);
+  line-height: 1.78; white-space: pre-wrap;
+}
