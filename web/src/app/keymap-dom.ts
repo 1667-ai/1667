@@ -112,6 +112,7 @@ export function fieldHasFocus(): boolean {
     || active instanceof HTMLSelectElement) return true;
   if (active.matches("[contenteditable]")) return true;
   if (active.closest("dialog[open]") !== null) return true;
+  if (active.closest('[role="dialog"]') !== null) return true;
   return active.closest("[data-owns-keys]") !== null;
 }
 

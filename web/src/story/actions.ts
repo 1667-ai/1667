@@ -310,6 +310,7 @@ export function createStoryActions(
     }),
 
     switchTake: (partId, direction) => withOpenStory(store, (storyId, story) => {
+      if (belowPendingSwitch(story, partId)) return;
       const baseId = story.switching !== null && story.switching.partId === partId
         ? story.switching.targetId
         : partId;
@@ -318,7 +319,10 @@ export function createStoryActions(
       beginSwitch(storyId, partId, target.id);
     }),
 
-    switchTakeTo: (partId, targetId) => withOpenStory(store, (storyId) => beginSwitch(storyId, partId, targetId)),
+    switchTakeTo: (partId, targetId) => withOpenStory(store, (storyId, story) => {
+      if (belowPendingSwitch(story, partId)) return;
+      beginSwitch(storyId, partId, targetId);
+    }),
 
     toggleDirections: () => {
       const next = !store.get().reading.showDirections;
@@ -332,3 +336,19 @@ export function createStoryActions(
     }
   };
 }
+
+/** A part below a pending switch belongs to the line that switch replaces;
+ * switching it would queue a take on a branch that is about to disappear
+ * (and, once the ancestor lands, restore it). The mouse controls are
+ * disabled there; keys get the same rule. */
+function belowPendingSwitch(
+  story: Extract<StoryState, { kind: "loaded" }>,
+  partId: string
+): boolean {
+  if (story.switching === null || story.switching.partId === partId) return false;
+  const path = story.payload.path;
+  const anchor = path.findIndex((node) => node.id === story.switching!.partId);
+  const target = path.findIndex((node) => node.id === partId);
+  return anchor >= 0 && target > anchor;
+}
+

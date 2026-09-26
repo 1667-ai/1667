@@ -1,4 +1,4 @@
-import { useLayoutEffect, useRef, useState, type RefObject } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type RefObject } from "react";
 import {
   continuationStats,
   createStoryIndex,
@@ -61,6 +61,12 @@ export function TakePeek({ partId, payload, currentTakeIndex, disabled, onSwitch
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // Move keyboard focus into the preview so its rows, not the manuscript
+  // behind it, receive the keys.
+  useEffect(() => {
+    listRef.current?.querySelector<HTMLButtonElement>("button:not([disabled])")?.focus();
+  }, []);
+
   const range = virtual
     ? virtualRange(takes.length, scrollTop, ROW_HEIGHT, VIEWPORT_HEIGHT, OVERSCAN)
     : { start: 0, end: takes.length };
@@ -103,7 +109,7 @@ export function TakePeek({ partId, payload, currentTakeIndex, disabled, onSwitch
   };
 
   return (
-    <div className="take-peek" style={style} ref={containerRef} role="dialog" aria-label="Take preview">
+    <div className="take-peek" style={style} ref={containerRef} role="dialog" aria-label="Take preview" data-owns-keys="">
       <header>{takes.length} takes</header>
       <div
         className={`take-peek-list${virtual ? " virtual" : ""}`}

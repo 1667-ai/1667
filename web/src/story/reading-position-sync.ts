@@ -50,8 +50,10 @@ export function createReadingPositionSync(api: ReadingPositionsApi): ReadingPosi
     return remote;
   }
 
-  function send(storyId: string, partId: string, options: { readonly keepalive?: boolean } = {}): void {
-    api.set(storyId, partId, options).catch((error: unknown) => {
+  // Always `keepalive`: a debounced write already left `pending`, so a reload
+  // or tab close that lands while it is in flight must not cancel it.
+  function send(storyId: string, partId: string, _options: { readonly keepalive?: boolean } = {}): void {
+    api.set(storyId, partId, { keepalive: true }).catch((error: unknown) => {
       console.warn("1667 web: failed to save the reading position", error);
     });
   }
