@@ -448,6 +448,38 @@ export function subtreeNodeCount(index: StoryIndex, nodeId: string): number {
   return index.subtreeCountByNodeId.get(nodeId) ?? 0;
 }
 
+export type SwitchDirection = -1 | 1;
+
+export function resolveSwitchTarget(
+  payload: StoryPayload,
+  nodeId: string,
+  direction: SwitchDirection
+): { id: string; index: number; count: number } | null {
+  const index = createStoryIndex(payload);
+  const node = index.tree.nodesById.get(nodeId);
+  if (node === undefined) return null;
+  const siblings = childrenOf(index.tree, node.parentId);
+  if (siblings.length < 2) return null;
+  const current = siblings.findIndex((candidate) => candidate.id === nodeId);
+  if (current === -1) return null;
+  const targetIndex = (current + direction + siblings.length) % siblings.length;
+  return { id: siblings[targetIndex]!.id, index: targetIndex + 1, count: siblings.length };
+}
+
+export function resolveTakeTarget(
+  payload: StoryPayload,
+  nodeId: string,
+  take: number
+): { id: string; index: number; count: number } | null {
+  const index = createStoryIndex(payload);
+  const node = index.tree.nodesById.get(nodeId);
+  if (node === undefined) return null;
+  const siblings = childrenOf(index.tree, node.parentId);
+  const target = siblings[take - 1];
+  if (target === undefined) return null;
+  return { id: target.id, index: take, count: siblings.length };
+}
+
 export function virtualRange(
   total: number,
   scrollTop: number,
