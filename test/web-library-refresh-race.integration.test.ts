@@ -1,13 +1,13 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { StoryApi } from "../client/api.js";
-import type { ReadingPositionsApi } from "../client/reading-positions-api.js";
 import type { WebBridgeTransport } from "../client/web-bridge-transport.js";
 import type { StorySummary } from "../shared/types.js";
 import { createLibraryActions } from "../web/src/library/actions.js";
 import type { ConnectionState } from "../web/src/app/connection.js";
 import { initialAppState, type AppState } from "../web/src/app/state.js";
 import { createStore, type Store } from "../web/src/app/store.js";
+import type { ReadingPositionSync } from "../web/src/story/reading-position-sync.js";
 
 /**
  * Codex review (web/step-3-shell): `listStories()` runs on connect, on
@@ -45,7 +45,7 @@ function connectedState(api: Partial<StoryApi>): ConnectionState {
     status: { project: "test", version: "0.0.0" },
     api: api as unknown as StoryApi,
     transport: {} as unknown as WebBridgeTransport,
-    readingPositions: {} as unknown as ReadingPositionsApi
+    readingPositions: {} as unknown as ReadingPositionSync
   };
 }
 

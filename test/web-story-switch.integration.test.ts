@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { StoryApi } from "../client/api.js";
 import { ApiFailureError } from "../client/api-error.js";
-import type { ReadingPositionsApi } from "../client/reading-positions-api.js";
 import type { WebBridgeTransport } from "../client/web-bridge-transport.js";
 import type { NodeStub, StoryPathNode, StoryPayload } from "../shared/types.js";
 import type { StoryAggregateVersion } from "../shared/story-aggregate-version.js";
@@ -10,7 +9,8 @@ import { createStoryActions } from "../web/src/story/actions.js";
 import type { ConnectionState } from "../web/src/app/connection.js";
 import { initialAppState, type AppState } from "../web/src/app/state.js";
 import { createStore, type Store } from "../web/src/app/store.js";
-import { loadedStoryState } from "../web/src/story/state.js";
+import type { ReadingPositionSync } from "../web/src/story/reading-position-sync.js";
+import { effectiveFocusedPartId, loadedStoryState } from "../web/src/story/state.js";
 
 /**
  * `web/src/story/actions.ts`'s take-switch flow (#409 step 4): server-
@@ -90,9 +90,10 @@ function v6(revision: number): StoryAggregateVersion {
 }
 
 function connectedState(api: Partial<StoryApi>): ConnectionState {
-  const readingPositions: ReadingPositionsApi = {
-    load: () => Promise.resolve({}),
-    set: () => Promise.resolve()
+  const readingPositions: ReadingPositionSync = {
+    positionFor: () => Promise.resolve(null),
+    record: () => {},
+    flush: () => {}
   };
   return {
     kind: "connected",
@@ -112,6 +113,45 @@ function storeOpenOn(initial: StoryPayload): Store<AppState> {
 function switchingTarget(store: Store<AppState>): string | null {
   const story = store.get().story;
   return story.kind === "loaded" ? story.switching?.targetId ?? null : null;
+}
+
+/** Three-row fixture for the Defect 4 regression below: a fixed `"anchor"`
+ * row, three switchable siblings (`mid-b`/`mid-c`/`mid-d`), and each
+ * sibling's own single-child "tail" row. Unlike `payload()` above — where
+ * the switched row and the path's only row are the same node, so a stale
+ * `focusedPartId` and the correct one always happen to coincide — switching
+ * `mid-b` to `mid-c` here truly drops `mid-b` from the path while the leaf
+ * moves to `mid-c`'s own tail, not to `mid-c` itself. That gap is what lets
+ * this fixture actually exercise the fallback-to-leaf bug. */
+const MIDS = ["mid-b", "mid-c", "mid-d"] as const;
+
+function tailOf(mid: string): string {
+  return `${mid}-tail`;
+}
+
+function deepPayload(activeMid: string, aggregateVersion?: StoryAggregateVersion): StoryPayload {
+  return {
+    id: STORY_ID,
+    title: "Test",
+    createdAt: new Date(0).toISOString(),
+    updatedAt: new Date(0).toISOString(),
+    nodes: [
+      stub("anchor"),
+      ...MIDS.map((mid) => ({ ...stub(mid), parentId: "anchor" })),
+      ...MIDS.map((mid) => ({ ...stub(tailOf(mid)), parentId: mid }))
+    ],
+    path: [
+      pathNode("anchor"),
+      { ...pathNode(activeMid), parentId: "anchor" },
+      { ...pathNode(tailOf(activeMid)), parentId: activeMid }
+    ],
+    activeRootId: "anchor",
+    tags: [],
+    recentNodeIds: [],
+    facts: [],
+    chapterBreaks: [],
+    ...(aggregateVersion === undefined ? {} : { aggregateVersion })
+  };
 }
 
 test("three rapid switchTake presses make at most two switchLine calls "
@@ -247,6 +287,80 @@ test("resource_busy is retried and the switch still lands", async () => {
   assert.equal(finalStory.kind, "loaded");
   if (finalStory.kind === "loaded") {
     assert.equal(finalStory.payload.path[0]!.id, "b");
+  }
+});
+
+test("an intermediate switch landing rebases focus onto the take that just "
+  + "landed, so a press right after still advances the same part (review "
+  + "fix: rapid take switching)", async () => {
+  const calls: string[] = [];
+  const responses = new Map<string, ReturnType<typeof deferred<StoryPayload>>>();
+  const api: Partial<StoryApi> = {
+    switchLine: (_storyId, nodeId) => {
+      calls.push(nodeId);
+      const response = deferred<StoryPayload>();
+      responses.set(nodeId, response);
+      return response.promise;
+    }
+  };
+
+  const store = createStore(initialAppState({ kind: "story", id: STORY_ID }, null, "ink"));
+  store.set((state) => ({
+    ...state,
+    story: loadedStoryState(deepPayload("mid-b"), "mid-b"),
+    connection: connectedState(api)
+  }));
+  const story = createStoryActions(store, { storyChanged: () => {} });
+
+  // Two rapid presses on "mid-b" (the row carrying focus, not the leaf):
+  // one request goes out for "mid-c" while the desired target moves on to
+  // "mid-d" before it resolves — same coalescing as the plain fixture's
+  // three-rapid-press test above.
+  story.switchTake("mid-b", 1);
+  story.switchTake("mid-b", 1);
+  assert.deepEqual(calls, ["mid-c"]);
+  assert.equal(switchingTarget(store), "mid-d");
+
+  // "mid-b" -> "mid-c" lands while "mid-d" is still queued. The loop adopts
+  // it and fires the next request, but must also rebase `focusedPartId` and
+  // `switching.partId` off "mid-b" -- absent from "mid-c"'s path -- onto
+  // "mid-c", the take actually showing now.
+  responses.get("mid-c")!.resolve(deepPayload("mid-c", v6(1)));
+  await waitFor(() => calls.length === 2);
+  assert.deepEqual(calls, ["mid-c", "mid-d"]);
+
+  const midLanding = store.get().story;
+  assert.equal(midLanding.kind, "loaded");
+  if (midLanding.kind !== "loaded") return;
+  assert.equal(midLanding.focusedPartId, "mid-c");
+  assert.deepEqual(midLanding.switching, { partId: "mid-c", targetId: "mid-d" });
+
+  // The same value `StoryView.tsx`'s take-next handler reads before issuing
+  // a press. Unfixed, the stale "mid-b" is absent from the landed path and
+  // this falls back to the leaf ("mid-c-tail", a childless part with no
+  // sibling to switch to) instead of "mid-c".
+  const focusedBeforeThirdPress = effectiveFocusedPartId(midLanding);
+  assert.equal(focusedBeforeThirdPress, "mid-c");
+
+  // Third press, still before "mid-d" resolves: continues the very same
+  // switch sequence (b -> c -> d -> wraps to b) instead of acting on the
+  // wrong part or silently doing nothing.
+  story.switchTake(focusedBeforeThirdPress!, 1);
+  assert.equal(switchingTarget(store), "mid-b");
+
+  responses.get("mid-d")!.resolve(deepPayload("mid-d", v6(2)));
+  await waitFor(() => calls.length === 3);
+  assert.deepEqual(calls, ["mid-c", "mid-d", "mid-b"]);
+
+  responses.get("mid-b")!.resolve(deepPayload("mid-b", v6(3)));
+  await waitFor(() => switchingTarget(store) === null);
+
+  const finalStory = store.get().story;
+  assert.equal(finalStory.kind, "loaded");
+  if (finalStory.kind === "loaded") {
+    assert.equal(finalStory.payload.path[1]!.id, "mid-b");
+    assert.equal(finalStory.focusedPartId, "mid-b");
+    assert.equal(finalStory.switching, null);
   }
 });
 

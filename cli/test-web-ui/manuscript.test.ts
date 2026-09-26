@@ -423,3 +423,85 @@ test("case 9: the focused part's reading position survives a 1667 web "
   await thirdPage.getByRole("heading", { name: "Forked Story" }).waitFor();
   await waitForAttribute(part(thirdPage, "A1:"), "aria-current", "true");
 }, 30_000);
+
+test("case 10: switching to another story and back keeps the moved position, "
+  + "in the same tab, before the debounced write could have reached the "
+  + "server (review fix: the positions cache learns this tab's own writes)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const storyA = await seedForkedStory(api);
+  const storyB = await seedForkedStory(api);
+
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, storyA.storyId);
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor();
+  await waitForAttribute(part(page, "C1:"), "aria-current", "true");
+
+  await part(page, "B1:").click();
+  await waitForAttribute(part(page, "B1:"), "aria-current", "true");
+
+  // Away to story B and straight back, all in the same tab/connection, with
+  // no wait — well before the ~400ms debounced write for "B1:" could
+  // possibly have reached the server, so only the in-tab record (not a
+  // fresh GET) can be what answers this.
+  await page.evaluate((id) => {
+    location.hash = `#/story/${id}`;
+  }, storyB.storyId);
+  await waitForAttribute(part(page, "C1:"), "aria-current", "true");
+  await page.evaluate((id) => {
+    location.hash = `#/story/${id}`;
+  }, storyA.storyId);
+  await waitForAttribute(part(page, "B1:"), "aria-current", "true");
+}, 30_000);
+
+test("case 11: a reload issued inside the reading-position debounce window "
+  + "still lands on a just-moved-to part (review fix: the host's GET merges "
+  + "its own still-pending write)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor();
+  await waitForAttribute(part(page, "C1:"), "aria-current", "true");
+
+  await part(page, "B1:").click();
+  await waitForAttribute(part(page, "B1:"), "aria-current", "true");
+
+  // Reload right away: a fresh connection, with no in-tab memory of this
+  // move, well inside the debounce window — only a GET that also sees the
+  // still-pending (not yet flushed to disk) write can open back on "B1:"
+  // instead of falling back to the leaf.
+  await page.reload();
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor();
+  await waitForAttribute(part(page, "B1:"), "aria-current", "true");
+}, 30_000);
+
+test("case 12: Alt+-> does not switch takes, so the browser keeps its own "
+  + "back/forward (review fix: alt-modified arrows are rejected)", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor();
+
+  await part(page, "B1:").click();
+  await waitForAttribute(part(page, "B1:"), "aria-current", "true");
+  await waitForLabelMatching(takeCounter(page), /Take 1 of 3/);
+
+  await page.keyboard.press("Alt+ArrowRight");
+  // Give an incorrect switch a moment to start, then confirm nothing moved.
+  await page.waitForTimeout(200);
+  await waitForLabelMatching(takeCounter(page), /Take 1 of 3/);
+  await waitForCount(page.locator(".part").filter({ hasText: "C1:" }), 1);
+
+  // The plain key still works — only the Alt-modified chord is rejected.
+  await page.keyboard.press("ArrowRight");
+  await waitForLabelMatching(takeCounter(page), /Take 2 of 3/);
+}, 30_000);
