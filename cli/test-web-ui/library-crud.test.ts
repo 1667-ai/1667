@@ -240,7 +240,7 @@ test("deleting the open story while navigating to another story lands on the "
   expect(await page.evaluate(() => location.hash)).toBe(`#/story/${storyB.id}`);
 }, 30_000);
 
-test("case 9: the placeholder shows the active path text of a story "
+test("case 9: the manuscript shows the active path text of a story "
   + "seeded through the bridge's createNode", async () => {
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
@@ -255,7 +255,11 @@ test("case 9: the placeholder shows the active path text of a story "
     location.hash = `#/story/${id}`;
   }, created.id);
 
-  await page.getByText("Once upon a time.").waitFor();
+  // Step 4's manuscript view (#409): the header's line name also starts
+  // with the part's own working name (`"Once upon a time.…"`), so an exact
+  // match on the prose paragraph is what tells the two apart (step 3's
+  // placeholder had no header text to collide with).
+  await page.getByText("Once upon a time.", { exact: true }).waitFor();
 }, 30_000);
 
 async function expectHash(page: { evaluate<T>(fn: () => T): Promise<T> }, expected: string): Promise<void> {

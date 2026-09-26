@@ -6,7 +6,7 @@ import { demoAppSource } from "../src/demo.js";
 import { resolveKey } from "../src/keys.js";
 import { mouseToAction } from "../src/mouse-actions.js";
 import { handleOverlayAction } from "../src/overlay-actions.js";
-import { REFERENCE_BINDING_LIST } from "../src/reference-bindings.js";
+import { REFERENCE_BINDING_LIST } from "../../shared/reference-bindings.js";
 import { KEYS_MODAL_MODEL } from "../src/screens/keys-modal.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";

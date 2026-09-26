@@ -6,7 +6,7 @@ import { dismissToast } from "./app/toasts.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
-import { StoryPlaceholder } from "./story/StoryPlaceholder.js";
+import { StoryView } from "./story/StoryView.js";
 import {
   ClosedOverlay,
   ConnectingScreen,
@@ -76,7 +76,7 @@ function Shell() {
           />
         )}
         {route.kind === "story"
-          ? <StoryPlaceholder storyId={route.id} />
+          ? <StoryView storyId={route.id} />
           : <LibraryHome />}
       </main>
       <LibraryDialogs />

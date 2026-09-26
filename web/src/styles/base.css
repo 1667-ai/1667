@@ -13,6 +13,13 @@ button, input, select, textarea { color: inherit; font-family: inherit; font-siz
 
 .app { display: flex; height: 100%; }
 
+/** Visually hidden but still reachable by assistive tech — the manuscript's
+ *  take-switch live region (`story/StoryView.tsx`) is the first user. */
+.sr-only {
+  border: 0; clip: rect(0, 0, 0, 0); height: 1px; margin: -1px; overflow: hidden;
+  padding: 0; position: absolute; white-space: nowrap; width: 1px;
+}
+
 .mono-meta {
   color: var(--faint); font-family: var(--mono); font-size: 9px;
   letter-spacing: .09em; line-height: 1.2; text-transform: uppercase;

@@ -54,6 +54,13 @@ The page shows your project name and your Library. The Library lists your
 stories. You can create a story, open a story, rename a story, and delete a
 story. You can pick a light or dark look. You can pick a color palette.
 
+An open story shows its story parts in order. You can move between story
+parts with the arrow keys. You can pick a different take for a story part.
+After the last take, the next take is the first take. Before the first
+take, the previous take is the last take. Your place in the story survives
+a page reload. Your place in the story survives a restart of `1667 web`.
+The terminal app and `1667 web` share this same place.
+
 ### Run the web page in development mode
 
 `bun run web:dev` starts `1667 web` and a Vite development server together.

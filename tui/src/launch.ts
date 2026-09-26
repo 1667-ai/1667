@@ -9,7 +9,7 @@ import {
   disposeReadingPositionStore,
   loadReadingPositions,
   readingPositionStoreFile
-} from "./reading-position-store.js";
+} from "../../host/reading-position-store.js";
 import { createBackgroundUpdateStarter } from "./update-runtime.js";
 import type { RecoveryWarningFeed } from "./recovery-warning-feed.js";
 

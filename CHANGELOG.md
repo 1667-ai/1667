@@ -11,6 +11,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   or dark look. You can pick a color palette. Use `1667 web --help` for the
   options.
 
+- **`1667 web` shows the manuscript of an open story.** The page shows the
+  story parts in order. You can move between story parts with the arrow
+  keys. You can pick a different take for a story part. After the last
+  take, the next take is the first take. Before the first take, the
+  previous take is the last take. Your place in the story survives a page
+  reload. Your place in the story survives a restart of `1667 web`. The
+  terminal app and `1667 web` share this same place.
+
 - **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
   the Anthropic provider, you can set effort for these models. 1667 shows
   their thoughts and uses prompt caching for them.

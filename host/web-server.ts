@@ -6,10 +6,15 @@ import {
   type ServerResponse
 } from "node:http";
 import { listenLoopback } from "../server/loopback-listen.js";
+import type { ReadingPositions } from "../shared/reading-position.js";
 import {
   WEB_BRIDGE_SUBPROTOCOL,
   WEB_BRIDGE_TOKEN_PREFIX
 } from "../shared/web-bridge-protocol.js";
+import {
+  readingPositionsGetRoute,
+  readingPositionsPutRoute
+} from "./web-reading-positions-routes.js";
 
 /** 32 random bytes, hex-encoded: matches the story-scope capability length,
  * so a candidate of the wrong shape never reaches `timingSafeEqual` with
@@ -58,6 +63,16 @@ export interface WebAsset {
   readonly body: Uint8Array;
 }
 
+/** The small surface `startWebServer` needs to serve durable reading
+ * positions — kept generic (no host-store import here) so this module stays
+ * a plain HTTP server; `cli/src/web-command.ts` wires the host's own
+ * `reading-position-store.ts` (the same store the embedded TUI reads and
+ * writes) into it. `set`'s `null` deletes the story's stored position. */
+export interface ReadingPositionsService {
+  load(): Promise<ReadingPositions>;
+  set(storyId: string, partId: string | null): void;
+}
+
 export interface WebServerOptions {
   readonly port: number;
   readonly assets: ReadonlyMap<string, WebAsset>;
@@ -65,6 +80,7 @@ export interface WebServerOptions {
   readonly projectLabel: string;
   /** The running build's version, shown once `/api/status` is authorized. */
   readonly version: string;
+  readonly readingPositions: ReadingPositionsService;
 }
 
 export interface WebServer {
@@ -107,10 +123,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     tokenBuffer: Buffer.from(token, "hex"),
     assets: options.assets,
     projectLabel: options.projectLabel,
-    version: options.version
+    version: options.version,
+    readingPositions: options.readingPositions
   };
   server.on("request", (request, response) => {
-    handleRequest(request, response, context);
+    void handleRequest(request, response, context);
   });
   return {
     url: `http://127.0.0.1:${address.port}/#token=${token}`,
@@ -145,32 +162,40 @@ function isAlreadyClosed(error: NodeJS.ErrnoException): boolean {
   return error.code === "ERR_SERVER_NOT_RUNNING";
 }
 
-interface RequestContext {
+export interface RequestContext {
   readonly port: number;
   readonly tokenBuffer: Buffer;
   readonly assets: ReadonlyMap<string, WebAsset>;
   readonly projectLabel: string;
   readonly version: string;
+  readonly readingPositions: ReadingPositionsService;
 }
 
-interface RouteResponse {
+export interface RouteResponse {
   readonly status: number;
   readonly contentType: string;
   readonly body: string;
 }
 
-interface Route {
-  readonly path: string;
+/** `match` names the path this route answers and pulls out any variable
+ * segment (`storyId`, for the reading-positions PUT) in one step — `null`
+ * means "not this route," so `findRoute` below just tries each in turn. */
+export interface Route {
+  readonly match: (pathname: string) => Readonly<Record<string, string>> | null;
   readonly methods: ReadonlySet<string>;
   readonly requireBearer: boolean;
-  readonly handle: (context: RequestContext) => RouteResponse;
+  readonly handle: (
+    context: RequestContext,
+    request: IncomingMessage,
+    params: Readonly<Record<string, string>>
+  ) => RouteResponse | Promise<RouteResponse>;
 }
 
 /** Every path here is app data, never a static asset — those come from
  * `context.assets` instead (see `handleRequest`). */
 const ROUTES: readonly Route[] = [
   {
-    path: "/api/status",
+    match: (pathname) => (pathname === "/api/status" ? {} : null),
     methods: new Set(["GET"]),
     requireBearer: true,
     handle: (context) => ({
@@ -178,11 +203,17 @@ const ROUTES: readonly Route[] = [
       contentType: "application/json; charset=utf-8",
       body: JSON.stringify({ project: context.projectLabel, version: context.version })
     })
-  }
+  },
+  readingPositionsGetRoute,
+  readingPositionsPutRoute
 ];
 
-function findRoute(pathname: string): Route | undefined {
-  return ROUTES.find((route) => route.path === pathname);
+function findRoute(pathname: string): { route: Route; params: Readonly<Record<string, string>> } | undefined {
+  for (const route of ROUTES) {
+    const params = route.match(pathname);
+    if (params !== null) return { route, params };
+  }
+  return undefined;
 }
 
 type Authorization =
@@ -239,11 +270,11 @@ function authorizeUpgrade(request: IncomingMessage, context: RequestContext): bo
     && matchesToken(bridgeTokenOffer(protocols), context.tokenBuffer);
 }
 
-function handleRequest(
+async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   context: RequestContext
-): void {
+): Promise<void> {
   try {
     // Already upper-case: https://nodejs.org/api/http.html#messagemethod
     const method = request.method ?? "GET";
@@ -253,16 +284,16 @@ function handleRequest(
     } catch {
       return sendPage(response, method, 400, simplePage("Bad request."), context.port);
     }
-    const route = findRoute(pathname);
-    const authorization = authorizeRequest(request, context, route?.requireBearer ?? false);
+    const found = findRoute(pathname);
+    const authorization = authorizeRequest(request, context, found?.route.requireBearer ?? false);
     if (!authorization.ok) {
       return sendPage(response, method, authorization.status, authorization.page, context.port);
     }
-    if (route !== undefined) {
-      if (!route.methods.has(method)) {
+    if (found !== undefined) {
+      if (!found.route.methods.has(method)) {
         return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
       }
-      const result = route.handle(context);
+      const result = await found.route.handle(context, request, found.params);
       return send(response, method, result.status, result.contentType, result.body, context.port);
     }
     const asset = context.assets.get(pathname);
@@ -339,11 +370,13 @@ function send(
   port: number
 ): void {
   const payload = typeof body === "string" ? Buffer.from(body, "utf8") : body;
-  response.writeHead(status, {
-    "content-type": contentType,
-    "content-length": String(payload.length),
-    ...securityHeaders(port)
-  });
+  // A 204 carries no body by definition, so it carries no Content-Type
+  // either — a route that answers one (the reading-positions PUT) always
+  // passes an empty body alongside it; this is what actually drops the
+  // header, rather than trusting every route to remember to omit it.
+  const headers: Record<string, string> = { ...securityHeaders(port), "content-length": String(payload.length) };
+  if (status !== 204) headers["content-type"] = contentType;
+  response.writeHead(status, headers);
   if (method === "HEAD") response.end();
   else response.end(payload);
 }

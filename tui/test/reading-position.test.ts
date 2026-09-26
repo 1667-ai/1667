@@ -19,7 +19,7 @@ import {
   readingPositionStoreFile,
   readingPositionStorePathForScope,
   saveReadingPositions
-} from "../src/reading-position-store.js";
+} from "../../host/reading-position-store.js";
 import { rememberFocus } from "../src/reading-position-persist.js";
 import { initialState } from "../src/app.js";
 

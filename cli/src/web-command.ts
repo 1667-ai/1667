@@ -1,5 +1,12 @@
 import { createWorkerHost, type WorkerHost, type WorkerRecoveryWarning } from "../../host/worker-host.js";
-import { startWebServer, type WebServer } from "../../host/web-server.js";
+import {
+  configureReadingPositionStore,
+  flushReadingPositionPersist,
+  markReadingPositionDirty,
+  readReadingPositionsWithPending,
+  readingPositionStoreFile
+} from "../../host/reading-position-store.js";
+import { startWebServer, type ReadingPositionsService, type WebServer } from "../../host/web-server.js";
 import { startWebBridgeServer, type WebBridgeHub } from "../../host/web-bridge-server.js";
 import { formatBuildVersion } from "../../shared/build-identity.js";
 import { terminalLineText } from "../../shared/terminal-text.js";
@@ -67,6 +74,20 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
   const opened = await openProject({ data: command.data, global: command.global });
   if (opened === null) return;
 
+  // Same scope the embedded TUI's own backend uses for this project
+  // (`readingPositionScope: { dataDir, origin: null }` in cli/src/main.ts),
+  // so the TUI and `1667 web` share one store: whichever one last wrote a
+  // story's position is what the other opens to.
+  const readingPositionStoreFilePath = readingPositionStoreFile(opened.project.directory, null);
+  configureReadingPositionStore(readingPositionStoreFilePath);
+  const readingPositions: ReadingPositionsService = {
+    // Not `loadReadingPositions`: that reads disk only, so a GET issued
+    // within the ~400ms debounce window of this same host's own write would
+    // see stale data even though the write already answered success.
+    load: async () => readReadingPositionsWithPending({ file: readingPositionStoreFilePath }),
+    set: (storyId, partId) => markReadingPositionDirty(storyId, partId, { file: readingPositionStoreFilePath })
+  };
+
   // The hub does not exist until after the Worker host starts (it wraps the
   // http server the host has no reason to know about), but `createWorkerHost`
   // needs an `onRecoveryWarnings` callback now. This cell lets that callback
@@ -103,7 +124,8 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
         port: command.port,
         assets,
         projectLabel: opened.project.root,
-        version: formatBuildVersion()
+        version: formatBuildVersion(),
+        readingPositions
       });
     } catch (error) {
       throw new Error(
@@ -142,6 +164,9 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
     }
   } finally {
     stop.dispose();
+    // A focus change debounces its store write (~400ms); flush whatever is
+    // still pending so a fast Ctrl+C never drops the reader's last position.
+    flushReadingPositionPersist();
     // `host.dispose()` can itself throw `BackendRestartRequiredError` (it
     // keeps the project lock when the worker's exit is unproven). Letting
     // that propagate from a `finally` — rather than catching it — is what

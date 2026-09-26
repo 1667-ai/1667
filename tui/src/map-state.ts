@@ -1,5 +1,5 @@
-export const MAP_VIEWS = ["path", "tree", "mass"] as const;
-export type MapView = (typeof MAP_VIEWS)[number];
+export { MAP_VIEWS, type MapView } from "../../shared/map-model.js";
+import { MAP_VIEWS, type MapView } from "../../shared/map-model.js";
 
 export const MAP_MASS_SORTS = ["size", "recency", "depth", "name"] as const;
 export type MapMassSort = (typeof MAP_MASS_SORTS)[number];

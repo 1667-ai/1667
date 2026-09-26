@@ -1,13 +1,23 @@
-import type { KeyEvent } from "@opentui/core";
-import type { AppMode, KeyAction } from "./keys.js";
-import type { MapView } from "./map-state.js";
+import type { MapView } from "./map-model.js";
+
+/** The handful of fields `resolveReferenceBinding` reads off a real key
+ *  event. TUI keys (`@opentui/core`'s `KeyEvent`) and DOM keys
+ *  (`web/src/app/keymap-dom.ts`'s `keyEventFromDom`) both narrow down to this
+ *  shape rather than either host's own richer event type leaking in here. */
+export interface ReferenceKeyEvent {
+  name: string;
+  sequence?: string;
+  shift?: boolean;
+  ctrl?: boolean;
+  meta?: boolean;
+}
 
 export interface ReferenceBinding {
   display: string;
   lane: ReferenceBindingLane;
   name: string;
-  mode: AppMode;
-  action: KeyAction;
+  mode: ReferenceMode;
+  action: ReferenceAction;
   sequence?: string;
   shift?: boolean;
   ctrl?: boolean;
@@ -31,15 +41,32 @@ type BindingOptions = Partial<Pick<
   "sequence" | "shift" | "ctrl" | "global" | "mapView"
 >>;
 
-type BindingDefinition = Omit<ReferenceBinding, "display">;
+/** Loose shape used only to validate `DEFINITIONS` below (`mode`/`action` as
+ *  plain `string`); `ReferenceMode`/`ReferenceAction` are derived FROM
+ *  `DEFINITIONS`'s literal types afterward, so this cannot reference them
+ *  without a circular type. */
+interface BindingDefinitionShape {
+  readonly lane: ReferenceBindingLane;
+  readonly name: string;
+  readonly mode: string;
+  readonly action: string;
+  readonly sequence?: string;
+  readonly shift?: boolean;
+  readonly ctrl?: boolean;
+  readonly global?: boolean;
+  readonly mapView?: MapView;
+}
 
-function route(
-  lane: ReferenceBindingLane,
-  name: string,
-  mode: AppMode,
-  action: KeyAction,
-  extra: BindingOptions = {}
-): BindingDefinition {
+/** `const` type parameters keep every call's literal `mode`/`action` strings
+ *  intact (TS 5) instead of widening them to `string`, which is what lets
+ *  `ReferenceMode`/`ReferenceAction` below be derived automatically from the
+ *  table rather than declared by hand and risking drift. */
+function route<
+  const Lane extends ReferenceBindingLane,
+  const Name extends string,
+  const Mode extends string,
+  const Action extends string
+>(lane: Lane, name: Name, mode: Mode, action: Action, extra: BindingOptions = {}) {
   return { lane, name, mode, action, ...extra };
 }
 
@@ -162,11 +189,23 @@ const DEFINITIONS = {
   // The query field is always live, so the case switch has to be a chord: a
   // bare `c` belongs to the writer's query, not to the chrome.
   searchCase: route("search", "s", "SEARCH", "toggle-search-case", { ctrl: true })
-} as const satisfies Record<string, BindingDefinition>;
+} as const satisfies Record<string, BindingDefinitionShape>;
 
 export type ReferenceBindingId = keyof typeof DEFINITIONS;
 
-function bindingDisplay(binding: BindingDefinition): string {
+/** The modes and actions the table above actually uses, derived rather than
+ *  declared — see `route`'s `const` type parameters. `tui/src/reference-bindings.ts`
+ *  checks these stay subsets of the TUI's own `AppMode`/`KeyAction` at
+ *  compile time. */
+export type ReferenceMode = (typeof DEFINITIONS)[ReferenceBindingId]["mode"];
+export type ReferenceAction = (typeof DEFINITIONS)[ReferenceBindingId]["action"];
+
+function bindingDisplay(binding: {
+  readonly name: string;
+  readonly sequence?: string;
+  readonly shift?: boolean;
+  readonly ctrl?: boolean;
+}): string {
   const base = binding.sequence ?? ({
     up: "↑",
     down: "↓",
@@ -194,18 +233,18 @@ export const REFERENCE_BINDINGS = Object.freeze(Object.fromEntries(
 export const REFERENCE_BINDING_LIST: readonly ReferenceBinding[] =
   Object.freeze(Object.values(REFERENCE_BINDINGS));
 
-function shiftedLetterMatches(key: KeyEvent, upper: string): boolean {
+function shiftedLetterMatches(key: ReferenceKeyEvent, upper: string): boolean {
   const lower = upper.toLowerCase();
   return key.name === upper
     || key.sequence === upper
-    || (key.name === lower && key.shift);
+    || (key.name === lower && key.shift === true);
 }
 
 function matches(
   binding: ReferenceBinding,
-  key: KeyEvent,
-  mode: AppMode,
-  mapView: MapView
+  key: ReferenceKeyEvent,
+  mode: ReferenceMode,
+  mapView: MapView | undefined
 ): boolean {
   if ((!binding.global && binding.mode !== mode) || key.meta) return false;
   if ((binding.ctrl ?? false) !== Boolean(key.ctrl)) return false;
@@ -218,14 +257,19 @@ function matches(
     ? binding.name.toLowerCase() === key.name.toLowerCase()
     : binding.name === key.name;
   return nameMatches
-    && (binding.shift !== true || key.shift);
+    && (binding.shift !== true || key.shift === true);
 }
 
+/** `mapView` is optional: only the `"map"` lane's bindings ever restrict on
+ *  it, so a caller with no map view of its own (the web manuscript has no
+ *  MAP mode) can omit it rather than pass a dummy value — omitted, a binding
+ *  that names a `mapView` simply never matches, which is exactly right,
+ *  since a lane search that never includes `"map"` never reaches one. */
 export function resolveReferenceBinding(
   lane: ReferenceBindingLane,
-  key: KeyEvent,
-  mode: AppMode,
-  mapView: MapView
+  key: ReferenceKeyEvent,
+  mode: ReferenceMode,
+  mapView?: MapView
 ): ReferenceBinding | null {
   return REFERENCE_BINDING_LIST.find((binding) =>
     binding.lane === lane && matches(binding, key, mode, mapView)

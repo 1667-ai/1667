@@ -36,6 +36,11 @@ export type ConnectWebBridgeOutcome =
       readonly status: WebBridgeStatus;
       readonly transport: WebBridgeTransport;
       readonly recoveryWarnings: readonly BridgeRecoveryWarning[];
+      /** The same per-run bearer token already used for `/api/status` and
+       * the bridge upgrade — carried onward so a caller can reach another
+       * bearer-guarded route (`/api/reading-positions`, #409 step 4)
+       * without re-deriving or re-reading it. */
+      readonly token: string;
     }
   /** No usable token: the fragment carried none, and nothing was in
    * `storage` from an earlier visit, or `/api/status` rejected the one that
@@ -129,7 +134,7 @@ export async function connectWebBridge(
       ...(options.onRecoveryWarnings === undefined ? {} : { onRecoveryWarnings: options.onRecoveryWarnings }),
       ...(options.onClose === undefined ? {} : { onClose: options.onClose })
     });
-    return { kind: "connected", status, transport, recoveryWarnings };
+    return { kind: "connected", status, transport, recoveryWarnings, token };
   } catch (error) {
     return { kind: "failed", error: asError(error) };
   }

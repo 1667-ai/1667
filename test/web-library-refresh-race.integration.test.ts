@@ -7,6 +7,7 @@ import { createLibraryActions } from "../web/src/library/actions.js";
 import type { ConnectionState } from "../web/src/app/connection.js";
 import { initialAppState, type AppState } from "../web/src/app/state.js";
 import { createStore, type Store } from "../web/src/app/store.js";
+import type { ReadingPositionSync } from "../web/src/story/reading-position-sync.js";
 
 /**
  * Codex review (web/step-3-shell): `listStories()` runs on connect, on
@@ -43,7 +44,8 @@ function connectedState(api: Partial<StoryApi>): ConnectionState {
     kind: "connected",
     status: { project: "test", version: "0.0.0" },
     api: api as unknown as StoryApi,
-    transport: {} as unknown as WebBridgeTransport
+    transport: {} as unknown as WebBridgeTransport,
+    readingPositions: {} as unknown as ReadingPositionSync
   };
 }
 
