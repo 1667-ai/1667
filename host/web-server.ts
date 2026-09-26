@@ -6,6 +6,8 @@ import {
   type ServerResponse
 } from "node:http";
 import { listenLoopback } from "../server/loopback-listen.js";
+import { isStoryId } from "../server/story-v5-strict.js";
+import type { ReadingPositions } from "../shared/reading-position.js";
 import {
   WEB_BRIDGE_SUBPROTOCOL,
   WEB_BRIDGE_TOKEN_PREFIX
@@ -58,6 +60,16 @@ export interface WebAsset {
   readonly body: Uint8Array;
 }
 
+/** The small surface `startWebServer` needs to serve durable reading
+ * positions — kept generic (no host-store import here) so this module stays
+ * a plain HTTP server; `cli/src/web-command.ts` wires the host's own
+ * `reading-position-store.ts` (the same store the embedded TUI reads and
+ * writes) into it. `set`'s `null` deletes the story's stored position. */
+export interface ReadingPositionsService {
+  load(): Promise<ReadingPositions>;
+  set(storyId: string, partId: string | null): void;
+}
+
 export interface WebServerOptions {
   readonly port: number;
   readonly assets: ReadonlyMap<string, WebAsset>;
@@ -65,6 +77,7 @@ export interface WebServerOptions {
   readonly projectLabel: string;
   /** The running build's version, shown once `/api/status` is authorized. */
   readonly version: string;
+  readonly readingPositions: ReadingPositionsService;
 }
 
 export interface WebServer {
@@ -107,10 +120,11 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     tokenBuffer: Buffer.from(token, "hex"),
     assets: options.assets,
     projectLabel: options.projectLabel,
-    version: options.version
+    version: options.version,
+    readingPositions: options.readingPositions
   };
   server.on("request", (request, response) => {
-    handleRequest(request, response, context);
+    void handleRequest(request, response, context);
   });
   return {
     url: `http://127.0.0.1:${address.port}/#token=${token}`,
@@ -151,6 +165,7 @@ interface RequestContext {
   readonly assets: ReadonlyMap<string, WebAsset>;
   readonly projectLabel: string;
   readonly version: string;
+  readonly readingPositions: ReadingPositionsService;
 }
 
 interface RouteResponse {
@@ -163,7 +178,7 @@ interface Route {
   readonly path: string;
   readonly methods: ReadonlySet<string>;
   readonly requireBearer: boolean;
-  readonly handle: (context: RequestContext) => RouteResponse;
+  readonly handle: (context: RequestContext, request: IncomingMessage) => RouteResponse | Promise<RouteResponse>;
 }
 
 /** Every path here is app data, never a static asset — those come from
@@ -178,11 +193,123 @@ const ROUTES: readonly Route[] = [
       contentType: "application/json; charset=utf-8",
       body: JSON.stringify({ project: context.projectLabel, version: context.version })
     })
+  },
+  {
+    path: "/api/reading-positions",
+    methods: new Set(["GET"]),
+    requireBearer: true,
+    handle: async (context) => ({
+      status: 200,
+      contentType: "application/json; charset=utf-8",
+      body: JSON.stringify({ positions: await context.readingPositions.load() })
+    })
   }
 ];
 
 function findRoute(pathname: string): Route | undefined {
   return ROUTES.find((route) => route.path === pathname);
+}
+
+/** `/api/reading-positions/<storyId>` — one PUT per story, `<storyId>` a
+ * path segment rather than a listed `Route` because it carries a variable. */
+const READING_POSITION_STORY_PATH = /^\/api\/reading-positions\/([^/]+)$/;
+
+const MAX_READING_POSITION_BODY_BYTES = 1_024;
+/** Matches `MAX_STORY_IDENTIFIER_CHARS` (server/story-v5-strict.ts) — a part
+ * id is a node id, drawn from the same identifier space as a story id. */
+const MAX_PART_ID_CHARS = 1_024;
+
+function hasJsonContentType(request: IncomingMessage): boolean {
+  const raw = request.headers["content-type"];
+  const header = Array.isArray(raw) ? raw[0] : raw;
+  return header?.split(";")[0]?.trim().toLowerCase() === "application/json";
+}
+
+function jsonResponse(status: number, body: unknown): RouteResponse {
+  return { status, contentType: "application/json; charset=utf-8", body: JSON.stringify(body) };
+}
+
+/** A read past this many bytes destroys the connection outright instead of
+ * continuing to drain — see `readBoundedTextBody`'s doc comment. Generous
+ * next to `MAX_READING_POSITION_BODY_BYTES` (a real client's body is a few
+ * dozen bytes), so this only ever engages against a pathological sender. */
+const READING_POSITION_BODY_DRAIN_CEILING_BYTES = 64 * 1_024;
+
+/**
+ * Reads a request body capped at `maxBytes`, tolerant of one Bun 1.3.14
+ * `node:http` quirk verified against a minimal repro server: throwing out of
+ * a `for await (const chunk of request)` loop and then writing an error
+ * response — the natural way to reject an oversized body, and what
+ * `server/http.ts`'s `readTextBody` does — corrupts the reply into a bare
+ * 200 with an empty body instead of the intended status (confirmed absent
+ * under real Node; this is Bun-specific). The workaround is to keep
+ * consuming the stream to completion (discarding bytes past `maxBytes`
+ * rather than buffering them, and giving up only past
+ * `READING_POSITION_BODY_DRAIN_CEILING_BYTES`) so the request always
+ * finishes normally before the response is written.
+ */
+async function readBoundedTextBody(
+  request: IncomingMessage,
+  maxBytes: number
+): Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false }> {
+  const chunks: Buffer[] = [];
+  let size = 0;
+  let oversized = false;
+  for await (const chunk of request) {
+    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
+    size += buffer.length;
+    if (size > maxBytes) {
+      oversized = true;
+      if (size > READING_POSITION_BODY_DRAIN_CEILING_BYTES) {
+        request.destroy();
+        break;
+      }
+      continue;
+    }
+    chunks.push(buffer);
+  }
+  if (oversized) return { ok: false };
+  return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
+}
+
+/**
+ * `PUT /api/reading-positions/<storyId>` body `{ partId: string | null }`
+ * (`null` deletes). Every failure answers a small JSON error body rather
+ * than throwing, so `handleRequest`'s catch-all stays reserved for a real bug.
+ */
+async function handleSetReadingPosition(
+  request: IncomingMessage,
+  context: RequestContext,
+  rawStoryId: string
+): Promise<RouteResponse> {
+  let storyId: string;
+  try {
+    storyId = decodeURIComponent(rawStoryId);
+  } catch {
+    return jsonResponse(400, { error: "invalid story id" });
+  }
+  if (!isStoryId(storyId)) return jsonResponse(400, { error: "invalid story id" });
+  if (!hasJsonContentType(request)) {
+    return jsonResponse(415, { error: "Content-Type must be application/json" });
+  }
+  const bodyResult = await readBoundedTextBody(request, MAX_READING_POSITION_BODY_BYTES);
+  if (!bodyResult.ok) return jsonResponse(413, { error: "request body too large" });
+  const text = bodyResult.text;
+  let parsed: unknown;
+  try {
+    parsed = text.trim().length === 0 ? {} : JSON.parse(text);
+  } catch {
+    return jsonResponse(400, { error: "invalid JSON body" });
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !("partId" in parsed)) {
+    return jsonResponse(400, { error: "body must be { partId: string | null }" });
+  }
+  const partId = (parsed as { partId: unknown }).partId;
+  if (partId !== null && (typeof partId !== "string" || partId.length === 0 || partId.length > MAX_PART_ID_CHARS)) {
+    return jsonResponse(400, { error: "partId must be a non-empty bounded string, or null" });
+  }
+  context.readingPositions.set(storyId, partId);
+  return { status: 204, contentType: "application/json; charset=utf-8", body: "" };
 }
 
 type Authorization =
@@ -239,11 +366,11 @@ function authorizeUpgrade(request: IncomingMessage, context: RequestContext): bo
     && matchesToken(bridgeTokenOffer(protocols), context.tokenBuffer);
 }
 
-function handleRequest(
+async function handleRequest(
   request: IncomingMessage,
   response: ServerResponse,
   context: RequestContext
-): void {
+): Promise<void> {
   try {
     // Already upper-case: https://nodejs.org/api/http.html#messagemethod
     const method = request.method ?? "GET";
@@ -254,7 +381,9 @@ function handleRequest(
       return sendPage(response, method, 400, simplePage("Bad request."), context.port);
     }
     const route = findRoute(pathname);
-    const authorization = authorizeRequest(request, context, route?.requireBearer ?? false);
+    const storyMatch = route === undefined ? READING_POSITION_STORY_PATH.exec(pathname) : null;
+    const requireBearer = route?.requireBearer ?? storyMatch !== null;
+    const authorization = authorizeRequest(request, context, requireBearer);
     if (!authorization.ok) {
       return sendPage(response, method, authorization.status, authorization.page, context.port);
     }
@@ -262,7 +391,14 @@ function handleRequest(
       if (!route.methods.has(method)) {
         return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
       }
-      const result = route.handle(context);
+      const result = await route.handle(context, request);
+      return send(response, method, result.status, result.contentType, result.body, context.port);
+    }
+    if (storyMatch !== null) {
+      if (method !== "PUT") {
+        return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
+      }
+      const result = await handleSetReadingPosition(request, context, storyMatch[1]!);
       return send(response, method, result.status, result.contentType, result.body, context.port);
     }
     const asset = context.assets.get(pathname);
