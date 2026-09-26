@@ -1,10 +1,16 @@
 import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
+import { fieldHasFocus } from "../app/keymap-dom.js";
+import { registerScreenKeys } from "../app/keymap.js";
+import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { effectiveFocusedPartId, storyIdOf } from "./state.js";
+
+/** Roughly one prose line at the default size — `⇧↑`/`⇧↓`'s nudge. */
+const LINE_SCROLL_PX = 60;
 
 /**
  * `#/story/:id`'s manuscript read view (#409 step 4): the active line as
@@ -38,6 +44,44 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
     if (focusedPartId === null || scrollRef.current === null) return;
     focusPartElement(scrollRef.current, focusedPartId);
   }, [focusedPartId]);
+
+  // The TUI keys this screen handles now: focus prev/next, take prev/next
+  // (also while a take-switch button has focus — buttons are not "fields"),
+  // top/leaf, chapter prev/next, toggle directions, scroll by line/page, and
+  // open the Library. Everything else in the shared table resolves to
+  // nothing here and keeps its native browser behavior. Reads `store.get()`
+  // fresh on every keypress rather than closing over `story`/`focusedPartId`,
+  // so one registration (mount-only) never goes stale across a switch or a
+  // focus move.
+  useEffect(() => registerScreenKeys((binding) => {
+    if (fieldHasFocus()) return false;
+    const current = store.get();
+    if (current.route.kind !== "story" || current.route.id !== storyId) return false;
+    if (current.story.kind !== "loaded") return false;
+    const container = scrollRef.current;
+    switch (binding.action) {
+      case "focus-previous": actions.story.moveFocus(-1); return true;
+      case "focus-next": actions.story.moveFocus(1); return true;
+      case "top": actions.story.focusFirst(); return true;
+      case "leaf": actions.story.focusLast(); return true;
+      case "chapter-previous": actions.story.jumpChapter(-1); return true;
+      case "chapter-next": actions.story.jumpChapter(1); return true;
+      case "toggle-instructions": actions.story.toggleDirections(); return true;
+      case "take-previous":
+      case "take-next": {
+        const target = effectiveFocusedPartId(current.story);
+        if (target === null) return false;
+        actions.story.switchTake(target, binding.action === "take-next" ? 1 : -1);
+        return true;
+      }
+      case "scroll-line-up": return scrollBy(container, -LINE_SCROLL_PX);
+      case "scroll-line-down": return scrollBy(container, LINE_SCROLL_PX);
+      case "scroll-up": return scrollBy(container, -pageScrollDistance(container));
+      case "scroll-down": return scrollBy(container, pageScrollDistance(container));
+      case "open-library": navigate({ kind: "library" }); return true;
+      default: return false;
+    }
+  }), [actions, store, storyId]);
 
   if (story === null || story.kind === "idle" || story.kind === "loading") {
     return <p className="story-empty">Loading…</p>;
@@ -83,4 +127,19 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
       <div role="status" className="sr-only">{story.announcement}</div>
     </div>
   );
+}
+
+/** `false` when there is no scroll container yet (nothing to scroll, so the
+ * key resolves to nothing rather than being reported as handled). */
+function scrollBy(container: HTMLElement | null, deltaY: number): boolean {
+  if (container === null) return false;
+  container.scrollBy({ top: deltaY });
+  return true;
+}
+
+/** ~90% of the viewport, so a page scroll always leaves a line of context
+ * behind — the same "don't lose your place" reasoning as a book's own page
+ * turn, and analogous to the TUI's own page step. */
+function pageScrollDistance(container: HTMLElement | null): number {
+  return container === null ? 0 : Math.round(container.clientHeight * 0.9);
 }
