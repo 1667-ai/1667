@@ -5,11 +5,12 @@ import {
 } from "../../../client/web-bridge-connect.js";
 import { storyApiFromWorkerTransport } from "../../../client/worker-story-api.js";
 import type { StoryApi } from "../../../client/api.js";
-import {
-  createReadingPositionsApi,
-  type ReadingPositionsApi
-} from "../../../client/reading-positions-api.js";
+import { createReadingPositionsApi } from "../../../client/reading-positions-api.js";
 import type { WebBridgeTransport } from "../../../client/web-bridge-transport.js";
+import {
+  createReadingPositionSync,
+  type ReadingPositionSync
+} from "../story/reading-position-sync.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
 
@@ -31,7 +32,7 @@ export type ConnectionState =
       readonly status: WebBridgeStatus;
       readonly api: StoryApi;
       readonly transport: WebBridgeTransport;
-      readonly readingPositions: ReadingPositionsApi;
+      readonly readingPositions: ReadingPositionSync;
     }
   | { readonly kind: "closed"; readonly message: string };
 
@@ -99,7 +100,7 @@ export function connect(store: Store<AppState>, onConnected: () => void): () => 
       return;
     }
     const api = storyApiFromWorkerTransport(outcome.transport);
-    const readingPositions = createReadingPositionsApi(fetch, outcome.token);
+    const readingPositions = createReadingPositionSync(createReadingPositionsApi(fetch, outcome.token));
     store.set((state) => ({
       ...state,
       connection: {

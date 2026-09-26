@@ -1,16 +1,7 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { StoryApi } from "../../../client/api.js";
-import type { ReadingPositionsApi } from "../../../client/reading-positions-api.js";
-import {
-  chapterForRow,
-  createManuscriptModel,
-  rowIndexForNode,
-  rowPart
-} from "../../../shared/manuscript-model.js";
-import {
-  openingFocusIndexOverManuscript,
-  type ReadingPositions
-} from "../../../shared/reading-position.js";
+import { createManuscriptModel, rowPart } from "../../../shared/manuscript-model.js";
+import { openingFocusIndex } from "../../../shared/reading-position.js";
 import {
   resolveSwitchTarget,
   switchAnnouncement,
@@ -24,6 +15,7 @@ import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
+import { chapterJumpPartId, firstPartId, lastPartId, nextPartId } from "./focus-model.js";
 import { effectiveFocusedPartId, loadedStoryState, type StoryState } from "./state.js";
 
 export interface StoryActionDependencies {
@@ -57,7 +49,10 @@ export interface StoryActions {
   flushReadingPosition(): void;
 }
 
-function requireConnection(store: Store<AppState>): Extract<ConnectionState, { kind: "connected" }> {
+type Connected = Extract<ConnectionState, { kind: "connected" }>;
+type LoadedStoryState = Extract<StoryState, { kind: "loaded" }>;
+
+function requireConnection(store: Store<AppState>): Connected {
   const connection = store.get().connection;
   if (connection.kind !== "connected") throw new Error("1667 web: not connected");
   return connection;
@@ -66,8 +61,6 @@ function requireConnection(store: Store<AppState>): Extract<ConnectionState, { k
 function requireApi(store: Store<AppState>): StoryApi {
   return requireConnection(store).api;
 }
-
-type LoadedStoryState = Extract<StoryState, { kind: "loaded" }>;
 
 /** Stale responses: only adopt a result for `id` if the route still names
  * it — a fast second click on another row must not have this (slower)
@@ -104,66 +97,28 @@ function updateLoadedStory(
   });
 }
 
-/** Fetched once per connection (reference equality on the `connection`
- * object — a reconnect always produces a new one), then reused for every
- * story this tab opens; a failure degrades to "no stored positions" rather
- * than blocking the story from opening at all. */
-let cachedPositionsConnection: ConnectionState | null = null;
-let cachedPositionsPromise: Promise<ReadingPositions> | null = null;
-
-async function loadCachedPositions(store: Store<AppState>): Promise<ReadingPositions> {
-  const connection = store.get().connection;
-  if (connection.kind !== "connected") return {};
-  if (cachedPositionsConnection !== connection) {
-    cachedPositionsConnection = connection;
-    cachedPositionsPromise = connection.readingPositions.load().catch((error: unknown) => {
-      console.warn("1667 web: failed to load reading positions", error);
-      return {};
-    });
-  }
-  return await (cachedPositionsPromise ?? Promise.resolve({}));
+/** The route's open story, and the story itself, in one guard — replaces the
+ * repeated `route.kind !== "story"` / `currentLoadedStory` pairs every
+ * action used to open with. Returns `undefined` (and runs nothing) when
+ * there is no story route, or that story is not loaded. */
+function withOpenStory<T>(
+  store: Store<AppState>,
+  run: (storyId: string, story: LoadedStoryState) => T
+): T | undefined {
+  const route = store.get().route;
+  if (route.kind !== "story") return undefined;
+  const story = currentLoadedStory(store, route.id);
+  if (story === null) return undefined;
+  return run(route.id, story);
 }
 
-const READING_POSITION_DEBOUNCE_MS = 400;
-
-interface PendingPositionWrite {
-  timer: ReturnType<typeof setTimeout> | null;
-  readonly storyId: string;
-  readonly partId: string | null;
-  readonly api: ReadingPositionsApi;
-}
-
-let pendingPositionWrite: PendingPositionWrite | null = null;
-
-function cancelPendingPositionTimer(): void {
-  if (pendingPositionWrite?.timer !== null && pendingPositionWrite?.timer !== undefined) {
-    clearTimeout(pendingPositionWrite.timer);
-  }
-}
-
-function sendPendingPositionWrite(options: { readonly keepalive?: boolean } = {}): void {
-  const pending = pendingPositionWrite;
-  if (pending === null) return;
-  cancelPendingPositionTimer();
-  pendingPositionWrite = null;
-  pending.api.set(pending.storyId, pending.partId, options).catch((error: unknown) => {
-    console.warn("1667 web: failed to save the reading position", error);
-  });
-}
-
-function scheduleReadingPositionWrite(store: Store<AppState>, storyId: string, partId: string | null): void {
-  const connection = store.get().connection;
-  if (connection.kind !== "connected") return;
-  cancelPendingPositionTimer();
-  pendingPositionWrite = { storyId, partId, api: connection.readingPositions, timer: null };
-  pendingPositionWrite.timer = setTimeout(() => sendPendingPositionWrite(), READING_POSITION_DEBOUNCE_MS);
-}
-
-/** Sets focus and schedules its durable write in one step — every action
- * that moves reading focus goes through this. */
+/** Sets focus and records its durable write in one step — every action that
+ * moves reading focus goes through this. */
 function setFocusedPart(store: Store<AppState>, storyId: string, partId: string | null): void {
   updateLoadedStory(store, storyId, (story) => ({ ...story, focusedPartId: partId }));
-  if (partId !== null) scheduleReadingPositionWrite(store, storyId, partId);
+  if (partId === null) return;
+  const connection = store.get().connection;
+  if (connection.kind === "connected") connection.readingPositions.record(storyId, partId);
 }
 
 export function createStoryActions(
@@ -186,15 +141,16 @@ export function createStoryActions(
   const switchLoopRunning = new Set<string>();
 
   const loadUnwrapped = (id: string): Promise<void> => catchAtBoundary(() => runAction(store, "Open story", async () => {
+    const wasLoaded = currentLoadedStory(store, id);
     store.set((state) => {
       if (state.route.kind !== "story" || state.route.id !== id) return state;
       // A background reload of an already-loaded story (e.g. the
       // `revision_conflict` recovery below) keeps showing it — no "Loading…"
-      // flash, and the switch/focus state a concurrent `switchTake` is
-      // updating survives — rather than resetting to "loading" and losing
-      // it. `isAtLeastVersion` still guards this call's own adoption below
-      // against a newer payload that lands first.
-      if (state.story.kind === "loaded" && state.story.payload.id === id) return state;
+      // flash — rather than resetting to "loading" and losing the switch/
+      // focus state a concurrent `switchTake` is updating. `isAtLeastVersion`
+      // still guards this call's own adoption below against a newer payload
+      // that lands first.
+      if (wasLoaded !== null) return state;
       return { ...state, story: { kind: "loading", id } };
     });
     const api = requireApi(store);
@@ -216,11 +172,20 @@ export function createStoryActions(
       throw error;
     }
     if (!isCurrentStoryRoute(store, id)) return;
-    const positions = await loadCachedPositions(store);
-    const model = createManuscriptModel(payload);
-    const openingIndex = openingFocusIndexOverManuscript(model, payload, positions[id] ?? null);
-    const focusedPartId = rowPart(model, openingIndex)?.id ?? null;
-    if (!isCurrentStoryRoute(store, id)) return;
+    // Reloading an already-loaded story keeps its current focus rather than
+    // recomputing an opening position from the (possibly stale, and in any
+    // case irrelevant — the reader is already here) stored position.
+    let focusedPartId: string | null;
+    if (wasLoaded !== null) {
+      focusedPartId = wasLoaded.focusedPartId;
+    } else {
+      const connection = store.get().connection;
+      const storedPartId = connection.kind === "connected" ? await connection.readingPositions.positionFor(id) : null;
+      if (!isCurrentStoryRoute(store, id)) return;
+      const model = createManuscriptModel(payload);
+      const openingIndex = openingFocusIndex(model, payload, storedPartId);
+      focusedPartId = rowPart(model, openingIndex)?.id ?? null;
+    }
     store.set((state) => {
       if (state.route.kind !== "story" || state.route.id !== id) return state;
       // Guard against a late, slower `load()` clobbering a newer payload a
@@ -241,14 +206,6 @@ export function createStoryActions(
     return promise;
   }
 
-  function withFocusMove(storyId: string, compute: (story: LoadedStoryState) => string | null): void {
-    const story = currentLoadedStory(store, storyId);
-    if (story === null) return;
-    const nextId = compute(story);
-    if (nextId === null) return;
-    setFocusedPart(store, storyId, nextId);
-  }
-
   function runSwitchLoop(storyId: string): void {
     if (switchLoopRunning.has(storyId)) return;
     switchLoopRunning.add(storyId);
@@ -258,6 +215,10 @@ export function createStoryActions(
           const story = currentLoadedStory(store, storyId);
           const target = story?.switching?.targetId;
           if (story === undefined || story === null || target === undefined) return;
+          // The anchor this landing replaces — captured now so the rebase
+          // below only touches focus/switching state that actually still
+          // points at the take this request is about to replace.
+          const anchorBeforeLanding = story.switching?.partId ?? null;
           let next: StoryPayload;
           try {
             next = await retryWhenBusy(() => requireApi(store).switchLine(storyId, target));
@@ -278,18 +239,20 @@ export function createStoryActions(
           if (!isAtLeastVersion(next, currentAfterResponse.payload)) return;
           const announcement = switchAnnouncement(next, target);
           const stillDesired = currentAfterResponse.switching?.targetId;
-          store.set((state) => {
-            if (state.route.kind !== "story" || state.route.id !== storyId) return state;
-            if (state.story.kind !== "loaded" || state.story.payload.id !== storyId) return state;
-            return {
-              ...state,
-              story: {
-                ...state.story,
-                payload: next,
-                announcement: announcement ?? state.story.announcement
-              }
-            };
-          });
+          updateLoadedStory(store, storyId, (current) => ({
+            ...current,
+            payload: next,
+            announcement: announcement ?? current.announcement,
+            // Rebase: `anchorBeforeLanding` (the take this response replaces)
+            // is gone from `next`'s path now that `target` has landed in its
+            // place. Left stale, `focusedPartId`/`switching.partId` would
+            // point at a take no longer on the path — `effectiveFocusedPartId`
+            // would fall back to the leaf, and a keyboard take-switch right
+            // after this landing would then act on the leaf instead of the
+            // part actually being switched.
+            focusedPartId: current.focusedPartId === anchorBeforeLanding ? target : current.focusedPartId,
+            switching: current.switching === null ? null : { partId: target, targetId: current.switching.targetId }
+          }));
           deps.storyChanged();
           if (stillDesired !== undefined && stillDesired !== target) {
             // A rapid press moved the desired target again while this
@@ -322,74 +285,40 @@ export function createStoryActions(
       ));
     },
 
-    focusPart: (partId) => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      setFocusedPart(store, route.id, partId);
-    },
+    focusPart: (partId) => withOpenStory(store, (storyId) => setFocusedPart(store, storyId, partId)),
 
-    moveFocus: (direction) => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      withFocusMove(route.id, (story) => {
-        const model = createManuscriptModel(story.payload);
-        const currentId = effectiveFocusedPartId(story);
-        const currentIndex = currentId === null
-          ? -1
-          : model.parts.findIndex((part) => part.id === currentId);
-        const nextIndex = Math.max(0, Math.min(model.parts.length - 1, currentIndex + direction));
-        return model.parts[nextIndex]?.id ?? null;
-      });
-    },
+    moveFocus: (direction) => withOpenStory(store, (storyId, story) => {
+      const model = createManuscriptModel(story.payload);
+      const nextId = nextPartId(model, effectiveFocusedPartId(story), direction);
+      if (nextId !== null) setFocusedPart(store, storyId, nextId);
+    }),
 
-    focusFirst: () => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      withFocusMove(route.id, (story) => createManuscriptModel(story.payload).parts[0]?.id ?? null);
-    },
+    focusFirst: () => withOpenStory(store, (storyId, story) => {
+      const nextId = firstPartId(createManuscriptModel(story.payload));
+      if (nextId !== null) setFocusedPart(store, storyId, nextId);
+    }),
 
-    focusLast: () => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      withFocusMove(route.id, (story) => {
-        const model = createManuscriptModel(story.payload);
-        return model.parts.at(-1)?.id ?? null;
-      });
-    },
+    focusLast: () => withOpenStory(store, (storyId, story) => {
+      const nextId = lastPartId(createManuscriptModel(story.payload));
+      if (nextId !== null) setFocusedPart(store, storyId, nextId);
+    }),
 
-    jumpChapter: (direction) => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      withFocusMove(route.id, (story) => {
-        const model = createManuscriptModel(story.payload);
-        const currentId = effectiveFocusedPartId(story);
-        const currentRow = currentId === null ? -1 : rowIndexForNode(model, currentId);
-        const currentChapter = chapterForRow(model, currentRow)?.number ?? 1;
-        const targetNumber = Math.max(1, Math.min(model.chapters.length, currentChapter + direction));
-        const chapter = model.chapters.find((candidate) => candidate.number === targetNumber);
-        return chapter?.parts[0]?.id ?? null;
-      });
-    },
+    jumpChapter: (direction) => withOpenStory(store, (storyId, story) => {
+      const model = createManuscriptModel(story.payload);
+      const nextId = chapterJumpPartId(model, effectiveFocusedPartId(story), direction);
+      if (nextId !== null) setFocusedPart(store, storyId, nextId);
+    }),
 
-    switchTake: (partId, direction) => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      const story = currentLoadedStory(store, route.id);
-      if (story === null) return;
+    switchTake: (partId, direction) => withOpenStory(store, (storyId, story) => {
       const baseId = story.switching !== null && story.switching.partId === partId
         ? story.switching.targetId
         : partId;
       const target = resolveSwitchTarget(story.payload, baseId, direction);
       if (target === null) return;
-      beginSwitch(route.id, partId, target.id);
-    },
+      beginSwitch(storyId, partId, target.id);
+    }),
 
-    switchTakeTo: (partId, targetId) => {
-      const route = store.get().route;
-      if (route.kind !== "story") return;
-      if (currentLoadedStory(store, route.id) === null) return;
-      beginSwitch(route.id, partId, targetId);
-    },
+    switchTakeTo: (partId, targetId) => withOpenStory(store, (storyId) => beginSwitch(storyId, partId, targetId)),
 
     toggleDirections: () => {
       const next = !store.get().reading.showDirections;
@@ -397,6 +326,9 @@ export function createStoryActions(
       store.set((state) => ({ ...state, reading: { ...state.reading, showDirections: next } }));
     },
 
-    flushReadingPosition: () => sendPendingPositionWrite({ keepalive: true })
+    flushReadingPosition: () => {
+      const connection = store.get().connection;
+      if (connection.kind === "connected") connection.readingPositions.flush({ keepalive: true });
+    }
   };
 }

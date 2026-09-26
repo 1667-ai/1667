@@ -73,6 +73,19 @@ export interface ManuscriptModel {
   activeLeafId: string | null;
 }
 
+// Verified fact, checked against a real regression before landing (review
+// asked for a `createStoryIndex`-style WeakMap cache here): unlike
+// `createStoryIndex`, whose cache deliberately holds only structural data
+// (ids, parent links — see its own contract note in shared/story-model.ts)
+// and never a text-bearing field, this model's `StoryPart` rows embed each
+// take's live `node` object and derived fields computed from it
+// (`rewrittenSpans`, `humanSpans`, `words`, …). The TUI mutates a node's
+// fields in place on the SAME `StoryPayload` object in at least one real
+// path (confirmed by `tui/test/selection-rewrite.test.ts`, which sets
+// `node.attribution`/`node.rewrittenSpans` directly on an already-built
+// payload and expects the very next `createStoryViewModel` call to see it) —
+// a payload-identity cache would serve the pre-mutation model back and read
+// as a correctness bug, not a speed-up. So: not memoized here.
 export function createManuscriptModel(payload: StoryPayload): ManuscriptModel {
   const visibleParts = createParts(payload);
   const chapterPath = visibleParts.map((part) => ({

@@ -1,6 +1,5 @@
 import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
-import { fieldHasFocus } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
@@ -54,7 +53,9 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   // so one registration (mount-only) never goes stale across a switch or a
   // focus move.
   useEffect(() => registerScreenKeys((binding) => {
-    if (fieldHasFocus()) return false;
+    // `app/keymap.ts`'s own listener already refuses to call a registered
+    // handler at all while `fieldHasFocus()` is true — checking it again
+    // here was dead code (it can never be true by the time this runs).
     const current = store.get();
     if (current.route.kind !== "story" || current.route.id !== storyId) return false;
     if (current.story.kind !== "loaded") return false;

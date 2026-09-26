@@ -5,7 +5,7 @@ import { takeIndex } from "../../../shared/story-tree.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
 import { PartCard } from "./PartCard.js";
-import { Prose } from "./Prose.js";
+import { SummaryBody } from "./SummaryBody.js";
 
 export interface ManuscriptProps {
   readonly payload: StoryPayload;
@@ -71,13 +71,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
 function ChapterSummaryCard({ row }: { readonly row: ChapterSummaryRow }) {
   return (
     <li aria-hidden="true">
-      <div className="part part-summary-body">
-        <span className="summary-card-label">SUMMARY — THE MODEL READS THIS RECAP</span>
-        <Prose text={row.summary.text ?? ""} />
-        <span className="part-summary-note">
-          A summary take starts fresh context. Everything above stays in the manuscript.
-        </span>
-      </div>
+      <SummaryBody text={row.summary.text ?? ""} className="part" />
     </li>
   );
 }

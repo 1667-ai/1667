@@ -77,15 +77,21 @@ function isBrowserReservedChord(event: KeyboardEvent): boolean {
   return key === "u" || key === "d" || key === "p";
 }
 
-/** Tries the lanes a plain (no ⌘) keypress can resolve through, in priority
- * order, and returns the first match — `null` when nothing in the table
- * names this key, which `app/keymap.ts` treats as "resolves to nothing,
- * keep native browser behavior" (later-step keys, e.g. `m` for the map). */
+/** Tries the lanes a plain (no ⌘, no ⌥) keypress can resolve through, in
+ * priority order, and returns the first match — `null` when nothing in the
+ * table names this key, which `app/keymap.ts` treats as "resolves to
+ * nothing, keep native browser behavior" (later-step keys, e.g. `m` for the
+ * map). Alt is rejected up front for the same reason ⌘ is: Alt+←/→ is the
+ * browser's own back/forward, and the reference table's plain `left`/`right`
+ * bindings (take prev/next) carry no `alt` field of their own to tell the
+ * two apart, so without this check they would resolve — and, since the
+ * screen handler implements `take-previous`/`take-next`, get
+ * `preventDefault`ed — hijacking browser navigation. */
 export function resolveManuscriptBinding(event: KeyboardEvent): ReferenceBinding | null {
-  if (event.metaKey || isBrowserReservedChord(event)) return null;
+  if (event.metaKey || event.altKey || isBrowserReservedChord(event)) return null;
   const key = keyEventFromDom(event);
   for (const lane of NAV_LANES) {
-    const binding = resolveReferenceBinding(lane, key, "NAV", "path");
+    const binding = resolveReferenceBinding(lane, key, "NAV");
     if (binding !== null) return binding;
   }
   return null;

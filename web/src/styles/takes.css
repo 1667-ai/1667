@@ -1,28 +1,20 @@
 /**
  * Ported from `~/source/storytavern/web/src/loom.css`: the take stepper,
- * its hover tooltip, the take-peek popover, and the label/canon chips a
- * peek row can show. Fork-seam, line-chip, map, and toast rules there are
- * dropped — none of that exists here. Loaded after `story.css`
- * (`styles/index.css`).
+ * the take-peek popover, and the label/canon chips a peek row can show.
+ * Fork-seam, line-chip, map, and toast rules there are dropped — none of
+ * that exists here. The original hover tooltip did not survive the port
+ * (`TakePeek`'s popover replaced it — see the take-peek section below), so
+ * its rules and its `.take-arrow` anchoring are gone too. Loaded after
+ * `story.css` and `manuscript.css` (`styles/index.css`).
  */
 
 .take-stepper { align-items: center; display: inline-flex; gap: 2px; position: relative; }
-.take-arrow { position: relative; }
 .take-count {
   background: transparent; border: 0; border-radius: 20px; color: var(--dim); cursor: pointer;
   font-family: var(--mono); font-size: 10.5px; min-width: 40px; padding: 4px 8px;
 }
 .take-count:hover, .take-count:focus-visible { background: var(--row-hover); color: var(--accent); outline: 0; }
 .take-count[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
-.take-tooltip {
-  background: #1b1c22; border-radius: 8px; bottom: calc(100% + 7px); color: #f5f5f7;
-  display: flex; flex-direction: column; font-family: var(--mono); font-size: 8.5px; gap: 3px;
-  left: 50%; letter-spacing: .04em; line-height: 1.55; opacity: 0; padding: 8px 10px;
-  pointer-events: none; position: absolute; text-align: left; transform: translate(-50%, 4px);
-  transition: opacity 120ms ease, transform 120ms ease; width: 220px; z-index: 65;
-}
-.take-tooltip-meta.ends { color: #f0bd66; }
-.take-arrow:hover .take-tooltip, .take-arrow:focus-visible .take-tooltip { opacity: 1; transform: translate(-50%, 0); }
 
 /* ---------- dot strip (TUI ●◎○ glyph semantics) ---------- */
 .take-dots { align-items: center; display: inline-flex; gap: 5px; margin-left: 6px; }
@@ -45,10 +37,13 @@
 }
 
 /* ---------- take peek ---------- */
+/* `position`/`top`/`left` are set inline instead (`PartCard.tsx`, from the
+   trigger's own measured rect, since the popover portals to `document.body`
+   rather than staying a CSS-positioned descendant of `.take-stepper`) — a
+   stylesheet value here would only ever be overridden, never used. */
 .take-peek {
   animation: rise 140ms ease both; background: var(--surface); border: 1px solid var(--line);
-  border-radius: 14px; box-shadow: var(--dropdown-shadow); color: var(--ink); left: 50%;
-  position: absolute; text-align: left; top: calc(100% + 5px); transform: translateX(-50%);
+  border-radius: 14px; box-shadow: var(--dropdown-shadow); color: var(--ink); text-align: left;
   width: 320px; z-index: 62;
 }
 .take-peek > header {

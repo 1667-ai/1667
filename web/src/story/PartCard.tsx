@@ -2,10 +2,12 @@ import { memo, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { humanEditIsMeaningful } from "../../../shared/human-edit.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
+import { resolveTakeTarget } from "../../../shared/story-model.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
 import { Prose } from "./Prose.js";
+import { SummaryBody } from "./SummaryBody.js";
 import { TakePeek } from "./TakePeek.js";
 import { TakeStrip } from "./TakeStrip.js";
 
@@ -96,6 +98,11 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
     if (isClickSelectionCollapsed()) onFocus(part.id);
   };
 
+  const switchToPosition = (position: number): void => {
+    const target = resolveTakeTarget(payload, part.id, position);
+    if (target !== null) onSwitchTo(part.id, target.id);
+  };
+
   return (
     <li>
       <article
@@ -130,13 +137,11 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
                *  once a reader is already looking at the take switcher. */}
               <span className="label-chip" title={`${part.siblingCount} takes`}>×{part.siblingCount}</span>
               <TakeStrip
-                partId={part.id}
-                payload={payload}
                 siblingCount={part.siblingCount}
                 currentTakeIndex={displayTakeIndex}
                 takeSubtakes={part.takeSubtakes}
                 disabled={busy}
-                onSwitchTo={onSwitchTo}
+                onSwitchToPosition={switchToPosition}
               />
               <span className="take-stepper" ref={peek.containerRef}>
                 <button
@@ -188,13 +193,7 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
           <div className="part-instruction">{node.instruction}</div>
         )}
         {isLegacySummary ? (
-          <div className="part-summary-body" onMouseUp={handleMouseUp}>
-            <span className="summary-card-label">SUMMARY — THE MODEL READS THIS RECAP</span>
-            <Prose text={node.text} humanEdit={humanEdit} />
-            <span className="part-summary-note">
-              A summary take starts fresh context. Everything above stays in the manuscript.
-            </span>
-          </div>
+          <SummaryBody text={node.text} humanEdit={humanEdit} onMouseUp={handleMouseUp} />
         ) : (
           <div onMouseUp={handleMouseUp}>
             <Prose text={node.text} humanEdit={humanEdit} />

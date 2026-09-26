@@ -22,7 +22,14 @@
   margin-left: -12px;
 }
 .part[aria-busy="true"] { opacity: .55; transition: opacity 120ms ease; }
-.part:focus-visible { outline: 2px solid var(--accent); outline-offset: 4px; }
+/* Review fix (double focus ring): the roving-tabindex pattern above only
+   ever puts a part's real keyboard focus on the part that already carries
+   `aria-current="true"` — the two states aren't independent here, so an
+   unconditional `:focus-visible` outline drew a second line right next to
+   the accent bar's own left edge every time. The accent bar is this app's
+   one focus treatment; the outline stays only as a fallback for a state
+   that should not occur given the current focus wiring. */
+.part:focus-visible:not([aria-current="true"]) { outline: 2px solid var(--accent); outline-offset: 4px; }
 
 .part-header {
   align-items: center; display: flex; gap: 10px; justify-content: space-between; margin-bottom: 8px; min-height: 26px;
