@@ -54,7 +54,7 @@ export function readingPartIdFor(
  * A stored part wins when it still has a row. Otherwise: the tour begins at
  * its first part; every other story opens at the end of its line (writer
  * default). */
-export function openingFocusIndexOverManuscript(
+export function openingFocusIndex(
   model: Pick<ManuscriptModel, "rows">,
   payload: StoryPayload,
   readingPartId: string | null | undefined
@@ -70,7 +70,7 @@ export function openingFocusIndexOverManuscript(
 
 /** Resolve a storeable part id for the focused row. Chapter dividers map to
  * the first part of the chapter they open; stream virtual rows return null. */
-export function persistablePartIdOverManuscript(
+export function persistablePartId(
   model: Pick<ManuscriptModel, "rows">,
   focusIndex: number,
   payload: StoryPayload
@@ -93,14 +93,14 @@ export function persistablePartIdOverManuscript(
 }
 
 /** Pure: set the focused part for a story. No-op when focus is not storeable. */
-export function putReadingPositionOverManuscript(
+export function putReadingPosition(
   positions: ReadingPositions,
   storyId: string,
   model: Pick<ManuscriptModel, "rows">,
   focusIndex: number,
   payload: StoryPayload
 ): ReadingPositions {
-  const partId = persistablePartIdOverManuscript(model, focusIndex, payload);
+  const partId = persistablePartId(model, focusIndex, payload);
   if (partId === null) return positions;
   if (positions[storyId] === partId) return positions;
   return capReadingPositions({ ...positions, [storyId]: partId }, new Set([storyId]));

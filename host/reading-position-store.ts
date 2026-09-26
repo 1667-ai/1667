@@ -115,6 +115,24 @@ export function loadReadingPositions(
   }
 }
 
+/** `loadReadingPositions` alone reads disk only, so a GET issued within the
+ * ~400ms debounce window of a write (a reload right after a focus move, a
+ * fresh connection opened right after another tab's write) sees stale data
+ * even though the write already answered success. This merges the still-
+ * pending in-memory dirty set for the same file over the disk snapshot, the
+ * same merge `flushReadingPositionPersist` itself applies when it finally
+ * writes — a caller serving positions over HTTP (`cli/src/web-command.ts`)
+ * should read through this, not `loadReadingPositions` directly. */
+export function readReadingPositionsWithPending(
+  options: ReadingPositionStoreOptions = {}
+): ReadingPositions {
+  const file = options.file ?? activeStoreFile;
+  const disk = loadReadingPositions({ ...options, file });
+  const pending = pendingByFile.get(file);
+  if (pending === undefined || pending.dirty.size === 0) return disk;
+  return mergeReadingPositionDirty(disk, pending.dirty);
+}
+
 export function saveReadingPositions(
   positions: ReadingPositions,
   options: ReadingPositionStoreOptions = {}

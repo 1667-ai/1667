@@ -7,6 +7,30 @@ export { optionalString, requireString } from "./validation.js";
 /** Compatibility name for the HTTP adapter; domain code uses ServiceError. */
 export { ServiceError as HttpError } from "./errors.js";
 
+/** Past this many bytes beyond `maxBytes`, draining gives up and destroys the
+ * connection instead of continuing to read — bounded so a pathological
+ * sender cannot hold a request open indefinitely once its body is already
+ * known to be rejected. Generous relative to `maxBytes` itself (a real
+ * caller's body is already within budget), and never below 64 KiB so a
+ * small `maxBytes` (a bearer of a tiny route, say 1 KB) still gets a real
+ * grace window rather than an effectively-zero one. */
+function drainHardCeiling(maxBytes: number): number {
+  return Math.max(maxBytes * 4, maxBytes + 65_536);
+}
+
+/**
+ * Reads a request body capped at `maxBytes`. Verified fact: under Bun 1.3.14's
+ * `node:http`, throwing out of a `for await (const chunk of request)` loop
+ * and then writing an error response corrupts the reply into a bare 200 with
+ * an empty body instead of the intended status — reproduced with a minimal
+ * server; confirmed absent under real Node (`cli/test/read-text-body-drain-
+ * regression.test.ts` is the regression test, run under Bun since that is
+ * where every packaged `1667`/`1667 web` actually runs). The fix is to keep
+ * consuming the stream to completion — discarding bytes past `maxBytes`
+ * rather than buffering them, and giving up only past `drainHardCeiling`'s
+ * bound — so the request always finishes normally, and only then does a
+ * still-oversized body throw.
+ */
 export async function readTextBody(
   request: IncomingMessage,
   maxBytes: number,
@@ -14,6 +38,8 @@ export async function readTextBody(
 ): Promise<string> {
   const chunks: Buffer[] = [];
   let size = 0;
+  let oversized = false;
+  const hardCeiling = drainHardCeiling(maxBytes);
   const cancel = () => request.destroy();
   signal?.addEventListener("abort", cancel, { once: true });
   try {
@@ -21,10 +47,18 @@ export async function readTextBody(
       if (signal?.aborted === true) throw operationCanceled();
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       size += buffer.length;
-      if (size > maxBytes) throw new ServiceError(413, "Request body too large");
+      if (size > maxBytes) {
+        oversized = true;
+        if (size > hardCeiling) {
+          request.destroy();
+          break;
+        }
+        continue;
+      }
       chunks.push(buffer);
     }
     if (signal?.aborted === true) throw operationCanceled();
+    if (oversized) throw new ServiceError(413, "Request body too large");
     return Buffer.concat(chunks).toString("utf8");
   } catch (error) {
     if (signal?.aborted === true) throw operationCanceled();
@@ -34,6 +68,7 @@ export async function readTextBody(
   }
 }
 
+/** Same drain-then-throw shape as `readTextBody`, for a binary body. */
 export async function readBufferBody(
   request: IncomingMessage,
   maxBytes: number,
@@ -41,6 +76,8 @@ export async function readBufferBody(
 ): Promise<Uint8Array> {
   const chunks: Buffer[] = [];
   let size = 0;
+  let oversized = false;
+  const hardCeiling = drainHardCeiling(maxBytes);
   const cancel = () => request.destroy();
   signal?.addEventListener("abort", cancel, { once: true });
   try {
@@ -48,10 +85,18 @@ export async function readBufferBody(
       if (signal?.aborted === true) throw operationCanceled();
       const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk);
       size += buffer.length;
-      if (size > maxBytes) throw new ServiceError(413, "Request body too large");
+      if (size > maxBytes) {
+        oversized = true;
+        if (size > hardCeiling) {
+          request.destroy();
+          break;
+        }
+        continue;
+      }
       chunks.push(buffer);
     }
     if (signal?.aborted === true) throw operationCanceled();
+    if (oversized) throw new ServiceError(413, "Request body too large");
     return new Uint8Array(Buffer.concat(chunks));
   } catch (error) {
     if (signal?.aborted === true) throw operationCanceled();

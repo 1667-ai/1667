@@ -2,8 +2,8 @@ import { createWorkerHost, type WorkerHost, type WorkerRecoveryWarning } from ".
 import {
   configureReadingPositionStore,
   flushReadingPositionPersist,
-  loadReadingPositions,
   markReadingPositionDirty,
+  readReadingPositionsWithPending,
   readingPositionStoreFile
 } from "../../host/reading-position-store.js";
 import { startWebServer, type ReadingPositionsService, type WebServer } from "../../host/web-server.js";
@@ -81,7 +81,10 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
   const readingPositionStoreFilePath = readingPositionStoreFile(opened.project.directory, null);
   configureReadingPositionStore(readingPositionStoreFilePath);
   const readingPositions: ReadingPositionsService = {
-    load: async () => loadReadingPositions({ file: readingPositionStoreFilePath }),
+    // Not `loadReadingPositions`: that reads disk only, so a GET issued
+    // within the ~400ms debounce window of this same host's own write would
+    // see stale data even though the write already answered success.
+    load: async () => readReadingPositionsWithPending({ file: readingPositionStoreFilePath }),
     set: (storyId, partId) => markReadingPositionDirty(storyId, partId, { file: readingPositionStoreFilePath })
   };
 

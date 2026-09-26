@@ -6,12 +6,15 @@ import {
   type ServerResponse
 } from "node:http";
 import { listenLoopback } from "../server/loopback-listen.js";
-import { isStoryId } from "../server/story-v5-strict.js";
 import type { ReadingPositions } from "../shared/reading-position.js";
 import {
   WEB_BRIDGE_SUBPROTOCOL,
   WEB_BRIDGE_TOKEN_PREFIX
 } from "../shared/web-bridge-protocol.js";
+import {
+  readingPositionsGetRoute,
+  readingPositionsPutRoute
+} from "./web-reading-positions-routes.js";
 
 /** 32 random bytes, hex-encoded: matches the story-scope capability length,
  * so a candidate of the wrong shape never reaches `timingSafeEqual` with
@@ -159,7 +162,7 @@ function isAlreadyClosed(error: NodeJS.ErrnoException): boolean {
   return error.code === "ERR_SERVER_NOT_RUNNING";
 }
 
-interface RequestContext {
+export interface RequestContext {
   readonly port: number;
   readonly tokenBuffer: Buffer;
   readonly assets: ReadonlyMap<string, WebAsset>;
@@ -168,24 +171,31 @@ interface RequestContext {
   readonly readingPositions: ReadingPositionsService;
 }
 
-interface RouteResponse {
+export interface RouteResponse {
   readonly status: number;
   readonly contentType: string;
   readonly body: string;
 }
 
-interface Route {
-  readonly path: string;
+/** `match` names the path this route answers and pulls out any variable
+ * segment (`storyId`, for the reading-positions PUT) in one step — `null`
+ * means "not this route," so `findRoute` below just tries each in turn. */
+export interface Route {
+  readonly match: (pathname: string) => Readonly<Record<string, string>> | null;
   readonly methods: ReadonlySet<string>;
   readonly requireBearer: boolean;
-  readonly handle: (context: RequestContext, request: IncomingMessage) => RouteResponse | Promise<RouteResponse>;
+  readonly handle: (
+    context: RequestContext,
+    request: IncomingMessage,
+    params: Readonly<Record<string, string>>
+  ) => RouteResponse | Promise<RouteResponse>;
 }
 
 /** Every path here is app data, never a static asset — those come from
  * `context.assets` instead (see `handleRequest`). */
 const ROUTES: readonly Route[] = [
   {
-    path: "/api/status",
+    match: (pathname) => (pathname === "/api/status" ? {} : null),
     methods: new Set(["GET"]),
     requireBearer: true,
     handle: (context) => ({
@@ -194,122 +204,16 @@ const ROUTES: readonly Route[] = [
       body: JSON.stringify({ project: context.projectLabel, version: context.version })
     })
   },
-  {
-    path: "/api/reading-positions",
-    methods: new Set(["GET"]),
-    requireBearer: true,
-    handle: async (context) => ({
-      status: 200,
-      contentType: "application/json; charset=utf-8",
-      body: JSON.stringify({ positions: await context.readingPositions.load() })
-    })
-  }
+  readingPositionsGetRoute,
+  readingPositionsPutRoute
 ];
 
-function findRoute(pathname: string): Route | undefined {
-  return ROUTES.find((route) => route.path === pathname);
-}
-
-/** `/api/reading-positions/<storyId>` — one PUT per story, `<storyId>` a
- * path segment rather than a listed `Route` because it carries a variable. */
-const READING_POSITION_STORY_PATH = /^\/api\/reading-positions\/([^/]+)$/;
-
-const MAX_READING_POSITION_BODY_BYTES = 1_024;
-/** Matches `MAX_STORY_IDENTIFIER_CHARS` (server/story-v5-strict.ts) — a part
- * id is a node id, drawn from the same identifier space as a story id. */
-const MAX_PART_ID_CHARS = 1_024;
-
-function hasJsonContentType(request: IncomingMessage): boolean {
-  const raw = request.headers["content-type"];
-  const header = Array.isArray(raw) ? raw[0] : raw;
-  return header?.split(";")[0]?.trim().toLowerCase() === "application/json";
-}
-
-function jsonResponse(status: number, body: unknown): RouteResponse {
-  return { status, contentType: "application/json; charset=utf-8", body: JSON.stringify(body) };
-}
-
-/** A read past this many bytes destroys the connection outright instead of
- * continuing to drain — see `readBoundedTextBody`'s doc comment. Generous
- * next to `MAX_READING_POSITION_BODY_BYTES` (a real client's body is a few
- * dozen bytes), so this only ever engages against a pathological sender. */
-const READING_POSITION_BODY_DRAIN_CEILING_BYTES = 64 * 1_024;
-
-/**
- * Reads a request body capped at `maxBytes`, tolerant of one Bun 1.3.14
- * `node:http` quirk verified against a minimal repro server: throwing out of
- * a `for await (const chunk of request)` loop and then writing an error
- * response — the natural way to reject an oversized body, and what
- * `server/http.ts`'s `readTextBody` does — corrupts the reply into a bare
- * 200 with an empty body instead of the intended status (confirmed absent
- * under real Node; this is Bun-specific). The workaround is to keep
- * consuming the stream to completion (discarding bytes past `maxBytes`
- * rather than buffering them, and giving up only past
- * `READING_POSITION_BODY_DRAIN_CEILING_BYTES`) so the request always
- * finishes normally before the response is written.
- */
-async function readBoundedTextBody(
-  request: IncomingMessage,
-  maxBytes: number
-): Promise<{ readonly ok: true; readonly text: string } | { readonly ok: false }> {
-  const chunks: Buffer[] = [];
-  let size = 0;
-  let oversized = false;
-  for await (const chunk of request) {
-    const buffer = Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk as Uint8Array);
-    size += buffer.length;
-    if (size > maxBytes) {
-      oversized = true;
-      if (size > READING_POSITION_BODY_DRAIN_CEILING_BYTES) {
-        request.destroy();
-        break;
-      }
-      continue;
-    }
-    chunks.push(buffer);
+function findRoute(pathname: string): { route: Route; params: Readonly<Record<string, string>> } | undefined {
+  for (const route of ROUTES) {
+    const params = route.match(pathname);
+    if (params !== null) return { route, params };
   }
-  if (oversized) return { ok: false };
-  return { ok: true, text: Buffer.concat(chunks).toString("utf8") };
-}
-
-/**
- * `PUT /api/reading-positions/<storyId>` body `{ partId: string | null }`
- * (`null` deletes). Every failure answers a small JSON error body rather
- * than throwing, so `handleRequest`'s catch-all stays reserved for a real bug.
- */
-async function handleSetReadingPosition(
-  request: IncomingMessage,
-  context: RequestContext,
-  rawStoryId: string
-): Promise<RouteResponse> {
-  let storyId: string;
-  try {
-    storyId = decodeURIComponent(rawStoryId);
-  } catch {
-    return jsonResponse(400, { error: "invalid story id" });
-  }
-  if (!isStoryId(storyId)) return jsonResponse(400, { error: "invalid story id" });
-  if (!hasJsonContentType(request)) {
-    return jsonResponse(415, { error: "Content-Type must be application/json" });
-  }
-  const bodyResult = await readBoundedTextBody(request, MAX_READING_POSITION_BODY_BYTES);
-  if (!bodyResult.ok) return jsonResponse(413, { error: "request body too large" });
-  const text = bodyResult.text;
-  let parsed: unknown;
-  try {
-    parsed = text.trim().length === 0 ? {} : JSON.parse(text);
-  } catch {
-    return jsonResponse(400, { error: "invalid JSON body" });
-  }
-  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed) || !("partId" in parsed)) {
-    return jsonResponse(400, { error: "body must be { partId: string | null }" });
-  }
-  const partId = (parsed as { partId: unknown }).partId;
-  if (partId !== null && (typeof partId !== "string" || partId.length === 0 || partId.length > MAX_PART_ID_CHARS)) {
-    return jsonResponse(400, { error: "partId must be a non-empty bounded string, or null" });
-  }
-  context.readingPositions.set(storyId, partId);
-  return { status: 204, contentType: "application/json; charset=utf-8", body: "" };
+  return undefined;
 }
 
 type Authorization =
@@ -380,25 +284,16 @@ async function handleRequest(
     } catch {
       return sendPage(response, method, 400, simplePage("Bad request."), context.port);
     }
-    const route = findRoute(pathname);
-    const storyMatch = route === undefined ? READING_POSITION_STORY_PATH.exec(pathname) : null;
-    const requireBearer = route?.requireBearer ?? storyMatch !== null;
-    const authorization = authorizeRequest(request, context, requireBearer);
+    const found = findRoute(pathname);
+    const authorization = authorizeRequest(request, context, found?.route.requireBearer ?? false);
     if (!authorization.ok) {
       return sendPage(response, method, authorization.status, authorization.page, context.port);
     }
-    if (route !== undefined) {
-      if (!route.methods.has(method)) {
+    if (found !== undefined) {
+      if (!found.route.methods.has(method)) {
         return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
       }
-      const result = await route.handle(context, request);
-      return send(response, method, result.status, result.contentType, result.body, context.port);
-    }
-    if (storyMatch !== null) {
-      if (method !== "PUT") {
-        return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
-      }
-      const result = await handleSetReadingPosition(request, context, storyMatch[1]!);
+      const result = await found.route.handle(context, request, found.params);
       return send(response, method, result.status, result.contentType, result.body, context.port);
     }
     const asset = context.assets.get(pathname);
@@ -475,11 +370,13 @@ function send(
   port: number
 ): void {
   const payload = typeof body === "string" ? Buffer.from(body, "utf8") : body;
-  response.writeHead(status, {
-    "content-type": contentType,
-    "content-length": String(payload.length),
-    ...securityHeaders(port)
-  });
+  // A 204 carries no body by definition, so it carries no Content-Type
+  // either — a route that answers one (the reading-positions PUT) always
+  // passes an empty body alongside it; this is what actually drops the
+  // header, rather than trusting every route to remember to omit it.
+  const headers: Record<string, string> = { ...securityHeaders(port), "content-length": String(payload.length) };
+  if (status !== 204) headers["content-type"] = contentType;
+  response.writeHead(status, headers);
   if (method === "HEAD") response.end();
   else response.end(payload);
 }
