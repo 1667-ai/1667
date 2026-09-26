@@ -13,7 +13,11 @@ import {
 import { textSurfaceKey } from "./keys-text-surface.js";
 import { openDirectComposer } from "./composer-ownership.js";
 import type { MapView } from "./map-state.js";
-import { resolveReferenceBinding } from "./reference-bindings.js";
+import {
+  resolveReferenceBinding,
+  type ReferenceAction,
+  type ReferenceMode
+} from "../../shared/reference-bindings.js";
 import type {
   ComposerSelectionProjection,
   StorySelectionSpan
@@ -76,6 +80,22 @@ export type AppMode = "NAV" | "COMPOSE" | "EDITOR" | "MAP" | "KEYS" | "TAG"
   | "LIBRARY" | "FACTS" | "COMMANDS" | "SUMMARY" | "SETTINGS" | "ACTIONS" | "CHAPTERS"
   | "SEARCH" | "REQUEST" | "CARD" | "ARCHIVE" | "IMAGE" | "LOG" | "PROBS" | "RECORD"
   | "ASIDE" | "PLACE" | "FACT-CONSISTENCY";
+
+// Compile-time-only drift guards: if `shared/reference-bindings.ts`'s table
+// ever grew an action or mode outside these unions, this fails to compile
+// instead of the mismatch surfacing later as a silent no-op binding.
+type AssertActionSubset = ReferenceAction extends KeyAction
+  ? true
+  : ["ReferenceAction has a value KeyAction does not", ReferenceAction];
+type AssertModeSubset = ReferenceMode extends AppMode
+  ? true
+  : ["ReferenceMode has a value AppMode does not", ReferenceMode];
+// Referenced (not just declared) so an unused-locals lint cannot hide either
+// check quietly failing to compile.
+const _actionSubsetCheck: AssertActionSubset = true;
+const _modeSubsetCheck: AssertModeSubset = true;
+void _actionSubsetCheck;
+void _modeSubsetCheck;
 
 export interface ResolvedKey {
   action: KeyAction;
@@ -416,7 +436,12 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     asideLayer = "composer", asideBusy = false,
     libraryRenaming = false,
     mapView = "path", mapFactLens = false } = options;
-  const globalReference = resolveReferenceBinding("global", key, mode, mapView);
+  // `shared/reference-bindings.ts`'s `mode` param is `ReferenceMode` (the
+  // modes the table actually uses), a subset of the TUI's own broader
+  // `AppMode` — narrowed once here rather than widening the shared
+  // function's own signature back out for one caller.
+  const referenceMode = mode as ReferenceMode;
+  const globalReference = resolveReferenceBinding("global", key, referenceMode, mapView);
   if (globalReference !== null) return { action: globalReference.action };
   if (key.name === "escape") return { action: "cancel" };
   if (mode === "ASIDE"
@@ -513,7 +538,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if ((key.ctrl || key.super) && key.name.toLowerCase() === "v" && ownsText) {
     return { action: "paste-clipboard" };
   }
-  const shiftedReference = resolveReferenceBinding("nav-shifted", key, mode, mapView);
+  const shiftedReference = resolveReferenceBinding("nav-shifted", key, referenceMode, mapView);
   if (shiftedReference !== null) return { action: shiftedReference.action };
   const destructiveCapitalD = plainShiftedLetter(key, "d")
     && (mode === "MAP" || mode === "SETTINGS" || mode === "CHAPTERS"
@@ -525,7 +550,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
   if (!ownsText && shiftedAsciiLetter(key)
     && !(mode === "SETTINGS" && shiftedLetter(key, "n"))
     && !destructiveCapitalD) return { action: "none" };
-  const navChord = resolveReferenceBinding("nav-chord", key, mode, mapView);
+  const navChord = resolveReferenceBinding("nav-chord", key, referenceMode, mapView);
   if (navChord !== null) return { action: navChord.action };
   if (mode === "COMPOSE") {
     const name = key.name.toLowerCase();
@@ -536,7 +561,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       const commandMotion = textSurfaceKey(key);
       if (commandMotion !== null) return commandMotion;
     }
-    const composeChord = resolveReferenceBinding("compose-chord", key, mode, mapView);
+    const composeChord = resolveReferenceBinding("compose-chord", key, referenceMode, mapView);
     if (composeChord !== null) return { action: composeChord.action };
     if (key.ctrl && name === "f") return { action: "toggle-compose-fullscreen" };
     // The rewrite composer's second fixed destination (issue #319, and
@@ -677,7 +702,7 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
     return { action: "none" };
   }
   if (mode === "SEARCH") {
-    const searchReference = resolveReferenceBinding("search", key, mode, mapView);
+    const searchReference = resolveReferenceBinding("search", key, referenceMode, mapView);
     if (searchReference !== null) return { action: searchReference.action };
     if (key.name === "backspace") return { action: "backspace" };
     return textInput(key) ?? { action: "none" };
@@ -832,9 +857,9 @@ export function resolveKey(key: KeyEvent, mode: AppMode, options: ResolveOptions
       if (key.name === "return") return { action: "open-fact-lens-anchor" };
       if (key.name === "e") return { action: "edit-fact-lens" };
     }
-    const mapReference = resolveReferenceBinding("map", key, mode, mapView);
+    const mapReference = resolveReferenceBinding("map", key, referenceMode, mapView);
     return { action: mapReference?.action ?? "none" };
   }
-  const navReference = resolveReferenceBinding("nav", key, mode, mapView);
+  const navReference = resolveReferenceBinding("nav", key, referenceMode, mapView);
   return { action: navReference?.action ?? "none" };
 }

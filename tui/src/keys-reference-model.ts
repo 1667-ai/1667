@@ -2,7 +2,7 @@ import {
   REFERENCE_BINDINGS,
   type ReferenceBinding,
   type ReferenceBindingId
-} from "./reference-bindings.js";
+} from "../../shared/reference-bindings.js";
 import type { DisplayRole } from "./screens/story/frame.js";
 
 export type KeysModalBinding = ReferenceBinding;

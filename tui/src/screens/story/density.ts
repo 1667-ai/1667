@@ -1,4 +1,6 @@
-export type TakeDensity = "spaced" | "condensed" | "gauge";
+import { takeStripCells, type TakeDensity } from "../../../../shared/take-strip.js";
+
+export type { TakeDensity };
 
 export interface TakeStrip {
   density: TakeDensity;
@@ -10,30 +12,33 @@ export interface TakeStrip {
   counter: string;
 }
 
+const GAUGE_WIDTH = 13;
+
 /** Decision 18 on the page: a take that branches into subtakes of its own wears
  *  the ring `◎`, a childless one stays `○`. The take you are reading is never
- *  ringed — its subtakes are the parts below it, so the ring would only repeat
- *  what the page already shows — and renders `●` whether or not it branches. */
+ *  ringed — its subtakes are the parts below it already, so the ring would only
+ *  repeat what the page already shows — and renders `●` whether or not it
+ *  branches. The glyph/gauge computation itself is shared with the web
+ *  manuscript's own take strip (`shared/take-strip.ts`); this only turns it
+ *  into the TUI's text rendering. */
 export function takeStrip(index: number, count: number, subtakes: readonly boolean[] = []): TakeStrip {
-  if (!Number.isInteger(index) || !Number.isInteger(count) || count < 1 || index < 1 || index > count) {
-    throw new Error("Take index must be within the sibling count.");
-  }
+  const cells = takeStripCells(index, count, subtakes);
   const counter = `‹ take ${index}/${count} ›`;
-  const glyph = (offset: number): string =>
-    offset === index - 1 ? "●" : subtakes[offset] === true ? "◎" : "○";
-  if (count <= 6) {
-    const cells = Array.from({ length: count }, (_, offset) => glyph(offset));
-    return { density: "spaced", cells, text: cells.join(" "), currentOffset: (index - 1) * 2, counter };
+  if (cells.density !== "gauge") {
+    const glyphs = cells.glyphs;
+    return {
+      density: cells.density,
+      cells: glyphs,
+      text: cells.density === "spaced" ? glyphs.join(" ") : glyphs.join(""),
+      currentOffset: cells.density === "spaced" ? (index - 1) * 2 : index - 1,
+      counter
+    };
   }
-  if (count <= 12) {
-    const cells = Array.from({ length: count }, (_, offset) => glyph(offset));
-    return { density: "condensed", cells, text: cells.join(""), currentOffset: index - 1, counter };
-  }
-  const currentOffset = Math.floor(((index - 1) / (count - 1)) * 13);
+  const currentOffset = Math.floor((cells.gaugeFraction ?? 0) * GAUGE_WIDTH);
   return {
     density: "gauge",
     cells: [],
-    text: `${"─".repeat(currentOffset)}●${"─".repeat(13 - currentOffset)}`,
+    text: `${"─".repeat(currentOffset)}●${"─".repeat(GAUGE_WIDTH - currentOffset)}`,
     currentOffset,
     counter
   };

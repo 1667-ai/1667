@@ -240,17 +240,11 @@ function shiftedLetterMatches(key: ReferenceKeyEvent, upper: string): boolean {
     || (key.name === lower && key.shift === true);
 }
 
-/** `ReferenceMode | (string & {})` (rather than plain `ReferenceMode`) so a
- *  caller's own broader mode enum — the TUI's `AppMode` has far more modes
- *  than the reference table uses — still passes its live mode value straight
- *  through with no cast, while the literal union still drives autocomplete. */
-type ModeArgument = ReferenceMode | (string & {});
-
 function matches(
   binding: ReferenceBinding,
   key: ReferenceKeyEvent,
-  mode: ModeArgument,
-  mapView: MapView
+  mode: ReferenceMode,
+  mapView: MapView | undefined
 ): boolean {
   if ((!binding.global && binding.mode !== mode) || key.meta) return false;
   if ((binding.ctrl ?? false) !== Boolean(key.ctrl)) return false;
@@ -266,11 +260,16 @@ function matches(
     && (binding.shift !== true || key.shift === true);
 }
 
+/** `mapView` is optional: only the `"map"` lane's bindings ever restrict on
+ *  it, so a caller with no map view of its own (the web manuscript has no
+ *  MAP mode) can omit it rather than pass a dummy value — omitted, a binding
+ *  that names a `mapView` simply never matches, which is exactly right,
+ *  since a lane search that never includes `"map"` never reaches one. */
 export function resolveReferenceBinding(
   lane: ReferenceBindingLane,
   key: ReferenceKeyEvent,
-  mode: ModeArgument,
-  mapView: MapView
+  mode: ReferenceMode,
+  mapView?: MapView
 ): ReferenceBinding | null {
   return REFERENCE_BINDING_LIST.find((binding) =>
     binding.lane === lane && matches(binding, key, mode, mapView)

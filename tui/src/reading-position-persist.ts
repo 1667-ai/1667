@@ -6,7 +6,7 @@ import {
 import {
   flushReadingPositionPersist as flushStore,
   markReadingPositionDirty
-} from "./reading-position-store.js";
+} from "../../host/reading-position-store.js";
 import type { RuntimeState } from "./state.js";
 
 type FocusSource = {

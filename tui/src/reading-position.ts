@@ -8,9 +8,9 @@ import {
   forgetReadingPosition,
   mergeReadingPositionDirty,
   normalizeReadingPositions,
-  openingFocusIndexOverManuscript,
-  persistablePartIdOverManuscript,
-  putReadingPositionOverManuscript,
+  openingFocusIndex as openingFocusIndexOverManuscript,
+  persistablePartId,
+  putReadingPosition,
   readingPartIdFor,
   MAX_READING_POSITIONS,
   type ReadingPositions
@@ -24,6 +24,7 @@ export {
   forgetReadingPosition,
   mergeReadingPositionDirty,
   normalizeReadingPositions,
+  persistablePartId,
   readingPartIdFor
 };
 export type { ReadingPositions };
@@ -45,27 +46,6 @@ export function applyOpeningFocus(
   return openingFocusIndex(payload, readingPartIdFor(positions, payload.id));
 }
 
-/** Resolve a storeable part id for the focused row. Chapter dividers map to
- * the first part of the chapter they open; stream virtual rows return null. */
-export function persistablePartId(
-  view: StoryViewModel,
-  focusIndex: number,
-  payload: StoryPayload
-): string | null {
-  return persistablePartIdOverManuscript(view, focusIndex, payload);
-}
-
-/** Pure: set the focused part for a story. No-op when focus is not storeable. */
-export function putReadingPosition(
-  positions: ReadingPositions,
-  storyId: string,
-  view: StoryViewModel,
-  focusIndex: number,
-  payload: StoryPayload
-): ReadingPositions {
-  return putReadingPositionOverManuscript(positions, storyId, view, focusIndex, payload);
-}
-
 export function withRememberedFocus(
   positions: ReadingPositions,
   payload: StoryPayload,
@@ -74,6 +54,6 @@ export function withRememberedFocus(
 ): ReadingPositions {
   // View may include a stream row for display, but putReadingPosition rejects
   // ids that are not on the authoritative payload.
-  const view = createStoryViewModel(payload, stream);
+  const view: StoryViewModel = createStoryViewModel(payload, stream);
   return putReadingPosition(positions, payload.id, view, focusIndex, payload);
 }
