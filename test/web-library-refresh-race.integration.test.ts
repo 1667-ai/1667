@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import type { StoryApi } from "../client/api.js";
+import type { ReadingPositionsApi } from "../client/reading-positions-api.js";
 import type { WebBridgeTransport } from "../client/web-bridge-transport.js";
 import type { StorySummary } from "../shared/types.js";
 import { createLibraryActions } from "../web/src/library/actions.js";
@@ -43,7 +44,8 @@ function connectedState(api: Partial<StoryApi>): ConnectionState {
     kind: "connected",
     status: { project: "test", version: "0.0.0" },
     api: api as unknown as StoryApi,
-    transport: {} as unknown as WebBridgeTransport
+    transport: {} as unknown as WebBridgeTransport,
+    readingPositions: {} as unknown as ReadingPositionsApi
   };
 }
 

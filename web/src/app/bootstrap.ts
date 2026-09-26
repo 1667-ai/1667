@@ -63,10 +63,24 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
         void actions.library.refresh();
       };
       document.addEventListener("visibilitychange", onVisible);
+      // A focus change debounces its durable-position write (~400ms); force
+      // it out immediately whenever the tab might not get a later chance —
+      // going to the background (`visibilitychange` hidden) and finally
+      // going away (`pagehide`) both need this, not just one, because
+      // platforms differ on which of the two actually fires before a tab is
+      // discarded.
+      const onHidden = (): void => {
+        if (document.visibilityState === "hidden") actions.story.flushReadingPosition();
+      };
+      const onPageHide = (): void => actions.story.flushReadingPosition();
+      document.addEventListener("visibilitychange", onHidden);
+      addEventListener("pagehide", onPageHide);
       return () => {
         disposeConnection();
         stopRouting();
         document.removeEventListener("visibilitychange", onVisible);
+        document.removeEventListener("visibilitychange", onHidden);
+        removeEventListener("pagehide", onPageHide);
       };
     }
   };
