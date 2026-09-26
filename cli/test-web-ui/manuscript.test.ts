@@ -201,7 +201,9 @@ test("case 2: focus moves with ↑/↓, g/G, and a click; a 40-part story scroll
     return rect.top >= 0 && rect.bottom <= window.innerHeight;
   });
   expect(inViewport).toBeTrue();
-}, 30_000);
+  // Seeds a 40-part story through 40 sequential bridge calls; under a loaded
+  // machine that alone can pass 30 s.
+}, 60_000);
 
 test("case 3: keyboard take switch — → shows 'Take 2 of 3' and C2; two more "
   + "wraps back to take 1; a second connection's loadStory agrees; a reload keeps it", async () => {
