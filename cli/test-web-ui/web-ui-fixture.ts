@@ -80,6 +80,53 @@ export interface PageDiagnostics {
   readonly cspViolations: string[];
 }
 
+export interface ForkedStory {
+  readonly storyId: string;
+  readonly a1: string;
+  readonly b1: string;
+  readonly c1: string;
+  readonly b2: string;
+  readonly c2: string;
+  readonly b3: string;
+  readonly breakId: string | null;
+}
+
+/**
+ * `manuscript.test.ts`'s shared fixture (#409 step 4): a story shaped
+ * `A1 → B1 → C1`, a sibling fork `B2` (parent `A1`) `→ C2`, a childless
+ * sibling `B3` (parent `A1`), an optional chapter break anchored on `B1`,
+ * ending with the active line switched back to `C1` (so opening the story
+ * reads `A1, B1, C1` with `B1`/`B2`/`B3` as three takes of the same part).
+ */
+export async function seedForkedStory(
+  api: StoryApi,
+  options: { readonly chapterBreakTitle?: string } = {}
+): Promise<ForkedStory> {
+  const created = await api.createStory("Forked Story");
+  const storyId = created.id;
+  const pA1 = await api.createNode(storyId, { text: "A1: the opening part of the story.", parentId: null });
+  const a1 = pA1.path.at(-1)!.id;
+  const pB1 = await api.createNode(storyId, { text: "B1: the first take that follows A1.", parentId: a1 });
+  const b1 = pB1.path.at(-1)!.id;
+  const pC1 = await api.createNode(storyId, { text: "C1: the part that follows B1.", parentId: b1 });
+  const c1 = pC1.path.at(-1)!.id;
+  const pB2 = await api.createNode(storyId, { text: "B2: a second take of the same part as B1.", parentId: a1 });
+  const b2 = pB2.path.at(-1)!.id;
+  const pC2 = await api.createNode(storyId, { text: "C2: the part that follows B2.", parentId: b2 });
+  const c2 = pC2.path.at(-1)!.id;
+  const pB3 = await api.createNode(storyId, { text: "B3: a third take, with nothing after it.", parentId: a1 });
+  const b3 = pB3.path.at(-1)!.id;
+
+  let breakId: string | null = null;
+  if (options.chapterBreakTitle !== undefined) {
+    const created2 = await api.createChapterBreak(storyId, b1, options.chapterBreakTitle);
+    breakId = created2.breakId;
+  }
+
+  await api.switchLine(storyId, c1);
+  return { storyId, a1, b1, c1, b2, c2, b3, breakId };
+}
+
 export async function collectPageDiagnostics(page: Page): Promise<PageDiagnostics> {
   const consoleErrors: string[] = [];
   const cspViolations: string[] = [];
