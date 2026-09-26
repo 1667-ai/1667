@@ -1,6 +1,12 @@
 import { isChapterSummary, type TreeIndex } from "./story-tree.js";
 import type { Tag, NodeStub, StoryPayload } from "./types.js";
 
+/** The three full-bleed views of one story map — TUI's MAP screen and, via
+ *  `shared/reference-bindings.ts`, its key table. `tui/src/map-state.ts`
+ *  re-exports both for its own `MapState`/`nextMapView`. */
+export const MAP_VIEWS = ["path", "tree", "mass"] as const;
+export type MapView = (typeof MAP_VIEWS)[number];
+
 export interface MapLineClassification {
   /** Lone, uncontinued takes folded by every MAP view. */
   mapSketchNodeIds: ReadonlySet<string>;
