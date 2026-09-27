@@ -3,6 +3,7 @@ import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
 import { dismissToast } from "./app/toasts.js";
+import { GenerationBar } from "./generation/GenerationBar.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
@@ -77,7 +78,15 @@ function Shell() {
         )}
         {route.kind === "story"
           ? <StoryView storyId={route.id} />
-          : <LibraryHome />}
+          : (
+            <>
+              <LibraryHome />
+              {/* Only ever shows a bar here while a generation is running
+               * somewhere in the background (owner decision 2) — `GenerationBar`
+               * itself renders nothing on this route while idle. */}
+              <GenerationBar viewingStoryId={null} />
+            </>
+          )}
       </main>
       <LibraryDialogs />
       <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(store, id)} />

@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { humanEditIsMeaningful } from "../../../shared/human-edit.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { resolveTakeTarget } from "../../../shared/story-model.js";
+import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
@@ -10,6 +11,16 @@ import { Prose } from "./Prose.js";
 import { SummaryBody } from "./SummaryBody.js";
 import { TakePeek } from "./TakePeek.js";
 import { TakeStrip } from "./TakeStrip.js";
+
+/** An append streaming into this exact part's leaf (#409 step 5) — `null`
+ * for every part that is not the live append target. `live` is false for a
+ * frozen `"unsaved"` leftover (no caret; the text still shows, but nothing
+ * is still being written). */
+export interface PartContinuation {
+  readonly text: string;
+  readonly thinking: boolean;
+  readonly live: boolean;
+}
 
 /** Matches `.take-peek`'s CSS `width` (`styles/takes.css`) above the 720px
  * breakpoint, where it shrinks to fit the viewport on its own. */
@@ -41,6 +52,8 @@ export interface PartCardProps {
   /** The take index to show while a switch on this part is in flight —
    * `part.takeIndex` otherwise (server-authoritative once it lands). */
   readonly displayTakeIndex: number;
+  /** Set only on the one part a live append is growing — see `PartContinuation`. */
+  readonly continuation?: PartContinuation | null;
   readonly onFocus: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
   readonly onSwitchTo: (partId: string, targetId: string) => void;
@@ -53,7 +66,18 @@ export interface PartCardProps {
  * A roving-tabIndex `<article>`: only the focused part is a Tab stop, and
  * `app/keymap.ts` moves that focus with the arrow keys the TUI itself uses.
  */
-function PartCardImpl({ part, payload, focused, busy, showDirections, displayTakeIndex, onFocus, onSwitch, onSwitchTo }: PartCardProps) {
+function PartCardImpl({
+  part,
+  payload,
+  focused,
+  busy,
+  showDirections,
+  displayTakeIndex,
+  continuation = null,
+  onFocus,
+  onSwitch,
+  onSwitchTo
+}: PartCardProps) {
   const node = part.node;
   const humanEdit = node.attribution ?? null;
   const isLegacySummary = part.isSummary;
@@ -196,7 +220,14 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
           <SummaryBody text={node.text} humanEdit={humanEdit} onMouseUp={handleMouseUp} />
         ) : (
           <div onMouseUp={handleMouseUp}>
-            <Prose text={node.text} humanEdit={humanEdit} />
+            <Prose
+              text={continuation === null ? node.text : appendContinuationText(node.text, continuation.text)}
+              humanEdit={humanEdit}
+              caret={continuation !== null && continuation.live && !continuation.thinking}
+            />
+            {continuation !== null && continuation.thinking && (
+              <p className="generation-thinking">Thinking…</p>
+            )}
           </div>
         )}
       </article>

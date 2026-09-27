@@ -96,3 +96,39 @@ export function generationLocks(state: GenerationState, storyId: string): boolea
 export function generationStoryId(state: GenerationState): string | null {
   return state.kind === "idle" ? null : state.storyId;
 }
+
+/** The read-only projection of a running/settling/unsaved generation that
+ * `Manuscript`/`PartCard`/`StreamingPart` need to render it in place —
+ * derived fresh from `GenerationState` by whichever caller has the matching
+ * story open (`StoryView.tsx`), never stored on its own. `null` whenever
+ * there is nothing to show for `storyId` (idle, or a background generation
+ * targeting a different story — that story's own `StoryView`, once opened,
+ * derives its own view the same way). */
+export interface ManuscriptGeneration {
+  readonly mode: GenerationMode;
+  readonly appendTo: string | null;
+  readonly seamPathIndex: number;
+  readonly instruction: string;
+  readonly text: string;
+  readonly thinking: boolean;
+  /** False only for `"unsaved"`: the text is frozen (no caret) — nothing is
+   * still being written, and nothing will change until the writer discards
+   * it or a retry lands. */
+  readonly live: boolean;
+}
+
+export function manuscriptGenerationView(
+  state: GenerationState,
+  storyId: string
+): ManuscriptGeneration | null {
+  if (state.kind === "idle" || state.storyId !== storyId) return null;
+  return {
+    mode: state.mode,
+    appendTo: state.appendTo,
+    seamPathIndex: state.seamPathIndex,
+    instruction: state.instruction,
+    text: state.text,
+    thinking: state.reasoning !== null && state.text.length === 0,
+    live: state.kind !== "unsaved"
+  };
+}

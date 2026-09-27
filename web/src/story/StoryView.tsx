@@ -3,10 +3,29 @@ import { useAppContext } from "../app/context.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
+import { GenerationBar } from "../generation/GenerationBar.js";
+import { manuscriptGenerationView, type GenerationState } from "../generation/state.js";
+import { useFollowStream } from "../generation/useFollowStream.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { StoryHeader } from "./StoryHeader.js";
-import { effectiveFocusedPartId, storyIdOf } from "./state.js";
+import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
+
+/** The `role="status"` region's text: a running/settling generation's own
+ * phase wins while it targets this exact story (never per token — this
+ * only actually changes value at the Thinking/Writing boundary, since the
+ * presented text is already throttled); otherwise the story's own last
+ * announcement (a landed take switch, or a generation that just landed —
+ * `story/actions.ts`'s `adoptPayload` sets both a payload and this text in
+ * the same store update, so a landing narrates itself the instant it
+ * lands, with no separate wiring here). */
+function liveRegionText(story: Extract<StoryState, { kind: "loaded" }>, generation: GenerationState, storyId: string): string {
+  if (generation.kind !== "idle" && generation.storyId === storyId) {
+    const thinking = generation.reasoning !== null && generation.text.length === 0;
+    return thinking ? "Thinking…" : "Writing…";
+  }
+  return story.announcement ?? "";
+}
 
 /** Roughly one prose line at the default size — `⇧↑`/`⇧↓`'s nudge. */
 const LINE_SCROLL_PX = 60;
@@ -27,8 +46,15 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   const { store, actions } = useAppContext();
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
+  const generation = useStore(store, (state) => state.generation);
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusedPartId = story !== null && story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
+  const generationView = manuscriptGenerationView(generation, storyId);
+
+  // Sticks to the bottom while this story's own generation streams; a
+  // reader who scrolls up (to reread, or to keep an earlier part in view)
+  // un-pins it until they scroll back down themselves.
+  useFollowStream(scrollRef, generationView?.live === true, generationView?.text);
 
   useEffect(() => {
     void actions.story.load(storyId);
@@ -110,7 +136,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
       <div className="story-main">
         <div className="story-scroll" ref={scrollRef}>
           <div className="story-body">
-            {payload.path.length === 0
+            {payload.path.length === 0 && generationView === null
               ? <p className="story-empty">This story has no text yet.</p>
               : (
                 <Manuscript
@@ -118,6 +144,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
                   focusedPartId={focusedPartId}
                   switching={story.switching}
                   showDirections={showDirections}
+                  generation={generationView}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
                   onSwitchTo={actions.story.switchTakeTo}
@@ -125,8 +152,9 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
               )}
           </div>
         </div>
+        <GenerationBar viewingStoryId={storyId} />
       </div>
-      <div role="status" className="sr-only">{story.announcement}</div>
+      <div role="status" className="sr-only">{liveRegionText(story, generation, storyId)}</div>
     </div>
   );
 }

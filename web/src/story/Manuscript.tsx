@@ -1,8 +1,10 @@
 import { useMemo } from "react";
-import { createManuscriptModel, type ChapterSummaryRow } from "../../../shared/manuscript-model.js";
+import { createManuscriptModel, type ChapterSummaryRow, type StoryRow } from "../../../shared/manuscript-model.js";
 import { createStoryIndex } from "../../../shared/story-model.js";
 import { takeIndex } from "../../../shared/story-tree.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import type { ManuscriptGeneration } from "../generation/state.js";
+import { StreamingPart } from "../generation/StreamingPart.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
 import { PartCard } from "./PartCard.js";
 import { SummaryBody } from "./SummaryBody.js";
@@ -12,9 +14,25 @@ export interface ManuscriptProps {
   readonly focusedPartId: string | null;
   readonly switching: { readonly partId: string; readonly targetId: string } | null;
   readonly showDirections: boolean;
+  /** The generation currently writing into (or with unsaved leftover text
+   * in) this exact story, if any — `null` the rest of the time. See
+   * `generation/state.ts`'s `manuscriptGenerationView`. */
+  readonly generation: ManuscriptGeneration | null;
   readonly onFocusPart: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
   readonly onSwitchTo: (partId: string, targetId: string) => void;
+}
+
+/** Every row up to (and including) the last "part" row whose `pathIndex` is
+ * at or before `seamPathIndex`, plus any divider/chapter-summary rows
+ * anchored at or before it (they already sit right after their own part in
+ * `rows`, by construction — `createManuscriptModel`). Mirrors the TUI's own
+ * "projected path" idea (`tui/src/request-projection.ts`): a new take's
+ * placeholder replaces every row an old sibling's own continuation left
+ * behind, not just the one part being replaced. */
+function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): readonly StoryRow[] {
+  const cutIndex = rows.findIndex((row) => row.kind === "part" && row.pathIndex > seamPathIndex);
+  return cutIndex < 0 ? rows : rows.slice(0, cutIndex);
 }
 
 /**
@@ -24,7 +42,7 @@ export interface ManuscriptProps {
  * changes (every mutation and landed switch replaces it wholesale, so
  * reference equality is exactly the right memo key).
  */
-export function Manuscript({ payload, focusedPartId, switching, showDirections, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
+export function Manuscript({ payload, focusedPartId, switching, showDirections, generation, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
   const model = useMemo(() => createManuscriptModel(payload), [payload]);
 
   const switchingAnchor = switching === null
@@ -37,10 +55,14 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
     return takeIndex(index.tree, switching.targetId).index;
   }, [payload, switching]);
 
+  const rows = generation !== null && generation.mode === "take"
+    ? truncateAtSeam(model.rows, generation.seamPathIndex)
+    : model.rows;
+
   return (
     <ol className="manuscript" aria-label="Manuscript">
       <ChapterOneHeading chapters={model.chapters} />
-      {model.rows.map((row) => {
+      {rows.map((row) => {
         if (row.kind === "part") {
           const isSwitchingAnchor = switching !== null && row.id === switching.partId;
           return (
@@ -52,6 +74,9 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
               busy={busyFromPathIndex !== null && row.pathIndex > busyFromPathIndex}
               showDirections={showDirections}
               displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
+              continuation={generation !== null && generation.mode === "append" && generation.appendTo === row.id
+                ? { text: generation.text, thinking: generation.thinking, live: generation.live }
+                : null}
               onFocus={onFocusPart}
               onSwitch={onSwitch}
               onSwitchTo={onSwitchTo}
@@ -61,6 +86,16 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
         if (row.kind === "chapter-divider") return <ChapterDivider key={row.id} row={row} />;
         return <ChapterSummaryCard key={row.id} row={row} />;
       })}
+      {generation !== null && generation.mode === "take" && (
+        <StreamingPart
+          partNumber={generation.seamPathIndex + 2}
+          instruction={generation.instruction}
+          showDirections={showDirections}
+          text={generation.text}
+          thinking={generation.thinking}
+          live={generation.live}
+        />
+      )}
     </ol>
   );
 }

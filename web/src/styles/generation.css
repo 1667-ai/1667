@@ -1,0 +1,60 @@
+/**
+ * Continue/Stop streaming (#409 step 5): the caret (ported from
+ * `~/source/storytavern/web/src/composer.css`'s `.caret` and
+ * `~/source/storytavern/web/src/base.css`'s `@keyframes blink`), the
+ * streaming part placeholder, and `GenerationBar` (look ported from
+ * StoryTavern's `ComposerFooter`, `styles/buttons.css`'s `btn-cta`).
+ */
+
+.caret {
+  display: inline-block;
+  width: 8px;
+  height: 1.05em;
+  margin-left: 2px;
+  transform: translateY(2px);
+  background: var(--accent);
+  animation: blink 1s steps(1) infinite;
+}
+
+@keyframes blink { 0%, 49% { opacity: 1; } 50%, 100% { opacity: 0; } }
+
+@media (prefers-reduced-motion: reduce) {
+  .caret { animation: none; opacity: 1; }
+}
+
+/* A streaming take is fully live, never dimmed the way a part below a
+ * pending take-switch is (`.part[aria-busy="true"]`, `manuscript.css`) —
+ * both use `aria-busy` for their own reason, so this narrows the dimming
+ * rule back out for this one. */
+.part-streaming[aria-busy="true"] { opacity: 1; }
+
+.generation-thinking {
+  color: var(--dim);
+  font-family: var(--prose);
+  font-size: var(--prose-size);
+  font-style: italic;
+  line-height: 1.78;
+  margin: 0;
+}
+
+.generation-bar {
+  align-items: center;
+  background: var(--bg);
+  border-top: 1px solid var(--line);
+  display: flex;
+  flex: 0 0 auto;
+  gap: 14px;
+  justify-content: space-between;
+  padding: 14px 24px;
+}
+
+.generation-status {
+  color: var(--dim);
+  font-family: var(--ui);
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.generation-bar-actions { display: flex; gap: 10px; }
+
+.generation-bar-unsaved { background: var(--danger-soft); }

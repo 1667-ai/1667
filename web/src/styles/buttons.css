@@ -78,6 +78,14 @@
   font-size: 13px;
 }
 
+/* GenerationBar's CTA: the design's larger-radius primary/danger button
+ * (ported from `~/source/storytavern/web/src/buttons.css`). */
+.btn-cta {
+  border-radius: 11px;
+  padding: 13px 26px;
+  font-size: 15px;
+}
+
 a.btn {
   text-decoration: none;
 }
