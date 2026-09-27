@@ -1,13 +1,16 @@
 import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
+import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
+import { pushToast } from "../app/toasts.js";
 import { GenerationBar } from "../generation/GenerationBar.js";
 import { manuscriptGenerationView, type GenerationState } from "../generation/state.js";
 import { useFollowStream } from "../generation/useFollowStream.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
+import { STORY_LOCKED_TOAST } from "./actions.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
 
@@ -78,7 +81,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   // fresh on every keypress rather than closing over `story`/`focusedPartId`,
   // so one registration (mount-only) never goes stale across a switch or a
   // focus move.
-  useEffect(() => registerScreenKeys((binding) => {
+  useEffect(() => registerScreenKeys((binding, event) => {
     // `app/keymap.ts`'s own listener already refuses to call a registered
     // handler at all while `fieldHasFocus()` is true — checking it again
     // here was dead code (it can never be true by the time this runs).
@@ -99,6 +102,23 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         const target = effectiveFocusedPartId(current.story);
         if (target === null) return false;
         actions.story.switchTake(target, binding.action === "take-next" ? 1 : -1);
+        return true;
+      }
+      case "continue": {
+        // `shared/reference-bindings.ts`'s "space" binding carries no `shift`
+        // field, so a Shift+Space keypress resolves here too — Shift+Space
+        // must keep the browser's own scroll, so it is refused explicitly
+        // rather than treated as a plain Continue. A repeat (held key) and a
+        // focused take-switch arrow/counter (Enter/Space already activate
+        // those) are refused the same way.
+        if (event.shiftKey || event.repeat || activatesOnEnterOrSpace()) return false;
+        if (current.generation.kind === "idle") {
+          void actions.generation.continue();
+          return true;
+        }
+        pushToast(store, current.generation.storyId === storyId
+          ? STORY_LOCKED_TOAST
+          : `Already writing in ${current.generation.storyTitle}. Esc stops it.`);
         return true;
       }
       case "scroll-line-up": return scrollBy(container, -LINE_SCROLL_PX);

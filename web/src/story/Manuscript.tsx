@@ -59,6 +59,11 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
     ? truncateAtSeam(model.rows, generation.seamPathIndex)
     : model.rows;
 
+  // While this story is locked (a generation is writing into, or trying to
+  // save into, it — `"unsaved"` does not lock), every take control is
+  // disabled, not only the ones below a pending switch's own anchor.
+  const locked = generation !== null && generation.live;
+
   return (
     <ol className="manuscript" aria-label="Manuscript">
       <ChapterOneHeading chapters={model.chapters} />
@@ -72,6 +77,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
               payload={payload}
               focused={row.id === focusedPartId}
               busy={busyFromPathIndex !== null && row.pathIndex > busyFromPathIndex}
+              controlsLocked={locked}
               showDirections={showDirections}
               displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
               continuation={generation !== null && generation.mode === "append" && generation.appendTo === row.id

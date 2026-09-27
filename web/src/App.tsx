@@ -4,6 +4,7 @@ import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
 import { dismissToast } from "./app/toasts.js";
 import { GenerationBar } from "./generation/GenerationBar.js";
+import { useGenerationEscape } from "./generation/useGenerationEscape.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
@@ -45,6 +46,7 @@ function Shell() {
   // `styles/sidebar.css`) only take effect there, so this state does
   // nothing at desktop width.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  useGenerationEscape(store, actions);
 
   if (connection.kind === "connecting") return <ConnectingScreen />;
   if (connection.kind === "locked") return <LockedScreen />;

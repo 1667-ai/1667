@@ -48,6 +48,11 @@ export interface PartCardProps {
   readonly payload: StoryPayload;
   readonly focused: boolean;
   readonly busy: boolean;
+  /** Disables every take control (arrows, counter, strip) without dimming
+   * the part the way `busy` does — set while this story is locked by a
+   * generation, on every part at once, not only the ones below a pending
+   * switch's own anchor (`Manuscript.tsx`). */
+  readonly controlsLocked?: boolean;
   readonly showDirections: boolean;
   /** The take index to show while a switch on this part is in flight —
    * `part.takeIndex` otherwise (server-authoritative once it lands). */
@@ -71,6 +76,7 @@ function PartCardImpl({
   payload,
   focused,
   busy,
+  controlsLocked = false,
   showDirections,
   displayTakeIndex,
   continuation = null,
@@ -78,6 +84,7 @@ function PartCardImpl({
   onSwitch,
   onSwitchTo
 }: PartCardProps) {
+  const controlsDisabled = busy || controlsLocked;
   const node = part.node;
   const humanEdit = node.attribution ?? null;
   const isLegacySummary = part.isSummary;
@@ -164,7 +171,7 @@ function PartCardImpl({
                 siblingCount={part.siblingCount}
                 currentTakeIndex={displayTakeIndex}
                 takeSubtakes={part.takeSubtakes}
-                disabled={busy}
+                disabled={controlsDisabled}
                 onSwitchToPosition={switchToPosition}
               />
               <span className="take-stepper" ref={peek.containerRef}>
@@ -172,7 +179,7 @@ function PartCardImpl({
                   type="button"
                   className="icon-btn take-arrow"
                   aria-label={`Previous take (${part.number})`}
-                  disabled={busy}
+                  disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, -1)}
                 >‹</button>
                 <button
@@ -182,14 +189,14 @@ function PartCardImpl({
                   aria-haspopup="dialog"
                   aria-expanded={peek.open}
                   aria-label={`Take ${displayTakeIndex} of ${part.siblingCount}, show every take`}
-                  disabled={busy}
+                  disabled={controlsDisabled}
                   onClick={() => peek.setOpen(!peek.open)}
                 >{displayTakeIndex}/{part.siblingCount}</button>
                 <button
                   type="button"
                   className="icon-btn take-arrow"
                   aria-label={`Next take (${part.number})`}
-                  disabled={busy}
+                  disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, 1)}
                 >›</button>
                 {peek.open && peekRect !== null && createPortal(
@@ -197,7 +204,7 @@ function PartCardImpl({
                     partId={part.id}
                     payload={payload}
                     currentTakeIndex={displayTakeIndex}
-                    disabled={busy}
+                    disabled={controlsDisabled}
                     onSwitchTo={onSwitchTo}
                     onClose={() => peek.setOpen(false)}
                     containerRef={peek.popoverRef}
