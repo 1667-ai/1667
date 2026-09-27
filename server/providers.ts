@@ -637,7 +637,7 @@ async function* streamDryRun(
     if (onReasoning !== undefined) {
       await onReasoning({ text: word, tokenCount: reasoningTokenCount });
     }
-    await new Promise((resolve) => setTimeout(resolve, 8));
+    await new Promise((resolve) => setTimeout(resolve, dryRunWordDelayMs(8)));
   }
   const messages = renderPromptPlan(prompt);
   const instruction = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
@@ -670,7 +670,7 @@ async function* streamDryRun(
     // always fabricates the same record.
     capture.push(dryRunProbabilityStep(word, requested, stepIndex));
     stepIndex += 1;
-    await new Promise((resolve) => setTimeout(resolve, 15));
+    await new Promise((resolve) => setTimeout(resolve, dryRunWordDelayMs(15)));
   }
   if (outcome !== undefined) {
     outcome.finishReason = "stop";
@@ -682,6 +682,32 @@ async function* streamDryRun(
 /** Short and obviously fabricated: dry-run reasoning exists to exercise the
  * reasoning path, never to look like a real thought. */
 const DRY_RUN_REASONING_TEXT = "(dry-run) weighing two openings before picking one.";
+
+/** Test seam (web UI #409 step 5): overrides dry-run's per-word delay —
+ * reasoning (8ms) and prose (15ms) alike — with one bounded value, so a
+ * browser e2e suite can watch a whole ~70-word stream inside a couple of
+ * seconds instead of dry-run's real ~1s pace, without weakening any
+ * assertion a slower stream would also satisfy. Read directly from
+ * `process.env` by `streamDryRun` alone — no other provider stream, and no
+ * `StreamCompletionOptions` field, ever consults it — so a spawned `1667
+ * web` picks it up from its own child-process environment
+ * (`cli/test/web-e2e-fixture.ts`'s `spawnWeb`) with no threading required.
+ * Unset is the default and changes nothing: each call site keeps its own
+ * literal delay. Out of bounds or not a number is treated the same as
+ * unset — this is a speed knob for tests, never something a dry-run stream
+ * can fail on. */
+export const DRY_RUN_WORD_DELAY_VARIABLE = "AI_1667_DRY_RUN_WORD_DELAY_MS";
+const DRY_RUN_WORD_DELAY_MAX_MS = 1000;
+
+function dryRunWordDelayMs(defaultMs: number): number {
+  const raw = process.env[DRY_RUN_WORD_DELAY_VARIABLE];
+  if (raw === undefined || raw === "") return defaultMs;
+  const parsed = Number(raw);
+  if (!Number.isFinite(parsed) || parsed < 0 || parsed > DRY_RUN_WORD_DELAY_MAX_MS) {
+    return defaultMs;
+  }
+  return parsed;
+}
 
 /** Keep the dry-run provider useful for every plain-text operation contract.
  * The placeholder uses a short literal excerpt, so the shared validator can
