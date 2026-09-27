@@ -1,4 +1,5 @@
 import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
+import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
@@ -23,6 +24,10 @@ export interface AppState {
   readonly route: Route;
   readonly library: LibraryState;
   readonly story: StoryState;
+  /** The one generation the web UI can be running at a time (#409 step 5) —
+   * top level, not inside `story`, because it outlives the reader leaving
+   * the story it targets. See `generation/state.ts`. */
+  readonly generation: GenerationState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -41,6 +46,7 @@ export function initialAppState(
     route,
     library: initialLibraryState(),
     story: initialStoryState(),
+    generation: initialGenerationState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

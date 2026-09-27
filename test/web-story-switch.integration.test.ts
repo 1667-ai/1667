@@ -169,7 +169,7 @@ test("three rapid switchTake presses make at most two switchLine calls "
 
   const store = storeOpenOn(payload("a"));
   store.set((state) => ({ ...state, connection: connectedState(api) }));
-  const story = createStoryActions(store, { storyChanged: () => {} });
+  const story = createStoryActions(store, { storyChanged: () => {}, isLocked: () => false });
 
   // a -> b -> c -> d, three rapid presses before anything resolves.
   story.switchTake("a", 1);
@@ -207,7 +207,7 @@ test("a late, older loadStory response does not replace a newer take-switch payl
 
   const store = storeOpenOn(payload("a", v6(1)));
   store.set((state) => ({ ...state, connection: connectedState(api) }));
-  const story = createStoryActions(store, { storyChanged: () => {} });
+  const story = createStoryActions(store, { storyChanged: () => {}, isLocked: () => false });
 
   // An older `load()` is already in flight (e.g. a reload) when the reader
   // switches takes; the switch's response arrives and lands FIRST.
@@ -234,7 +234,7 @@ test("a switch that lands after the route has moved on is dropped", async () => 
 
   const store = storeOpenOn(payload("a"));
   store.set((state) => ({ ...state, connection: connectedState(api) }));
-  const story = createStoryActions(store, { storyChanged: () => {} });
+  const story = createStoryActions(store, { storyChanged: () => {}, isLocked: () => false });
 
   story.switchTake("a", 1);
   assert.equal(switchingTarget(store), "b");
@@ -277,7 +277,7 @@ test("resource_busy is retried and the switch still lands", async () => {
 
   const store = storeOpenOn(payload("a"));
   store.set((state) => ({ ...state, connection: connectedState(api) }));
-  const story = createStoryActions(store, { storyChanged: () => {} });
+  const story = createStoryActions(store, { storyChanged: () => {}, isLocked: () => false });
 
   story.switchTake("a", 1);
   await waitFor(() => switchingTarget(store) === null, 5_000);
@@ -310,7 +310,7 @@ test("an intermediate switch landing rebases focus onto the take that just "
     story: loadedStoryState(deepPayload("mid-b"), "mid-b"),
     connection: connectedState(api)
   }));
-  const story = createStoryActions(store, { storyChanged: () => {} });
+  const story = createStoryActions(store, { storyChanged: () => {}, isLocked: () => false });
 
   // Two rapid presses on "mid-b" (the row carrying focus, not the leaf):
   // one request goes out for "mid-c" while the desired target moves on to
