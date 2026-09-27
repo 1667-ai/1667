@@ -171,7 +171,7 @@ describe("deadline recovery through the real worker transport", () => {
       const created = await api.createStory("Deadline recovery via generate()");
       const seeded = await api.createNode(created.id, { parentId: null, text: "Root prose." });
 
-      // continuationIntent (tui/src/continuation-intent.ts) only treats a
+      // continuationIntent (shared/continuation-intent.ts) only treats a
       // request as an append when the typed instruction is empty
       // (requestAppend requires requestedInstruction.trim().length === 0).
       // "Continue." is non-empty, so this is deterministically a new child

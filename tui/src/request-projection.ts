@@ -23,7 +23,7 @@ import {
   resolveImageInputCapability,
   type ImageTokenStrategy
 } from "../../shared/image-input-capabilities.js";
-import { continuationIntent } from "./continuation-intent.js";
+import { continuationIntent } from "../../shared/continuation-intent.js";
 import { factRequestStatuses, type FactRequestStatus } from "./facts-model.js";
 
 export interface ContextBreakdown {

@@ -1,4 +1,5 @@
 import type { CreateNodeRequest, StoryNode, StoryPayload } from "../../shared/types.js";
+import { continuationIntent } from "../../shared/continuation-intent.js";
 import { isTimeoutClassFailure } from "../../shared/failure-envelope.js";
 import type { ActionTask } from "./action-runtime.js";
 import { blockUncertainRootCreation } from "./first-take-guard.js";
@@ -12,7 +13,6 @@ import {
   revealRetakeComposer,
   resumeDirectComposer
 } from "./composer-ownership.js";
-import { continuationIntent } from "./continuation-intent.js";
 import { draftImageReferences, draftImagesFor, setDraftImages } from "./draft-image.js";
 import { factDropNotice } from "./facts-model.js";
 import { imageAttachmentFailureAction, IMAGE_REATTACH_NOTICE } from "./image-attachment-failure.js";
