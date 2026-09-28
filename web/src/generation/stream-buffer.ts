@@ -11,11 +11,9 @@
  * also drives a character-by-character typewriter presentation for the
  * terminal renderer, which the browser has no equivalent need for (a
  * browser repaints the DOM difference in one frame; there is nothing to
- * smooth). The one rule shared with the TUI on purpose is what counts as
- * "substantive" and how a new-take save is trimmed, because the stop/save
- * contract must agree with the TUI's `stream-text.ts` (`streamHasSubstantiveText`/
- * `streamTrimmedText`) byte-for-byte: whitespace-only never saves, and a new
- * take is trimmed before it lands.
+ * smooth). What counts as "substantive" and how a new-take save is trimmed
+ * now lives in `shared/stopped-generation.ts`'s `stoppedGenerationSaveBody`,
+ * shared byte-for-byte with the TUI's own rule, rather than duplicated here.
  */
 
 export interface StreamBuffer {
@@ -40,20 +38,6 @@ export function appendBufferText(buffer: StreamBuffer, delta: string): void {
 export function appendBufferReasoning(buffer: StreamBuffer, delta: string, tokenCount: number): void {
   const current = buffer.reasoning?.text ?? "";
   buffer.reasoning = { text: current + delta, tokenCount };
-}
-
-/** Whitespace-only text is never worth saving — matches the TUI's own
- *  `streamHasSubstantiveText` (`tui/src/stream-text.ts`). */
-export function hasSubstantiveText(text: string): boolean {
-  return text.trim().length > 0;
-}
-
-/** A new take's text is trimmed before it lands (an append's is not — its
- *  leading/trailing whitespace is the writer's own leaf's, joined at the
- *  exact byte boundary, `shared/story-text.ts`'s `appendContinuationText`).
- *  Matches the TUI's own `streamTrimmedText`. */
-export function trimmedText(text: string): string {
-  return text.trim();
 }
 
 /** Runs `flush` at most once per animation frame, however many times

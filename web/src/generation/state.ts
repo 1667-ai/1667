@@ -14,6 +14,12 @@
  * never be reconstructed from what a component reads here.
  */
 
+/** Re-exported from `shared/` (not defined here) so the TUI's own
+ *  `tui/src/generation-action.ts` can share the exact same union without an
+ *  import that reaches into `web/src/` — see that module's own save-body
+ *  function, `stoppedGenerationSaveBody`, which this type is really for. */
+export type { GenerationTarget } from "../../../shared/stopped-generation.js";
+
 export type GenerationMode = "append" | "take";
 
 export interface GenerationReasoning {
@@ -21,7 +27,7 @@ export interface GenerationReasoning {
   readonly tokenCount: number;
 }
 
-interface GenerationRunFields {
+export interface GenerationRunFields {
   readonly genId: string;
   readonly storyId: string;
   readonly storyTitle: string;
@@ -54,11 +60,11 @@ interface GenerationRunFields {
 export interface GenerationRunningState extends GenerationRunFields {
   /** `"running"` while the model is still streaming; `"settling"` once Stop
    *  (or a timeout-class failure) has been requested and the stopped text is
-   *  being committed. `stopRequested` distinguishes the two only for
-   *  presentation (the bar's "Saving…" state) — `actions.ts`'s own closure
-   *  is what actually gates whether a late delta is still accepted. */
+   *  being committed. This is a pure projection of `actions.ts`'s own
+   *  `ActiveRun.phase` (review fix #6) — nothing here decides anything;
+   *  `actions.ts`'s closure is what actually gates whether a late delta is
+   *  still accepted. */
   readonly kind: "running" | "settling";
-  readonly stopRequested: boolean;
 }
 
 /** A generation whose commit failed (or whose connection dropped) with
@@ -87,7 +93,25 @@ export function initialGenerationState(): GenerationState {
  *  any more, so switching a take in that story is safe again — the leftover
  *  prose sits beside the path, not under it. */
 export function generationLocks(state: GenerationState, storyId: string): boolean {
-  return (state.kind === "running" || state.kind === "settling") && state.storyId === storyId;
+  return isGenerationActive(state) && state.storyId === storyId;
+}
+
+/** True while a generation is running or settling, anywhere — the one
+ *  predicate `generationLocks`, `app/bootstrap.ts`'s beforeunload-adjacent
+ *  logic, and anything else that only cares "is one live right now, ignore
+ *  which story" should read rather than re-spelling the two-`kind` check
+ *  (review fix #10). Deliberately excludes `"unsaved"`: nothing is running
+ *  or being saved any more once a generation reaches that state. */
+export function isGenerationActive(state: GenerationState): state is GenerationRunningState {
+  return state.kind === "running" || state.kind === "settling";
+}
+
+/** True while a non-idle generation's presented text is still only its
+ *  reasoning — the caret/StreamingPart "Thinking…" rule, shared so
+ *  `manuscriptGenerationView` below, the bar, and the live region all agree
+ *  on the exact same boundary (review fix #10). */
+export function generationThinking(state: GenerationRunFields): boolean {
+  return state.reasoning !== null && state.text.length === 0;
 }
 
 /** The story id a running/settling/unsaved generation targets, or `null`
@@ -108,9 +132,20 @@ export interface ManuscriptGeneration {
   readonly mode: GenerationMode;
   readonly appendTo: string | null;
   readonly seamPathIndex: number;
+  /** `mode: "take"` only — the number `StreamingPart` shows while it
+   *  streams (`seamPathIndex + 2`, the TUI's own "projected path"
+   *  numbering). Computed once here rather than by every caller (review fix
+   *  #10: this used to be `Manuscript.tsx`'s own inline
+   *  `generation.seamPathIndex + 2`). */
+  readonly partNumber: number;
   readonly instruction: string;
   readonly text: string;
   readonly thinking: boolean;
+  /** "Thinking…" / "Writing…" / "Not saved" — this story's own status text,
+   *  reused verbatim by both `StoryView`'s live region and `GenerationBar`
+   *  (review fix #10), so the two can never drift out of sync on the exact
+   *  wording or the thinking/writing boundary. */
+  readonly statusLabel: string;
   /** False only for `"unsaved"`: the text is frozen (no caret) — nothing is
    * still being written, and nothing will change until the writer discards
    * it or a retry lands. */
@@ -122,13 +157,16 @@ export function manuscriptGenerationView(
   storyId: string
 ): ManuscriptGeneration | null {
   if (state.kind === "idle" || state.storyId !== storyId) return null;
+  const thinking = generationThinking(state);
   return {
     mode: state.mode,
     appendTo: state.appendTo,
     seamPathIndex: state.seamPathIndex,
+    partNumber: state.seamPathIndex + 2,
     instruction: state.instruction,
     text: state.text,
-    thinking: state.reasoning !== null && state.text.length === 0,
+    thinking,
+    statusLabel: state.kind === "unsaved" ? "Not saved" : thinking ? "Thinking…" : "Writing…",
     live: state.kind !== "unsaved"
   };
 }

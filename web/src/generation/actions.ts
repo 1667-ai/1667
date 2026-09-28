@@ -1,7 +1,7 @@
-import { ApiFailureError, apiErrorCode } from "../../../client/api-error.js";
-import type { StoryApi } from "../../../client/api.js";
+import { apiErrorCode } from "../../../client/api-error.js";
+import type { ContinueTarget, StoryApi } from "../../../client/api.js";
 import type { StoryPayload } from "../../../shared/types.js";
-import { isTimeoutClassFailure } from "../../../shared/failure-envelope.js";
+import { stoppedTextDisposition, type GenerationTarget } from "../../../shared/stopped-generation.js";
 import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
@@ -9,18 +9,18 @@ import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import { effectiveFocusedPartId } from "../story/state.js";
+import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../story/actions.js";
 import { planContinue } from "./plan.js";
+import type { GenerationState } from "./state.js";
 import {
   appendBufferReasoning,
   appendBufferText,
   createRafFlushScheduler,
   createStreamBuffer,
-  hasSubstantiveText,
   type FlushScheduler,
   type StreamBuffer
 } from "./stream-buffer.js";
-import { saveStopped, type StopSaveOutcome } from "./settle.js";
-import type { GenerationMode } from "./state.js";
+import { saveStopped, type StopSaveOutcome, type StopSaveRequest } from "./settle.js";
 
 /** Step-6 seam: `instruction` and `draft` are both accepted here so the
  * composer (step 6) can add a typed direction and a restorable draft
@@ -33,8 +33,16 @@ export interface GenerationContinueRequest {
 }
 
 export interface GenerationActions {
+  /** Owns the "already writing" refusal and its toast (review fix #9) —
+   *  every caller (the Space key, `GenerationBar`'s Continue button, and
+   *  step 6's composer submit) just calls this unconditionally; none of them
+   *  needs its own copy of the busy check or the exact wording. */
   continue(request?: GenerationContinueRequest): Promise<void>;
-  stop(): void;
+  /** Returns whether it actually stopped a running generation — `false` when
+   *  there was nothing to stop (idle, already settling/unsaved). `app/
+   *  keymap.ts`'s global Escape handler uses this to decide whether it, and
+   *  not some other Escape-consumer (a popover closing), owns the key. */
+  stop(): boolean;
   /** Re-attempts the commit for the current `"unsaved"` generation, over
    * whichever connection is live right now (not necessarily the one that
    * started the run — decision 3's "no auto-save after reconnect" is about
@@ -70,15 +78,19 @@ type Connected = Extract<ConnectionState, { kind: "connected" }>;
  * a stale connection or a superseded run can never be reconstructed from
  * what a component reads. Stays around (in the `"unsaved"` phase) after a
  * failed save, so `retrySave`/`discardUnsaved`/`copyUnsaved` have something
- * to act on; only ever cleared by `setIdle`. */
+ * to act on; only ever cleared by `setIdle`.
+ *
+ * `phase` is the one source of truth for where this run is (review fix #6):
+ * `project()` below is a pure read of it (plus the buffer), and every action
+ * guards on it directly instead of cross-checking the store's own
+ * `generation.kind`. There is no separate `stopRequested` flag — `stop()`
+ * moves `phase` to `"settling"` itself, and `finishRun` reads that same
+ * field to tell "the writer asked to stop" from "the model simply failed". */
 interface ActiveRun {
   readonly genId: string;
   readonly storyId: string;
   readonly storyTitle: string;
-  readonly mode: GenerationMode;
-  readonly appendTo: string | null;
-  readonly parentId: string | null;
-  readonly expectedTextHash: string | undefined;
+  readonly target: GenerationTarget;
   readonly seamPathIndex: number;
   readonly instruction: string;
   readonly focusAtStart: string | null;
@@ -92,7 +104,15 @@ interface ActiveRun {
   readonly api: StoryApi;
   readonly buffer: StreamBuffer;
   readonly scheduler: FlushScheduler;
-  stopRequested: boolean;
+  phase: "running" | "settling" | "unsaved";
+  /** Set only once `phase` is `"unsaved"` — the message the card shows. */
+  message: string;
+}
+
+function continueTargetOf(target: GenerationTarget): ContinueTarget {
+  return target.mode === "append"
+    ? { appendTo: target.appendTo, expectedTextHash: target.expectedTextHash }
+    : { parentId: target.parentId };
 }
 
 export function createGenerationActions(
@@ -109,49 +129,31 @@ export function createGenerationActions(
     store.set((state) => (state.generation.kind === "idle" ? state : { ...state, generation: { kind: "idle" } }));
   }
 
-  /** Projects a run's current phase (and, for `running`/`settling`, its
-   * buffered text) into the store — every transition below goes through
-   * this so the shape written always matches `GenerationState` exactly. */
-  function publish(run: ActiveRun, kind: "running" | "settling"): void {
-    store.set((state) => ({
-      ...state,
-      generation: {
-        kind,
-        genId: run.genId,
-        storyId: run.storyId,
-        storyTitle: run.storyTitle,
-        mode: run.mode,
-        appendTo: run.appendTo,
-        parentId: run.parentId,
-        seamPathIndex: run.seamPathIndex,
-        instruction: run.instruction,
-        text: run.buffer.text,
-        reasoning: run.buffer.reasoning,
-        focusAtStart: run.focusAtStart,
-        stopRequested: run.stopRequested
-      }
-    }));
+  /** The one place a run's `phase` (and its buffered text) becomes a
+   * `GenerationState` — a pure read of `run`, never a decision of its own
+   * (review fix #6: replaces the near-duplicate `publish`/`publishUnsaved`
+   * pair, which built the same object twice with almost the same fields). */
+  function project(run: ActiveRun): GenerationState {
+    const target = run.target;
+    const shared = {
+      genId: run.genId,
+      storyId: run.storyId,
+      storyTitle: run.storyTitle,
+      mode: target.mode,
+      appendTo: target.mode === "append" ? target.appendTo : null,
+      parentId: target.mode === "take" ? target.parentId : null,
+      seamPathIndex: run.seamPathIndex,
+      instruction: run.instruction,
+      text: run.buffer.text,
+      reasoning: run.buffer.reasoning,
+      focusAtStart: run.focusAtStart
+    };
+    if (run.phase === "unsaved") return { ...shared, kind: "unsaved", message: run.message };
+    return { ...shared, kind: run.phase };
   }
 
-  function publishUnsaved(run: ActiveRun, message: string): void {
-    store.set((state) => ({
-      ...state,
-      generation: {
-        kind: "unsaved",
-        genId: run.genId,
-        storyId: run.storyId,
-        storyTitle: run.storyTitle,
-        mode: run.mode,
-        appendTo: run.appendTo,
-        parentId: run.parentId,
-        seamPathIndex: run.seamPathIndex,
-        instruction: run.instruction,
-        text: run.buffer.text,
-        reasoning: run.buffer.reasoning,
-        focusAtStart: run.focusAtStart,
-        message
-      }
-    }));
+  function publish(run: ActiveRun): void {
+    store.set((state) => ({ ...state, generation: project(run) }));
   }
 
   /** Schedules (at most once per animation frame) a store write of the
@@ -174,6 +176,30 @@ export function createGenerationActions(
 
   function partNumberOf(payload: StoryPayload): number {
     return payload.path.length;
+  }
+
+  function saveRequestOf(run: ActiveRun): StopSaveRequest {
+    return {
+      storyId: run.storyId,
+      genId: run.genId,
+      target: run.target,
+      instruction: run.instruction,
+      text: run.buffer.text
+    };
+  }
+
+  /** Best-effort reload+adopt, swallowing its own failure — used wherever a
+   * failure leaves the cached story possibly stale but there is no buffered
+   * text to protect (an admission-time `revision_conflict`, or an
+   * `"uncertain"` mutation outcome). Never throws; the caller's own toast is
+   * shown regardless of whether this succeeds. */
+  async function reloadBestEffort(run: ActiveRun): Promise<void> {
+    try {
+      const payload = await run.api.loadStory(run.storyId);
+      deps.adoptPayload(run.storyId, payload);
+    } catch {
+      // Best effort only.
+    }
   }
 
   /** The one place a run's outcome (from `saveStopped`, whether reached via
@@ -210,23 +236,24 @@ export function createGenerationActions(
     // reachable (Copy/Discard) rather than lose it — decision 3, generalized
     // from "connection lost" to any commit failure, timeout-class or not.
     if (outcome.payload !== null) deps.adoptPayload(run.storyId, outcome.payload);
-    publishUnsaved(run, errorMessage(outcome.error));
-    pushToast(store, `Not saved: ${errorMessage(outcome.error)}`);
+    run.phase = "unsaved";
+    run.message = errorMessage(outcome.error);
+    publish(run);
+    pushToast(store, `Not saved: ${run.message}`);
   }
 
   async function settleStopped(run: ActiveRun, failureMessage: string | null): Promise<void> {
-    publish(run, "settling");
-    const outcome = await saveStopped(run.api, {
-      storyId: run.storyId,
-      genId: run.genId,
-      mode: run.mode,
-      appendTo: run.appendTo,
-      expectedTextHash: run.expectedTextHash,
-      parentId: run.parentId,
-      instruction: run.instruction,
-      text: run.buffer.text
-    });
+    run.phase = "settling";
+    publish(run);
+    const outcome = await saveStopped(run.api, saveRequestOf(run));
     applyOutcome(run, outcome, failureMessage);
+  }
+
+  function refuseAlreadyWriting(state: AppState): void {
+    const generation = state.generation;
+    if (generation.kind === "idle") return;
+    const inThisStory = state.route.kind === "story" && state.route.id === generation.storyId;
+    pushToast(store, inThisStory ? STORY_LOCKED_TOAST : `Already writing in ${generation.storyTitle}. Esc stops it.`);
   }
 
   async function finishRun(
@@ -252,48 +279,67 @@ export function createGenerationActions(
       return;
     }
 
-    if (run.stopRequested) {
+    if (run.phase === "settling") {
+      // `stop()` already moved this run here before the transport settled.
       await settleStopped(run, null);
       return;
     }
 
-    if (apiErrorCode(error) === "resource_busy") {
+    const code = apiErrorCode(error);
+    if (code === "resource_busy") {
       setIdle();
       pushToast(store, "Another window is writing in this story.");
       return;
     }
-
-    const apiFailure = error instanceof ApiFailureError ? error : null;
-    const timeoutClass = apiFailure !== null && isTimeoutClassFailure(apiFailure.failure);
-    // Anything that is not a structured API failure at all (the transport
-    // closed, the socket dropped) carries no server verdict on the prose
-    // already streamed — decision 3 treats it the same as a clean timeout,
-    // never as a rejection, so it is never silently discarded.
-    const connectionFailure = apiFailure === null;
-    if (hasSubstantiveText(run.buffer.text) && (timeoutClass || connectionFailure)) {
-      await settleStopped(run, errorMessage(error));
+    if (code === "revision_conflict") {
+      // Continue's own admission was refused because this run's plan was
+      // built against a payload that has since moved — every retry would
+      // repeat the same conflict until the cache is refreshed (review fix
+      // #2). No text has streamed yet at this point (admission is checked
+      // before any provider work starts), so there is nothing to protect;
+      // only the stale cache needs fixing before the writer's next attempt
+      // can land.
+      setIdle();
+      await reloadBestEffort(run);
+      pushToast(store, STORY_RELOADED_TOAST);
       return;
     }
 
-    // A genuine provider/validation rejection: committing this prose would
-    // durably save output the server refused, so it is discarded, matching
-    // the TUI's own `generate()` exactly (see its `isTimeoutClassApiFailure`
-    // doc for the full reasoning).
+    const disposition = stoppedTextDisposition(error);
+    if (disposition === "save") {
+      await settleStopped(run, errorMessage(error));
+      return;
+    }
+    if (disposition === "keep-unsaved" && run.buffer.text.trim().length > 0) {
+      // The connection itself is gone (not a structured API failure at
+      // all) — a save attempt right now would fail immediately too (review
+      // fix #5, web-only: the TUI treats this exactly like a discard — see
+      // `stoppedTextDisposition`'s own doc). Show the same "Not saved" card
+      // a failed save leaves behind, rather than attempting a commit that
+      // cannot succeed or silently losing real prose.
+      run.phase = "unsaved";
+      run.message = errorMessage(error);
+      publish(run);
+      pushToast(store, `Not saved: ${run.message}`);
+      return;
+    }
+
+    // A genuine provider/validation rejection (or a connection loss with
+    // nothing substantive to keep): committing this prose would durably save
+    // output the server refused, so it is discarded.
     setIdle();
     if (error instanceof WebBridgeTransportError && error.mutationOutcome === "uncertain") {
-      try {
-        const payload = await run.api.loadStory(run.storyId);
-        deps.adoptPayload(run.storyId, payload);
-      } catch {
-        // Best effort only — the writer still gets the failure toast below.
-      }
+      await reloadBestEffort(run);
     }
     pushToast(store, errorMessage(error));
   }
 
   return {
     continue: async (request = {}) => {
-      if (activeRun !== null) return;
+      if (activeRun !== null) {
+        refuseAlreadyWriting(store.get());
+        return;
+      }
       const state = store.get();
       if (state.connection.kind !== "connected") return;
       if (state.route.kind !== "story") return;
@@ -308,7 +354,11 @@ export function createGenerationActions(
       const plan = await planContinue(story.payload, focusedPartId, requestedInstruction);
       // Re-validated after the await (`textHash` yields): a reconnect or a
       // second admission racing this one must not both proceed.
-      if (activeRun !== null || store.get().connection !== connection) return;
+      if (activeRun !== null) {
+        refuseAlreadyWriting(store.get());
+        return;
+      }
+      if (store.get().connection !== connection) return;
 
       const genId = crypto.randomUUID();
       const controller = new AbortController();
@@ -316,10 +366,7 @@ export function createGenerationActions(
         genId,
         storyId,
         storyTitle,
-        mode: plan.mode,
-        appendTo: plan.appendTo,
-        parentId: plan.parentId,
-        expectedTextHash: plan.expectedTextHash,
+        target: plan.target,
         seamPathIndex: plan.seamPathIndex,
         instruction: plan.instruction,
         focusAtStart: focusedPartId,
@@ -328,14 +375,11 @@ export function createGenerationActions(
         api: connection.api,
         buffer: createStreamBuffer(),
         scheduler: (deps.createScheduler ?? createRafFlushScheduler)(),
-        stopRequested: false
+        phase: "running",
+        message: ""
       };
       activeRun = run;
-      publish(run, "running");
-
-      const target = plan.mode === "append"
-        ? { appendTo: plan.appendTo!, expectedTextHash: plan.expectedTextHash! }
-        : { parentId: plan.parentId };
+      publish(run);
 
       try {
         // Idempotent by `genId`: a `resource_busy` admission refusal (another
@@ -350,7 +394,7 @@ export function createGenerationActions(
           storyId,
           requestedInstruction,
           genId,
-          target,
+          continueTargetOf(run.target),
           (delta) => {
             if (!isCurrentRun(run) || !connectionCurrent(run)) return;
             appendBufferText(run.buffer, delta);
@@ -385,49 +429,41 @@ export function createGenerationActions(
 
     stop: () => {
       const run = activeRun;
-      if (run === null || run.stopRequested) return;
-      run.stopRequested = true;
+      if (run === null || run.phase !== "running") return false;
+      run.phase = "settling";
       // Immediate UI feedback (the bar flips to disabled "Saving…" the
       // instant Stop is pressed) — `settleStopped` re-publishes the same
       // phase once the transport actually settles, which is a harmless
       // no-op re-affirmation on this path.
-      publish(run, "settling");
+      publish(run);
       run.controller.abort();
+      return true;
     },
 
     retrySave: async () => {
       const run = activeRun;
-      const state = store.get();
-      if (run === null || state.generation.kind !== "unsaved" || state.generation.genId !== run.genId) return;
+      if (run === null || run.phase !== "unsaved") return;
       // Retry over whichever connection is live right now, not necessarily
       // the one the run started on — the point of an explicit retry is that
       // the original may already be dead.
+      const state = store.get();
       const api = state.connection.kind === "connected" ? state.connection.api : run.api;
-      publish(run, "settling");
-      const outcome = await saveStopped(api, {
-        storyId: run.storyId,
-        genId: run.genId,
-        mode: run.mode,
-        appendTo: run.appendTo,
-        expectedTextHash: run.expectedTextHash,
-        parentId: run.parentId,
-        instruction: run.instruction,
-        text: run.buffer.text
-      });
+      run.phase = "settling";
+      publish(run);
+      const outcome = await saveStopped(api, saveRequestOf(run));
       applyOutcome(run, outcome, null);
     },
 
     discardUnsaved: () => {
-      const state = store.get();
-      if (state.generation.kind !== "unsaved") return;
+      if (activeRun === null || activeRun.phase !== "unsaved") return;
       setIdle();
     },
 
     copyUnsaved: async () => {
-      const state = store.get();
-      if (state.generation.kind !== "unsaved") return;
+      const run = activeRun;
+      if (run === null || run.phase !== "unsaved") return;
       try {
-        await navigator.clipboard.writeText(state.generation.text);
+        await navigator.clipboard.writeText(run.buffer.text);
       } catch {
         pushToast(store, "Could not copy the text. Select it and copy it by hand.");
       }

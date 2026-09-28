@@ -503,7 +503,8 @@ test("a timeout-class failure with substantive text saves it and toasts "
 });
 
 test("a plain connection failure (not a structured API error) with substantive "
-  + "text is also kept, never discarded", async () => {
+  + "text is kept as \"unsaved\", never discarded and never auto-saved "
+  + "(review fix #5: a save attempt right now would fail immediately too)", async () => {
   const payload = linearPayload(["a1"]);
   const store = storeOpenOn(payload, "a1");
   const { api, createNodeCalls } = fakeApi({
@@ -518,8 +519,10 @@ test("a plain connection failure (not a structured API error) with substantive "
 
   await generation.continue();
 
-  assert.equal(createNodeCalls.length, 1, "a connection failure must not discard already-streamed prose");
-  assert.equal(store.get().generation.kind, "idle");
+  assert.equal(createNodeCalls.length, 0, "a connection loss must never attempt a save that cannot succeed");
+  const unsaved = store.get().generation;
+  assert.equal(unsaved.kind, "unsaved", "the prose must be kept visible, not discarded");
+  assert.equal(unsaved.kind === "unsaved" ? unsaved.text : null, "prose written before the socket dropped");
 });
 
 test("a non-timeout provider rejection discards the buffered text (toast only)", async () => {
@@ -565,6 +568,29 @@ test("an uncertain mutation outcome reloads the story instead of guessing", asyn
   const story = store.get().story;
   assert.equal(story.kind, "loaded");
   if (story.kind === "loaded") assert.equal(story.payload, reloaded);
+});
+
+test("a revision_conflict at Continue's own admission reloads and adopts the "
+  + "current story, then allows another attempt (review fix #2)", async () => {
+  const payload = linearPayload(["a1"]);
+  const store = storeOpenOn(payload, "a1");
+  const reloaded = linearPayload(["a1", "a2"]);
+  const conflict = new ApiFailureError({ kind: "plain", code: "revision_conflict", message: "stale", status: 409 });
+  const { api, loadStoryCalls } = fakeApi({
+    continueStory: () => Promise.reject(conflict),
+    loadStory: async () => reloaded
+  });
+  store.set((state) => ({ ...state, connection: connectedState(api) }));
+  const { generation } = createActionsForStore(store);
+
+  await generation.continue();
+
+  assert.equal(loadStoryCalls.length, 1, "the stale cache must be refreshed, not left to repeat the same conflict");
+  const story = store.get().story;
+  assert.equal(story.kind, "loaded");
+  if (story.kind === "loaded") assert.equal(story.payload, reloaded);
+  assert.deepEqual(toasts(store), ["The story changed in another window. It was reloaded."]);
+  assert.equal(store.get().generation.kind, "idle", "must allow another attempt, never stay stuck");
 });
 
 test("still busy after admission retries: toast \"Another window is writing "
@@ -686,6 +712,50 @@ test("a persistent save failure keeps the text as \"unsaved\"; retrySave reuses 
 
   assert.equal(createNodeCalls.length, 2);
   assert.equal(createNodeCalls[1]!.body.genId, call.genId, "retrySave must reuse the original genId");
+  assert.equal(store.get().generation.kind, "idle");
+});
+
+test("stop() is a no-op once a timeout-class failure's own save has already "
+  + "failed and left the run \"unsaved\" — never a stuck \"Saving…\" "
+  + "(review fix #4)", async () => {
+  const payload = linearPayload(["a1"]);
+  const store = storeOpenOn(payload, "a1");
+  let saveAttempts = 0;
+  const { api, createNodeCalls } = fakeApi({
+    continueStory: (_s, _i, _g, _t, onDelta) => {
+      onDelta("partial prose");
+      return Promise.reject(timeoutFailure("The provider timed out."));
+    },
+    createNode: async () => {
+      saveAttempts += 1;
+      if (saveAttempts === 1) throw new Error("disk full");
+      return linearPayload(["a1", "a2"]);
+    },
+    loadStory: async () => linearPayload(["a1"])
+  });
+  store.set((state) => ({ ...state, connection: connectedState(api) }));
+  const { generation } = createActionsForStore(store);
+
+  // A timeout-class failure with substantive text attempts a save (the
+  // "save" disposition); that save itself then fails, leaving the run
+  // "unsaved" with its closure still alive for Copy/Discard/Retry.
+  await generation.continue();
+  assert.equal(createNodeCalls.length, 1);
+  assert.equal(store.get().generation.kind, "unsaved");
+
+  // Before item 6's single-phase refactor, calling stop() here published
+  // "settling" and aborted an already-dead controller — nothing ever
+  // resolved that, so the bar stayed stuck on "Saving…" forever, and
+  // continue() refused forever after (activeRun never cleared). stop() must
+  // now recognize there is nothing running to stop and leave the "unsaved"
+  // card exactly as it was.
+  assert.equal(generation.stop(), false, "there is nothing running to stop");
+  assert.equal(store.get().generation.kind, "unsaved", "must not flip to a permanently-stuck \"settling\"");
+
+  // The run must still be usable afterward — retrySave (not just discard)
+  // proves the closure was never wedged.
+  await generation.retrySave();
+  assert.equal(createNodeCalls.length, 2);
   assert.equal(store.get().generation.kind, "idle");
 });
 

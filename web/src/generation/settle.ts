@@ -1,9 +1,9 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { StoryApi } from "../../../client/api.js";
+import type { GenerationTarget } from "../../../shared/stopped-generation.js";
+import { stoppedGenerationSaveBody } from "../../../shared/stopped-generation.js";
 import type { CreateNodeRequest, StoryPayload } from "../../../shared/types.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
-import { hasSubstantiveText, trimmedText } from "./stream-buffer.js";
-import type { GenerationMode } from "./state.js";
 
 /**
  * Commits a stopped (or timed-out) generation's buffered text — the one
@@ -16,10 +16,7 @@ import type { GenerationMode } from "./state.js";
 export interface StopSaveRequest {
   readonly storyId: string;
   readonly genId: string;
-  readonly mode: GenerationMode;
-  readonly appendTo: string | null;
-  readonly expectedTextHash: string | undefined;
-  readonly parentId: string | null;
+  readonly target: GenerationTarget;
   readonly instruction: string;
   /** The authoritative buffer, verbatim — including the withheld tail. Never
    *  the presented (throttled) text. */
@@ -42,14 +39,14 @@ export async function saveStopped(
   api: StoryApi,
   request: StopSaveRequest
 ): Promise<StopSaveOutcome> {
-  if (!hasSubstantiveText(request.text)) {
+  const body = stoppedGenerationSaveBody(request.target, request.genId, request.instruction, request.text);
+  if (body === null) {
     try {
       return { kind: "not-substantive", payload: await api.loadStory(request.storyId) };
     } catch (error) {
       return { kind: "failed", payload: null, error };
     }
   }
-  const body = saveBody(request);
   try {
     const payload = await commitWithConflictRetry(api, request.storyId, body);
     return { kind: "saved", payload };
@@ -57,24 +54,6 @@ export async function saveStopped(
     const payload = await api.loadStory(request.storyId).catch(() => null);
     return { kind: "failed", payload, error };
   }
-}
-
-function saveBody(request: StopSaveRequest): CreateNodeRequest {
-  if (request.mode === "append") {
-    return {
-      appendTo: request.appendTo!,
-      expectedTextHash: request.expectedTextHash!,
-      instruction: "",
-      text: request.text,
-      genId: request.genId
-    };
-  }
-  return {
-    parentId: request.parentId,
-    instruction: request.instruction,
-    text: trimmedText(request.text),
-    genId: request.genId
-  };
 }
 
 /** `retryWhenBusy` around each attempt (another window's own claim, or a
@@ -91,6 +70,16 @@ async function commitWithConflictRetry(
     return await retryWhenBusy(() => api.createNode(storyId, body));
   } catch (error) {
     if (apiErrorCode(error) !== "revision_conflict") throw error;
+    // This reload's own payload is deliberately not adopted into the store
+    // here (unlike the TUI's `commitNodeAfterReload`, which does adopt it —
+    // its own retry can be rebuilt against fresher text, since a stream's
+    // buffer is still live at that point). This module has no store to
+    // adopt into (it is a pure function over `api`), and every path out of
+    // `saveStopped` already ends with a payload that supersedes this one:
+    // the retry's own "saved" result on success, or a second, fresher
+    // reload in the "failed" outcome on any other failure. The reload here
+    // exists only so the retry below is not immediately rejected again by
+    // the same staleness.
     await api.loadStory(storyId);
     return await retryWhenBusy(() => api.createNode(storyId, body));
   }

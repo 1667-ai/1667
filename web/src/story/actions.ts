@@ -36,11 +36,21 @@ export interface StoryActionDependencies {
   readonly isLocked: (storyId: string) => boolean;
 }
 
-/** Shown when a take-switch is refused because a generation is writing into
- * this exact story — reused by the keyboard path (`StoryView.tsx`'s
- * `take-previous`/`take-next`) and the mouse path (`PartCard`'s arrows,
- * counter, and take strip all route through `switchTake`/`switchTakeTo`). */
-export const STORY_LOCKED_TOAST = "This part is still writing. Press Esc to stop it.";
+/** Shown when an action is refused because a generation is writing into (or
+ * trying to save into) this exact story — reused by the take-switch keyboard
+ * path (`StoryView.tsx`'s `take-previous`/`take-next`), the take-switch
+ * mouse path (`PartCard`'s arrows, counter, and take strip, all routed
+ * through `switchTake`/`switchTakeTo`), and `generation/actions.ts`'s own
+ * `continue()` (review fix #9: it now owns this refusal itself, rather than
+ * `StoryView` building the toast inline). */
+export const STORY_LOCKED_TOAST = "Writing… Esc stops it first.";
+
+/** Shown wherever a `revision_conflict` (a save, or a fresh Continue
+ * admission, built against a payload that has since moved elsewhere) is
+ * resolved by reloading and adopting the current story instead of guessing —
+ * `runSwitchLoop` below and `generation/actions.ts`'s `finishRun` both use
+ * this exact wording. */
+export const STORY_RELOADED_TOAST = "The story changed in another window. It was reloaded.";
 
 export interface StoryActions {
   load(id: string): Promise<void>;
@@ -271,7 +281,7 @@ export function createStoryActions(
             next = await retryWhenBusy(() => requireApi(store).switchLine(storyId, target));
           } catch (error) {
             if (apiErrorCode(error) === "revision_conflict") {
-              pushToast(store, "The story changed in another window. It was reloaded.");
+              pushToast(store, STORY_RELOADED_TOAST);
               updateLoadedStory(store, storyId, (current) => ({ ...current, switching: null }));
               await load(storyId);
               return;

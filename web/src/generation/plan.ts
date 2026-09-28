@@ -1,7 +1,7 @@
 import { continuationIntent } from "../../../shared/continuation-intent.js";
+import type { GenerationTarget } from "../../../shared/stopped-generation.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { textHash } from "../../../client/api.js";
-import type { GenerationMode } from "./state.js";
 
 /**
  * What Continue is about to ask for, computed the exact same way the TUI's
@@ -11,20 +11,13 @@ import type { GenerationMode } from "./state.js";
  * step 5 (the composer seam, `instruction`, is step 6's).
  */
 export interface GenerationPlan {
-  readonly mode: GenerationMode;
-  readonly appendTo: string | null;
-  /** Set only for `mode: "append"` — the hash `createNode`'s `AppendNodeRequest`
-   *  must echo back so the server can refuse a save against text that moved
-   *  under it. Computed once, before the stream starts, from the leaf's text
-   *  at that moment — never recomputed mid-stream. */
-  readonly expectedTextHash: string | undefined;
-  readonly parentId: string | null;
+  readonly target: GenerationTarget;
   readonly seamPathIndex: number;
   /**
    * The instruction a saved new take records — `continuationIntent`'s own
    * resolved default direction (e.g. "Continue the story.") when the writer
    * typed nothing, exactly like the TUI's `stream.instruction` for a take.
-   * For `mode: "append"` this is always the empty, untrimmed request
+   * For `target.mode: "append"` this is always the empty, untrimmed request
    * instruction (append only happens when that was already empty), matching
    * `AppendNodeRequest.instruction` always being `""`.
    *
@@ -46,21 +39,20 @@ export async function planContinue(
   const intent = continuationIntent(payload, focusedPartId, requestedInstruction);
   const seamPathIndex = intent.fromSeam ? intent.focusPathIndex : payload.path.length - 1;
   if (intent.appendLast) {
-    const leaf = intent.leaf!;
+    const leaf = intent.leaf;
+    // `intent.appendLast` is only ever true when `continuationIntent` found
+    // a leaf to append to; the two fields are just not correlated at the
+    // type level. A thrown error here (never a silent `leaf!.id`) is exactly
+    // as loud as the invariant actually breaking should be.
+    if (leaf === null) throw new Error("1667 web: appendLast without a leaf");
     return {
-      mode: "append",
-      appendTo: leaf.id,
-      expectedTextHash: await textHash(leaf.text),
-      parentId: null,
+      target: { mode: "append", appendTo: leaf.id, expectedTextHash: await textHash(leaf.text) },
       seamPathIndex,
       instruction: requestedInstruction.trim()
     };
   }
   return {
-    mode: "take",
-    appendTo: null,
-    expectedTextHash: undefined,
-    parentId: intent.parentId,
+    target: { mode: "take", parentId: intent.parentId },
     seamPathIndex,
     instruction: intent.instruction
   };
