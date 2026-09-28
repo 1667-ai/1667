@@ -8,7 +8,7 @@ import { DEFAULT_INSTRUCTION } from "../shared/continuation-plan.js";
 import type { CreateNodeRequest, NodeStub, StoryPathNode, StoryPayload } from "../shared/types.js";
 import { createGenerationActions, type GenerationActions } from "../web/src/generation/actions.js";
 import { createManualFlushScheduler, type ManualFlushScheduler } from "../web/src/generation/stream-buffer.js";
-import { generationLocks } from "../web/src/generation/state.js";
+import { generationLocks, manuscriptGenerationView } from "../web/src/generation/state.js";
 import { createStoryActions, STORY_LOCKED_TOAST, type StoryActions } from "../web/src/story/actions.js";
 import type { ConnectionState } from "../web/src/app/connection.js";
 import { initialAppState, type AppState } from "../web/src/app/state.js";
@@ -328,6 +328,37 @@ test("several deltas within one frame coalesce into a single store update", asyn
   assert.equal(flushed.kind === "running" ? flushed.text : "", "Hello world!");
 
   continueCall.resolve({ payload: linearPayload(["a1", "b1", "a2"]) });
+  await runPromise;
+});
+
+test("manuscriptGenerationView reports \"Waiting…\" until the first delta or "
+  + "reasoning token arrives, never \"Writing…\" before admission is even "
+  + "known (review fix #12)", async () => {
+  const payload = linearPayload(["a1"]);
+  const store = storeOpenOn(payload, "a1");
+  const continueCall = deferred<{ payload: StoryPayload } | null>();
+  const { api, continueCalls } = fakeApi({ continueStory: () => continueCall.promise });
+  store.set((state) => ({ ...state, connection: connectedState(api) }));
+  const { generation, scheduler } = createActionsForStore(store);
+
+  const runPromise = generation.continue();
+  await waitFor(() => continueCalls.length === 1);
+
+  const beforeAnything = manuscriptGenerationView(store.get().generation, STORY_ID);
+  assert.equal(
+    beforeAnything?.statusLabel,
+    "Waiting…",
+    "nothing has streamed yet (still inside the busy-retry window, from the " +
+    "writer's point of view) — must never claim \"Writing…\" before the " +
+    "server has actually admitted the request"
+  );
+
+  continueCalls[0]!.onDelta("now it starts");
+  scheduler.current!.runPendingFlush();
+  const afterDelta = manuscriptGenerationView(store.get().generation, STORY_ID);
+  assert.equal(afterDelta?.statusLabel, "Writing…");
+
+  continueCall.resolve({ payload: linearPayload(["a1", "a2"]) });
   await runPromise;
 });
 

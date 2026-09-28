@@ -608,8 +608,20 @@ test("case 14: killing the server mid-stream shows a Not saved card; Copy "
 
   const discardButton = page.getByRole("button", { name: "Discard" });
   const copyButton = page.getByRole("button", { name: "Copy" });
+  const retryButton = page.getByRole("button", { name: "Retry" });
   await discardButton.waitFor({ timeout: 10_000 });
   await copyButton.waitFor();
+  // Review fix #8: a Retry button on the same card, guarded like Copy and
+  // Discard — the server is dead here, so retrying cannot itself succeed
+  // (that exact sequence, over a live connection, is
+  // test/web-generation.integration.test.ts's own "a persistent save
+  // failure..." case, which asserts retrySave reuses the original genId and
+  // succeeds); this only proves the button exists, is wired to an action
+  // that runs without crashing the page, and the card survives it.
+  await retryButton.waitFor();
+  await retryButton.click();
+  await page.waitForTimeout(300);
+  expect(await discardButton.isVisible()).toBeTrue();
 
   await copyButton.click();
   const sawClipboardText = await poll(async () => {
@@ -649,4 +661,112 @@ test("case 15: no console errors or CSP violations across a full "
   await page.waitForTimeout(300);
   expect(diagnostics.consoleErrors).toEqual([]);
   expect(diagnostics.cspViolations).toEqual([]);
+}, 30_000);
+
+test("case 16: Escape closes an open popover without stopping a background "
+  + "generation; a second Escape then stops it (review fix #3)", async () => {
+  const project = await scratchProject();
+  const web = await spawnGenWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Popover Escape Story");
+  await api.createNode(created.id, { text: "Before the picker.", parentId: null });
+
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, created.id);
+  await page.getByRole("heading", { name: "Popover Escape Story" }).waitFor();
+
+  await continueButton(page).click();
+  await waitForGrowth(part(page, "Before the picker."), "Before the picker.");
+
+  // The theme picker (`theme/ThemeControls.tsx`) — a `role="menu"` popover
+  // via the same `usePopover` the review's row-menu example (StoryRow) also
+  // uses; `fieldHasFocus()` does not recognize either as owning the
+  // keyboard, so before this fix the same Escape that closed the menu would
+  // also have stopped the generation underneath it.
+  const themeButton = page.getByTitle("Choose theme");
+  await themeButton.click();
+  const menu = page.locator('.theme-popover[role="menu"]');
+  await menu.waitFor();
+
+  await page.keyboard.press("Escape");
+  await waitForCount(menu, 0);
+  // The generation must still be running — a live Stop button, not Continue.
+  await waitForCount(stopButton(page), 1);
+
+  await page.keyboard.press("Escape");
+  await waitForCount(continueButton(page), 1, 6_000);
+}, 30_000);
+
+test("case 17: a \"Not saved\" card still warns before an unload "
+  + "(review fix #1)", async () => {
+  const project = await scratchProject();
+  const web = await spawnGenWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Unsaved Unload Story");
+  await api.createNode(created.id, { text: "Before the crash.", parentId: null });
+
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, created.id);
+  await page.getByRole("heading", { name: "Unsaved Unload Story" }).waitFor();
+
+  await continueButton(page).click();
+  await waitForGrowth(part(page, "Before the crash."), "Before the crash.");
+
+  web.child.kill("SIGKILL");
+  await web.exit;
+
+  const discardButton = page.getByRole("button", { name: "Discard" });
+  await discardButton.waitFor({ timeout: 10_000 });
+
+  let sawBeforeUnload = false;
+  page.on("dialog", (dialog) => {
+    if (dialog.type() === "beforeunload") sawBeforeUnload = true;
+    void dialog.accept();
+  });
+  await page.reload();
+  expect(sawBeforeUnload).toBeTrue();
+}, 30_000);
+
+test("case 18: a second tab pressing Continue while the first already writes "
+  + "never shows \"Writing…\" (only \"Waiting…\" or nothing), then gets the "
+  + "busy toast and returns to idle — reviving the dropped case 8 now that "
+  + "review fix #12 gives it a deterministic signal to watch", async () => {
+  const project = await scratchProject();
+  // Slow on purpose: the first tab's own claim must still be held by the
+  // time the second tab's admission retries (~0.85s, busy-retry.ts) run out.
+  const web = await spawnGenWeb(project, 200);
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Two Tabs Story");
+  await api.createNode(created.id, { text: "Shared text.", parentId: null });
+
+  const pageA = await openTestPage(await sharedBrowser());
+  const pageB = await openTestPage(await sharedBrowser());
+  await openStoryPage(pageA, web, created.id);
+  await openStoryPage(pageB, web, created.id);
+  await pageA.getByRole("heading", { name: "Two Tabs Story" }).waitFor();
+  await pageB.getByRole("heading", { name: "Two Tabs Story" }).waitFor();
+
+  await continueButton(pageA).click();
+  await waitForCount(stopButton(pageA), 1);
+
+  await continueButton(pageB).click();
+
+  // Never once claim "Writing…" before the server has actually admitted
+  // anything — the second tab is either still inside busy-retry's own
+  // window (showing "Waiting…", or nothing yet) or has already been
+  // refused (the busy toast, back to idle).
+  const sawWriting = await poll(async () => {
+    if ((await generationStatus(pageB).count()) === 0) return false;
+    return (await generationStatus(pageB).textContent()) === "Writing…";
+  }, 600);
+  expect(sawWriting).toBeFalse();
+
+  await pageB.getByText("Another window is writing in this story.").first().waitFor({ timeout: 8_000 });
+  await waitForCount(continueButton(pageB), 1, 5_000);
+
+  // The first tab's own generation must be completely unaffected by the
+  // second tab's refused attempt.
+  await waitForCount(stopButton(pageA), 1);
+  await pageA.keyboard.press("Escape");
+  await waitForCount(continueButton(pageA), 1, 6_000);
 }, 30_000);

@@ -141,10 +141,21 @@ export interface ManuscriptGeneration {
   readonly instruction: string;
   readonly text: string;
   readonly thinking: boolean;
-  /** "Thinking…" / "Writing…" / "Not saved" — this story's own status text,
-   *  reused verbatim by both `StoryView`'s live region and `GenerationBar`
-   *  (review fix #10), so the two can never drift out of sync on the exact
-   *  wording or the thinking/writing boundary. */
+  /** "Waiting…" / "Thinking…" / "Writing…" / "Not saved" — this story's own
+   *  status text, reused verbatim by both `StoryView`'s live region and
+   *  `GenerationBar` (review fix #10), so the two can never drift out of
+   *  sync on the exact wording or the thinking/writing boundary.
+   *
+   *  "Waiting…" (review fix #12, the dropped case 8's own root cause):
+   *  `continue()` publishes `"running"` optimistically the instant it is
+   *  called, before the admission call has even reached the server —
+   *  `busy-retry.ts`'s own retries can hold that call for up to ~0.85s
+   *  before either the first delta/reasoning arrives or admission is
+   *  refused (`resource_busy`). Until either happens, neither `reasoning`
+   *  nor `text` exist yet; showing "Writing…" for that whole window
+   *  claimed an admission that had not actually happened, which is exactly
+   *  what made a second tab's own busy-refusal hard to tell apart from a
+   *  genuinely started run. */
   readonly statusLabel: string;
   /** False only for `"unsaved"`: the text is frozen (no caret) — nothing is
    * still being written, and nothing will change until the writer discards
@@ -166,7 +177,13 @@ export function manuscriptGenerationView(
     instruction: state.instruction,
     text: state.text,
     thinking,
-    statusLabel: state.kind === "unsaved" ? "Not saved" : thinking ? "Thinking…" : "Writing…",
+    statusLabel: statusLabelOf(state, thinking),
     live: state.kind !== "unsaved"
   };
+}
+
+function statusLabelOf(state: GenerationRunningState | GenerationUnsavedState, thinking: boolean): string {
+  if (state.kind === "unsaved") return "Not saved";
+  if (state.reasoning === null && state.text.length === 0) return "Waiting…";
+  return thinking ? "Thinking…" : "Writing…";
 }

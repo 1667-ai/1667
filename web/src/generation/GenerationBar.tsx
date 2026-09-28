@@ -1,6 +1,6 @@
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
-import { generationThinking, type GenerationState } from "./state.js";
+import { manuscriptGenerationView, type GenerationState } from "./state.js";
 
 /**
  * The bottom bar for Continue/Stop (#409 step 5) — mounted twice: at the
@@ -76,14 +76,19 @@ export function GenerationBar({ viewingStoryId }: { readonly viewingStoryId: str
   );
 }
 
-/** `thinking`'s "is this a caret-less reasoning-only moment" boundary comes
- * from the shared `generationThinking` predicate (review fix #10) — the
- * same one `manuscriptGenerationView` uses — so this bar and the manuscript
- * read view can never disagree about when "Thinking…" becomes "Writing…". */
+/** The "in this story" case reuses `manuscriptGenerationView`'s own
+ * `statusLabel` verbatim (review fix #10) — the exact same
+ * Waiting/Thinking/Writing/Not-saved text `StoryView`'s live region shows —
+ * so this bar and the manuscript read view can never disagree. The "a
+ * different story" case cannot call that (it has no matching `storyId` to
+ * view), so it repeats only the one boundary that still applies there:
+ * "Waiting…" until either reasoning or text exists (review fix #12). */
 function statusText(generation: Exclude<GenerationState, { kind: "idle" }>, inThisStory: boolean): string {
-  if (generation.kind === "unsaved") {
-    return inThisStory ? "Not saved" : `Not saved in ${generation.storyTitle}`;
+  if (!inThisStory) {
+    if (generation.kind === "unsaved") return `Not saved in ${generation.storyTitle}`;
+    return generation.reasoning === null && generation.text.length === 0
+      ? `Waiting to write in ${generation.storyTitle}…`
+      : `Writing in ${generation.storyTitle}…`;
   }
-  if (!inThisStory) return `Writing in ${generation.storyTitle}…`;
-  return generationThinking(generation) ? "Thinking…" : "Writing…";
+  return manuscriptGenerationView(generation, generation.storyId)?.statusLabel ?? "";
 }
