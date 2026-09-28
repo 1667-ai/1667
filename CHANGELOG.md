@@ -19,6 +19,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   reload. Your place in the story survives a restart of `1667 web`. The
   terminal app and `1667 web` share this same place.
 
+- **`1667 web` can continue the story.** Press Space, or click Continue, to
+  write the next part. The page shows the new words as they arrive. Press
+  Escape, or click Stop, to stop early. `1667 web` keeps the words that
+  arrived. If you open a different story, `1667 web` keeps writing in the
+  first story. A bar tells you where it still writes. Press Escape from any
+  page to stop it. If the connection to `1667 web` breaks while it writes,
+  the page keeps the words on screen. Click Copy to save them. Click
+  Discard to clear them.
+
 - **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
   the Anthropic provider, you can set effort for these models. 1667 shows
   their thoughts and uses prompt caching for them.
