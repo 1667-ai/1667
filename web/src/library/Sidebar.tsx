@@ -36,7 +36,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
   const activeId = route.kind === "story" ? route.id : null;
   const visible = filterAndSort(stories, query);
   const searchRef = useRef<HTMLInputElement>(null);
-  useKeymap({ searchRef });
+  useKeymap({ searchRef, stopGeneration: actions.generation.stop });
 
   return (
     <>

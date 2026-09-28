@@ -17,9 +17,22 @@ import { fieldHasFocus, resolveManuscriptBinding } from "./keymap-dom.js";
  * when the handler reports it actually did something with the key — every
  * other later-step key (the map, facts, and so on) resolves to nothing and
  * keeps its native browser behavior, exactly as an unhandled key would.
+ *
+ * Escape is a second, independent sibling of the `/` branch, not a
+ * `ReferenceBinding` dispatched through a screen (review fix #3): it stops a
+ * running/settling generation from anywhere — any route, any screen, even
+ * the library — as long as nothing else has already claimed the key.
+ * `event.defaultPrevented` is that claim check: `ui/usePopover.ts`'s own
+ * Escape-close now calls `preventDefault`, and its `document`-level listener
+ * always runs before this `window`-level one in the bubble phase, so closing
+ * a menu never also stops a background generation on the same keypress.
+ * `stopGeneration` returns `false` when there was nothing to stop, so this
+ * only claims the key (and calls `preventDefault` itself) when it actually
+ * did something with it.
  */
 export interface Keymap {
   readonly searchRef: RefObject<HTMLInputElement | null>;
+  readonly stopGeneration: () => boolean;
 }
 
 /** Returns `true` when it handled the binding (and so `preventDefault` should
@@ -49,6 +62,10 @@ export function useKeymap(keymap: Keymap): void {
         keymap.searchRef.current?.focus();
         return;
       }
+      if (event.key === "Escape" && !event.defaultPrevented && !fieldHasFocus() && keymap.stopGeneration()) {
+        event.preventDefault();
+        return;
+      }
       if (currentScreenHandler === null || fieldHasFocus()) return;
       const binding = resolveManuscriptBinding(event);
       if (binding === null) return;
@@ -56,5 +73,5 @@ export function useKeymap(keymap: Keymap): void {
     };
     addEventListener("keydown", onKeyDown);
     return () => removeEventListener("keydown", onKeyDown);
-  }, [keymap.searchRef]);
+  }, [keymap.searchRef, keymap.stopGeneration]);
 }

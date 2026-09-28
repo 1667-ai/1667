@@ -4,7 +4,6 @@ import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
 import { dismissToast } from "./app/toasts.js";
 import { GenerationBar } from "./generation/GenerationBar.js";
-import { useGenerationEscape } from "./generation/useGenerationEscape.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
@@ -46,7 +45,13 @@ function Shell() {
   // `styles/sidebar.css`) only take effect there, so this state does
   // nothing at desktop width.
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  useGenerationEscape(store, actions);
+  // Esc-stops-a-background-generation (owner decision 2: "from anywhere")
+  // now lives in `app/keymap.ts`'s `useKeymap` (`Sidebar.tsx`, always
+  // mounted) as a sibling of its own Escape/`/` handling — review fix #3.
+  // It used to be this file's own always-mounted `useGenerationEscape`
+  // listener, independent of `registerScreenKeys`'s per-screen dispatch;
+  // folding it into the same listener is what lets a popover's own Escape
+  // (`ui/usePopover.ts`, now calling `preventDefault`) take priority over it.
 
   if (connection.kind === "connecting") return <ConnectingScreen />;
   if (connection.kind === "locked") return <LockedScreen />;
