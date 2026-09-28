@@ -79,12 +79,14 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
       // the server (decision: it keeps writing in the background), but it
       // does throw away this tab's only view of it — the live text, and any
       // "unsaved" leftover a failed save is holding for Copy/Discard. Warn
-      // only while something is actually in flight or being committed;
-      // `"unsaved"` needs no warning here — that text already survived one
-      // failure and is only ever lost by an explicit Discard.
+      // while something is in flight, being committed, or sitting unsaved —
+      // review fix #1 (P1): `"unsaved"` used to be excluded on the theory
+      // that the text "already survived one failure", but that text exists
+      // nowhere else; reloading past this dialog without saving or copying
+      // it first would lose the writer's only copy for good.
       const onBeforeUnload = (event: BeforeUnloadEvent): void => {
         const generation = store.get().generation;
-        if (generation.kind !== "running" && generation.kind !== "settling") return;
+        if (generation.kind === "idle") return;
         event.preventDefault();
         event.returnValue = "";
       };
