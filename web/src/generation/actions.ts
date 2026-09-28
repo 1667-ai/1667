@@ -354,7 +354,22 @@ export function createGenerationActions(
       const focusedPartId = effectiveFocusedPartId(story);
 
       const requestedInstruction = request.instruction ?? "";
-      const plan = await planContinue(story.payload, focusedPartId, requestedInstruction);
+      // The saved instruction of a stopped new take must be the direction the
+      // server actually used: the configured default, as the TUI passes
+      // `activeWriting.defaultContinueDirection`. A settings read that fails
+      // falls back to the built-in default.
+      let defaultContinueDirection: string | undefined;
+      try {
+        defaultContinueDirection = (await connection.api.getSettings()).activeWriting.defaultContinueDirection;
+      } catch {
+        defaultContinueDirection = undefined;
+      }
+      const plan = await planContinue(
+        story.payload,
+        focusedPartId,
+        requestedInstruction,
+        defaultContinueDirection
+      );
       // Re-validated after the await (`textHash` yields): a reconnect or a
       // second admission racing this one must not both proceed.
       if (activeRun !== null) {

@@ -34,9 +34,10 @@ export interface GenerationPlan {
 export async function planContinue(
   payload: StoryPayload,
   focusedPartId: string | null,
-  requestedInstruction = ""
+  requestedInstruction = "",
+  defaultContinueDirection?: string
 ): Promise<GenerationPlan> {
-  const intent = continuationIntent(payload, focusedPartId, requestedInstruction);
+  const intent = continuationIntent(payload, focusedPartId, requestedInstruction, null, defaultContinueDirection);
   const seamPathIndex = intent.fromSeam ? intent.focusPathIndex : payload.path.length - 1;
   if (intent.appendLast) {
     const leaf = intent.leaf;

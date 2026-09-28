@@ -175,6 +175,7 @@ function fakeApi(overrides: {
   readonly continueStory: FakeContinueStory;
   readonly createNode?: StoryApi["createNode"];
   readonly loadStory?: StoryApi["loadStory"];
+  readonly defaultContinueDirection?: string;
 }): FakeApi {
   const continueCalls: CapturedContinueCall[] = [];
   const createNodeCalls: { storyId: string; body: CreateNodeRequest }[] = [];
@@ -189,6 +190,10 @@ function fakeApi(overrides: {
       createNodeCalls.push({ storyId, body });
       if (overrides.createNode !== undefined) return overrides.createNode(storyId, body);
       return linearPayload(["a1", "a2"]);
+    },
+    getSettings: async () => {
+      if (overrides.defaultContinueDirection === undefined) throw new Error("no settings in this fake");
+      return { activeWriting: { defaultContinueDirection: overrides.defaultContinueDirection } } as never;
     },
     loadStory: async (id) => {
       loadStoryCalls.push(id);
@@ -444,6 +449,32 @@ test("Stop on a new take commits trimmed text with the take body, under the "
     assert.equal(story.announcement, "Stopped. Part 3 kept.");
     assert.equal(story.focusedPartId, "d1");
   }
+});
+
+test("a stopped new take saves the configured default direction, as the server used it", async () => {
+  const payload = linearPayload(["a1", "a2"]);
+  const store = storeOpenOn(payload, "a1");
+  const continueCall = deferred<{ payload: StoryPayload } | null>();
+  const { api, continueCalls, createNodeCalls } = fakeApi({
+    continueStory: () => continueCall.promise,
+    createNode: async () => linearPayload(["a1", "a3"]),
+    defaultContinueDirection: "Write the next scene from Mara's view."
+  });
+  store.set((state) => ({ ...state, connection: connectedState(api) }));
+  const { generation } = createActionsForStore(store);
+
+  const runPromise = generation.continue();
+  await waitFor(() => continueCalls.length === 1);
+  continueCalls[0]!.onDelta("A new take.");
+  generation.stop();
+  continueCall.resolve(null);
+  await runPromise;
+
+  assert.equal(createNodeCalls.length, 1);
+  assert.equal(
+    (createNodeCalls[0]!.body as { instruction?: string }).instruction,
+    "Write the next scene from Mara's view."
+  );
 });
 
 test("Stop with only whitespace streamed saves nothing and reloads instead", async () => {
