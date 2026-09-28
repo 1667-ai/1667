@@ -51,14 +51,21 @@ export interface PartCardProps {
   /** Disables every take control (arrows, counter, strip) without dimming
    * the part the way `busy` does — set while this story is locked by a
    * generation, on every part at once, not only the ones below a pending
-   * switch's own anchor (`Manuscript.tsx`). */
-  readonly controlsLocked?: boolean;
+   * switch's own anchor (`Manuscript.tsx`). Required (review fix #11)
+   * because `Manuscript.tsx`, this component's only caller, always has an
+   * answer (`generation !== null && generation.live`) — an optional prop
+   * with a `false` default could silently paper over a caller that forgot
+   * to compute it. */
+  readonly controlsLocked: boolean;
   readonly showDirections: boolean;
   /** The take index to show while a switch on this part is in flight —
    * `part.takeIndex` otherwise (server-authoritative once it lands). */
   readonly displayTakeIndex: number;
-  /** Set only on the one part a live append is growing — see `PartContinuation`. */
-  readonly continuation?: PartContinuation | null;
+  /** The one part a live append is growing, or `null` for every other part
+   * — see `PartContinuation`. Required for the same reason as
+   * `controlsLocked` above: `Manuscript.tsx` always computes this per part,
+   * never omits it. */
+  readonly continuation: PartContinuation | null;
   readonly onFocus: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
   readonly onSwitchTo: (partId: string, targetId: string) => void;
@@ -76,10 +83,10 @@ function PartCardImpl({
   payload,
   focused,
   busy,
-  controlsLocked = false,
+  controlsLocked,
   showDirections,
   displayTakeIndex,
-  continuation = null,
+  continuation,
   onFocus,
   onSwitch,
   onSwitchTo

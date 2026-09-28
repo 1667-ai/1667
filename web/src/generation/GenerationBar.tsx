@@ -1,6 +1,6 @@
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
-import type { GenerationState } from "./state.js";
+import { generationThinking, type GenerationState } from "./state.js";
 
 /**
  * The bottom bar for Continue/Stop (#409 step 5) — mounted twice: at the
@@ -46,6 +46,9 @@ export function GenerationBar({ viewingStoryId }: { readonly viewingStoryId: str
           <button type="button" className="btn" onClick={() => { void actions.generation.copyUnsaved(); }}>
             Copy
           </button>
+          <button type="button" className="btn" onClick={() => { void actions.generation.retrySave(); }}>
+            Retry
+          </button>
           <button type="button" className="btn btn-danger" onClick={actions.generation.discardUnsaved}>
             Discard
           </button>
@@ -73,11 +76,14 @@ export function GenerationBar({ viewingStoryId }: { readonly viewingStoryId: str
   );
 }
 
+/** `thinking`'s "is this a caret-less reasoning-only moment" boundary comes
+ * from the shared `generationThinking` predicate (review fix #10) — the
+ * same one `manuscriptGenerationView` uses — so this bar and the manuscript
+ * read view can never disagree about when "Thinking…" becomes "Writing…". */
 function statusText(generation: Exclude<GenerationState, { kind: "idle" }>, inThisStory: boolean): string {
   if (generation.kind === "unsaved") {
     return inThisStory ? "Not saved" : `Not saved in ${generation.storyTitle}`;
   }
-  const thinking = generation.reasoning !== null && generation.text.length === 0;
   if (!inThisStory) return `Writing in ${generation.storyTitle}…`;
-  return thinking ? "Thinking…" : "Writing…";
+  return generationThinking(generation) ? "Thinking…" : "Writing…";
 }

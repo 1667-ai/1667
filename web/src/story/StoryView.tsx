@@ -4,29 +4,28 @@ import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
-import { pushToast } from "../app/toasts.js";
 import { GenerationBar } from "../generation/GenerationBar.js";
-import { manuscriptGenerationView, type GenerationState } from "../generation/state.js";
+import { manuscriptGenerationView, type ManuscriptGeneration } from "../generation/state.js";
 import { useFollowStream } from "../generation/useFollowStream.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
-import { STORY_LOCKED_TOAST } from "./actions.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
 
 /** The `role="status"` region's text: a running/settling generation's own
- * phase wins while it targets this exact story (never per token — this
- * only actually changes value at the Thinking/Writing boundary, since the
- * presented text is already throttled); otherwise the story's own last
- * announcement (a landed take switch, or a generation that just landed —
- * `story/actions.ts`'s `adoptPayload` sets both a payload and this text in
- * the same store update, so a landing narrates itself the instant it
- * lands, with no separate wiring here). */
-function liveRegionText(story: Extract<StoryState, { kind: "loaded" }>, generation: GenerationState, storyId: string): string {
-  if (generation.kind !== "idle" && generation.storyId === storyId) {
-    const thinking = generation.reasoning !== null && generation.text.length === 0;
-    return thinking ? "Thinking…" : "Writing…";
-  }
+ * status label wins while it targets this exact story and is still live
+ * (never per token — this only actually changes value at the
+ * Thinking/Writing boundary, since the presented text is already
+ * throttled; a frozen `"unsaved"` leftover falls through to the story's
+ * own announcement instead of claiming it is still writing — review fix
+ * #10 folds this and the bar's own status text into one shared
+ * `statusLabel`, computed once by `manuscriptGenerationView`); otherwise
+ * the story's own last announcement (a landed take switch, or a generation
+ * that just landed — `story/actions.ts`'s `adoptPayload` sets both a
+ * payload and this text in the same store update, so a landing narrates
+ * itself the instant it lands, with no separate wiring here). */
+function liveRegionText(story: Extract<StoryState, { kind: "loaded" }>, generationView: ManuscriptGeneration | null): string {
+  if (generationView !== null && generationView.live) return generationView.statusLabel;
   return story.announcement ?? "";
 }
 
@@ -110,15 +109,12 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         // must keep the browser's own scroll, so it is refused explicitly
         // rather than treated as a plain Continue. A repeat (held key) and a
         // focused take-switch arrow/counter (Enter/Space already activate
-        // those) are refused the same way.
+        // those) are refused the same way. `continue()` itself now owns the
+        // "already writing" refusal and its toast (review fix #9) — this
+        // screen only filters the key and calls it, so step 6's composer
+        // submit can reuse the exact same call without repeating that logic.
         if (event.shiftKey || event.repeat || activatesOnEnterOrSpace()) return false;
-        if (current.generation.kind === "idle") {
-          void actions.generation.continue();
-          return true;
-        }
-        pushToast(store, current.generation.storyId === storyId
-          ? STORY_LOCKED_TOAST
-          : `Already writing in ${current.generation.storyTitle}. Esc stops it.`);
+        void actions.generation.continue();
         return true;
       }
       case "scroll-line-up": return scrollBy(container, -LINE_SCROLL_PX);
@@ -174,7 +170,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         </div>
         <GenerationBar viewingStoryId={storyId} />
       </div>
-      <div role="status" className="sr-only">{liveRegionText(story, generation, storyId)}</div>
+      <div role="status" className="sr-only">{liveRegionText(story, generationView)}</div>
     </div>
   );
 }

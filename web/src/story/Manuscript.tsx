@@ -94,7 +94,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
       })}
       {generation !== null && generation.mode === "take" && (
         <StreamingPart
-          partNumber={generation.seamPathIndex + 2}
+          partNumber={generation.partNumber}
           instruction={generation.instruction}
           showDirections={showDirections}
           text={generation.text}
