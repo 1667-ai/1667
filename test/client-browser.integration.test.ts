@@ -153,7 +153,29 @@ test("the shared client runs with browser globals only", async (t) => {
   // The callback's Error comes from this realm, so the sandboxed transport
   // wraps it; only its text crosses intact.
   assert.match((streamFailure as Error).message, /page callback failed/);
-  bridgeTransport.close();
+
+  // Stop, then a chunk arrives (withheld from onDelta), then the connection
+  // dies before the terminal frame: onStopped still receives the chunk, so
+  // the caller's recovery copy is complete.
+  const droppedId = { workerInstanceId: "a".repeat(32), sequence: 3n };
+  const stopController = new AbortController();
+  const stoppedTails: string[] = [];
+  const dropped = bridgeTransport.call("continueStory", {} as never, {
+    onDelta: () => undefined,
+    onStopped: (text: string) => { stoppedTails.push(text); },
+    signal: stopController.signal
+  }).then(() => null, (error: unknown) => error);
+  const droppedRequest = JSON.parse(fake.sent.at(-1)!) as { callId: string };
+  fake.emit("message", {
+    data: encodeBridgeMessage({ type: "accepted", callId: droppedRequest.callId, id: droppedId })
+  });
+  fake.emit("message", { data: encodeBridgeMessage({ type: "delta", id: droppedId, sequence: 0, text: "before " }) });
+  stopController.abort();
+  fake.emit("message", { data: encodeBridgeMessage({ type: "delta", id: droppedId, sequence: 1, text: "after stop" }) });
+  fake.emit("close", { code: 1006 });
+  const droppedOutcome = await dropped;
+  assert.ok(droppedOutcome !== null, "the call rejects when the connection closes");
+  assert.deepEqual(stoppedTails, ["after stop"]);
 
   // client/web-bridge-connect.ts: the "no token anywhere" outcome, still
   // inside the same browser-only VM — proves `connectWebBridge` needs
