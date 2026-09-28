@@ -57,4 +57,9 @@
 
 .generation-bar-actions { display: flex; gap: 10px; }
 
-.generation-bar-unsaved { background: var(--danger-soft); }
+/* Copy/Discard must stay reachable even while the connection is closed —
+ * decision 3 keeps this text alive with no auto-save, so Copy is often the
+ * only way it survives at all. `ui/ConnectionScreens.tsx`'s ClosedOverlay is
+ * a deliberate full-screen block (`position: fixed; z-index: 90`) for every
+ * other case, but must never be the thing that loses a writer's prose. */
+.generation-bar-unsaved { background: var(--danger-soft); position: relative; z-index: 95; }
