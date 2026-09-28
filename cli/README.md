@@ -72,7 +72,10 @@ that bar. Only one story writes at a time.
 
 If the connection to `1667 web` breaks while it writes, the page keeps the
 new words on screen but does not save them. Click Copy to copy them. Click
-Discard to clear them.
+Retry to save them again. Click Discard to clear them.
+
+If you have words that are not saved, `1667 web` warns you before you
+reload the page or close the tab. Save the words, or copy them, first.
 
 ### Run the web page in development mode
 

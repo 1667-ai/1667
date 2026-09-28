@@ -25,8 +25,10 @@ This file records notable changes to 1667. Product terms use the definitions in
   arrived. If you open a different story, `1667 web` keeps writing in the
   first story. A bar tells you where it still writes. Press Escape from any
   page to stop it. If the connection to `1667 web` breaks while it writes,
-  the page keeps the words on screen. Click Copy to save them. Click
-  Discard to clear them.
+  the page keeps the words on screen. Click Copy to save them. Click Retry
+  to save them again. Click Discard to clear them. `1667 web` warns you
+  before you reload the page or close the tab while it holds words that are
+  not saved.
 
 - **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
   the Anthropic provider, you can set effort for these models. 1667 shows
