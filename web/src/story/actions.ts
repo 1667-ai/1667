@@ -90,7 +90,12 @@ export interface StoryActions {
   adoptPayload(
     storyId: string,
     payload: StoryPayload,
-    options?: { readonly focusNewLeafIf?: string | null; readonly announcement?: string }
+    // `focusNewLeafIf` is required (not `?:`) whenever `options` itself is
+    // given (review fix #11): a caller with nothing to focus says so with
+    // `null`, the one spelling of "empty" this reads, rather than either
+    // that same explicit `null` or simply omitting the field meaning the
+    // exact same thing two different ways.
+    options?: { readonly focusNewLeafIf: string | null; readonly announcement?: string }
   ): boolean;
   focusPart(partId: string): void;
   moveFocus(direction: -1 | 1): void;
@@ -342,7 +347,7 @@ export function createStoryActions(
       ));
     },
 
-    adoptPayload: (storyId, payload, options = {}) => {
+    adoptPayload: (storyId, payload, options) => {
       deps.storyChanged();
       let applied = false;
       let moveFocusTo: string | null = null;
@@ -351,7 +356,7 @@ export function createStoryActions(
         if (state.story.kind !== "loaded" || state.story.payload.id !== storyId) return state;
         if (!isAtLeastVersion(payload, state.story.payload)) return state;
         applied = true;
-        const focusNewLeafIf = options.focusNewLeafIf ?? null;
+        const focusNewLeafIf = options?.focusNewLeafIf ?? null;
         const newLeafId = payload.path.at(-1)?.id ?? null;
         if (focusNewLeafIf !== null
           && newLeafId !== null
@@ -363,7 +368,7 @@ export function createStoryActions(
           story: {
             ...state.story,
             payload,
-            announcement: options.announcement ?? state.story.announcement
+            announcement: options?.announcement ?? state.story.announcement
           }
         };
       });

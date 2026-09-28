@@ -67,7 +67,7 @@ export interface GenerationActionDependencies {
 type StoryAdoptPayload = (
   storyId: string,
   payload: StoryPayload,
-  options?: { readonly focusNewLeafIf?: string | null; readonly announcement?: string }
+  options?: { readonly focusNewLeafIf: string | null; readonly announcement?: string }
 ) => boolean;
 
 type Connected = Extract<ConnectionState, { kind: "connected" }>;
@@ -226,7 +226,7 @@ export function createGenerationActions(
       return;
     }
     if (outcome.kind === "not-substantive") {
-      deps.adoptPayload(run.storyId, outcome.payload, { announcement: "Stopped. Nothing was written." });
+      deps.adoptPayload(run.storyId, outcome.payload, { focusNewLeafIf: null, announcement: "Stopped. Nothing was written." });
       setIdle();
       if (failureMessage !== null) pushToast(store, failureMessage);
       return;
