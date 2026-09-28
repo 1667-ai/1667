@@ -146,16 +146,18 @@ export interface ManuscriptGeneration {
    *  `GenerationBar` (review fix #10), so the two can never drift out of
    *  sync on the exact wording or the thinking/writing boundary.
    *
-   *  "Waiting…" (review fix #12, the dropped case 8's own root cause):
-   *  `continue()` publishes `"running"` optimistically the instant it is
-   *  called, before the admission call has even reached the server —
-   *  `busy-retry.ts`'s own retries can hold that call for up to ~0.85s
-   *  before either the first delta/reasoning arrives or admission is
-   *  refused (`resource_busy`). Until either happens, neither `reasoning`
-   *  nor `text` exist yet; showing "Writing…" for that whole window
-   *  claimed an admission that had not actually happened, which is exactly
-   *  what made a second tab's own busy-refusal hard to tell apart from a
-   *  genuinely started run. */
+   *  "Waiting…" (review fix #12): `continue()` publishes `"running"`
+   *  optimistically the instant it is called, before the admission call has
+   *  even reached the server — `busy-retry.ts`'s own retries can hold that
+   *  call for up to ~0.85s before either the first delta/reasoning arrives
+   *  or admission is refused (`resource_busy`). Until either happens,
+   *  neither `reasoning` nor `text` exist yet, so showing "Writing…" for
+   *  that whole window would claim an admission that had not actually
+   *  happened. The #409 step 5 review's fixes doc suspected this same gap
+   *  was *also* why a second tab's own busy refusal was hard to catch in a
+   *  browser test; that turned out not to be the cause (see
+   *  `cli/test-web-ui/generation.test.ts`'s case 18 for what actually
+   *  happens with two tabs) — this fix stands on its own regardless. */
   readonly statusLabel: string;
   /** False only for `"unsaved"`: the text is frozen (no caret) — nothing is
    * still being written, and nothing will change until the writer discards
