@@ -621,6 +621,13 @@ test("case 14: killing the server mid-stream shows a Not saved card; Copy "
   await page.waitForTimeout(300);
   expect(await discardButton.isVisible()).toBeTrue();
 
+  // A failed reconnect replaces the whole UI with a connection screen; the
+  // unsaved text's controls must survive it (the server is dead, so it fails).
+  await page.getByRole("button", { name: "Reconnect" }).click();
+  await page.getByRole("button", { name: "Reconnect" }).waitFor({ state: "detached", timeout: 10_000 });
+  await copyButton.waitFor({ timeout: 10_000 });
+  expect(await discardButton.isVisible()).toBeTrue();
+
   await copyButton.click();
   const sawClipboardText = await poll(async () => {
     const text = await page.evaluate(() => navigator.clipboard.readText());

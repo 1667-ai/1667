@@ -40,6 +40,7 @@ function Shell() {
   const route = useStore(store, (state) => state.route);
   const toasts = useStore(store, (state) => state.toasts);
   const recoveryWarnings = useStore(store, (state) => state.recoveryWarnings);
+  const unsaved = useStore(store, (state) => state.generation.kind === "unsaved");
   // Below ~800px (owner decision) the sidebar is a drawer instead of a
   // persistent column; `Sidebar`'s own drawer classes (see
   // `styles/sidebar.css`) only take effect there, so this state does
@@ -53,9 +54,15 @@ function Shell() {
   // folding it into the same listener is what lets a popover's own Escape
   // (`ui/usePopover.ts`, now calling `preventDefault`) take priority over it.
 
-  if (connection.kind === "connecting") return <ConnectingScreen />;
-  if (connection.kind === "locked") return <LockedScreen />;
-  if (connection.kind === "failed") return <FailedScreen message={connection.message} />;
+  // Unsaved generation text lives only in memory. The connection screens
+  // below replace the whole UI, so they must keep its Copy/Retry/Discard bar,
+  // or a failed reconnect would leave the text unreachable.
+  const recovery = unsaved
+    ? <div className="connection-recovery"><GenerationBar viewingStoryId={null} /></div>
+    : null;
+  if (connection.kind === "connecting") return <><ConnectingScreen />{recovery}</>;
+  if (connection.kind === "locked") return <><LockedScreen />{recovery}</>;
+  if (connection.kind === "failed") return <><FailedScreen message={connection.message} />{recovery}</>;
 
   // "closed" overlays the frozen UI rather than replacing it, so the owner
   // still sees the last-known state while deciding whether to reconnect.

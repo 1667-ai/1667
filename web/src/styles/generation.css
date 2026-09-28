@@ -63,3 +63,7 @@
  * a deliberate full-screen block (`position: fixed; z-index: 90`) for every
  * other case, but must never be the thing that loses a writer's prose. */
 .generation-bar-unsaved { background: var(--danger-soft); position: relative; z-index: 95; }
+
+/* The unsaved bar on top of a full-screen connection state (App.tsx). */
+.connection-recovery { bottom: 0; left: 0; position: fixed; right: 0; z-index: 95; }
+
