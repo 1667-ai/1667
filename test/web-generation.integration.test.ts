@@ -576,6 +576,29 @@ test("a non-timeout provider rejection discards the buffered text (toast only)",
   assert.equal(store.get().generation.kind, "idle");
 });
 
+test("Stop that races a non-timeout rejection still discards: refused prose is never saved", async () => {
+  const payload = linearPayload(["a1"]);
+  const store = storeOpenOn(payload, "a1");
+  const continueCall = deferred<{ payload: StoryPayload } | null>();
+  const { api, continueCalls, createNodeCalls } = fakeApi({
+    continueStory: () => continueCall.promise
+  });
+  store.set((state) => ({ ...state, connection: connectedState(api) }));
+  const { generation } = createActionsForStore(store);
+
+  const runPromise = generation.continue();
+  await waitFor(() => continueCalls.length === 1);
+  continueCalls[0]!.onDelta("prose the provider then refused");
+  generation.stop();
+  assert.equal(store.get().generation.kind, "settling");
+  continueCall.reject(plainProviderFailure("The model refused this request."));
+  await runPromise;
+
+  assert.equal(createNodeCalls.length, 0, "a rejection after Stop must not be saved");
+  assert.ok(toasts(store).some((message) => message.includes("The model refused this request.")));
+  assert.equal(store.get().generation.kind, "idle");
+});
+
 test("an uncertain mutation outcome reloads the story instead of guessing", async () => {
   const payload = linearPayload(["a1"]);
   const store = storeOpenOn(payload, "a1");

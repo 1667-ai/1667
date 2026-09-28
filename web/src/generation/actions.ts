@@ -279,8 +279,11 @@ export function createGenerationActions(
       return;
     }
 
-    if (run.phase === "settling") {
-      // `stop()` already moved this run here before the transport settled.
+    if (run.phase === "settling" && error === null) {
+      // `stop()` already moved this run here, and the transport settled as a
+      // clean stop. A rejection that arrives after Stop is still classified
+      // below: output the server refused must never be saved just because
+      // the reader pressed Stop first.
       await settleStopped(run, null);
       return;
     }
