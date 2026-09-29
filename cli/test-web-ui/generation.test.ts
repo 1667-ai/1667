@@ -425,11 +425,22 @@ test("case 9: a provider failure toasts and leaves the story unchanged; "
   expect(inspected.path.at(-1)!.text).toBe("Before the failure.");
 
   await setProvider(api, { provider: "dry-run" });
+  await page.evaluate(() => {
+    const seen: string[] = [];
+    (window as unknown as { __toasts: string[] }).__toasts = seen;
+    new MutationObserver(() => {
+      document.querySelectorAll(".toast").forEach((toast) => {
+        const text = toast.textContent ?? "";
+        if (!seen.includes(text)) seen.push(text);
+      });
+    }).observe(document.body, { subtree: true, childList: true, characterData: true });
+  });
   await continueButton(page).click();
   const sawCaret = await poll(async () => (await caret(page).count()) === 1, 6_000);
   if (!sawCaret) {
     // Diagnostic for a Linux-only failure: what did the page show instead?
     console.log("CASE9-DIAG", JSON.stringify(await page.evaluate(() => document.body.innerText)));
+    console.log("CASE9-TOASTS", JSON.stringify(await page.evaluate(() => (window as unknown as { __toasts: string[] }).__toasts)));
     console.log("CASE9-STORY", JSON.stringify((await api.loadStory(created.id)).path.map((n) => n.text)));
   }
   expect(sawCaret).toBeTrue();

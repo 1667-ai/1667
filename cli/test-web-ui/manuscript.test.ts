@@ -209,10 +209,11 @@ test("case 2: focus moves with ↑/↓, g/G, and a click; a 40-part story scroll
   for (let press = 0; press < 25; press += 1) await page.keyboard.press("ArrowUp");
   const fifteenth = part(page, "Part 15 text.");
   await waitForAttribute(fifteenth, "aria-current", "true");
-  const fifteenthVisible = await fifteenth.evaluate((element) => {
+  // The scroll runs in an effect after focus moves; wait for it (bounded).
+  const fifteenthVisible = await poll(async () => await fifteenth.evaluate((element) => {
     const rect = element.getBoundingClientRect();
     return rect.top >= 0 && rect.bottom <= window.innerHeight;
-  });
+  }), 5_000);
   expect(fifteenthVisible).toBeTrue();
   // Seeds a 40-part story through 40 sequential bridge calls; under a loaded
   // machine that alone can pass 30 s.
