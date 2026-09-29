@@ -214,19 +214,6 @@ test("case 2: focus moves with ↑/↓, g/G, and a click; a 40-part story scroll
     const rect = element.getBoundingClientRect();
     return rect.top >= 0 && rect.bottom <= window.innerHeight;
   }), 5_000);
-  if (!fifteenthVisible) {
-    console.log("CASE2-DIAG", JSON.stringify(await fifteenth.evaluate((element) => {
-      const rect = element.getBoundingClientRect();
-      const scroller = element.closest(".story-scroll");
-      const box = scroller?.getBoundingClientRect();
-      return {
-        top: rect.top, bottom: rect.bottom, innerHeight: window.innerHeight,
-        scrollerTop: box?.top, scrollerBottom: box?.bottom, scrollTop: scroller?.scrollTop,
-        active: document.activeElement?.className ?? null,
-        docScroll: document.scrollingElement?.scrollTop
-      };
-    })));
-  }
   expect(fifteenthVisible).toBeTrue();
   // Seeds a 40-part story through 40 sequential bridge calls; under a loaded
   // machine that alone can pass 30 s.
