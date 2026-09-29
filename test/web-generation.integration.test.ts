@@ -602,7 +602,9 @@ test("a non-timeout provider rejection discards the buffered text (toast only)",
   await generation.continue();
 
   assert.equal(createNodeCalls.length, 0, "a rejected (non-timeout) generation must never be saved");
-  assert.equal(loadStoryCalls.length, 0);
+  // A failed provider call can move the story's version on the server; the
+  // reload refreshes it so the next Continue is not refused as a conflict.
+  assert.equal(loadStoryCalls.length, 1);
   assert.ok(toasts(store).some((message) => message.includes("The model refused this request.")));
   assert.equal(store.get().generation.kind, "idle");
 });

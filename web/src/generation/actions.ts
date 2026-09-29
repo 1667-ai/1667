@@ -331,9 +331,12 @@ export function createGenerationActions(
     // nothing substantive to keep): committing this prose would durably save
     // output the server refused, so it is discarded.
     setIdle();
-    if (error instanceof WebBridgeTransportError && error.mutationOutcome === "uncertain") {
-      await reloadBestEffort(run);
-    }
+    // Always reload: a provider call that failed after it started still
+    // records its attempt on the story, which moves the story's version. With
+    // the old version held, the next Continue would be refused as a conflict
+    // ("changed in another window") although nothing else changed. An
+    // uncertain outcome needs the reload to reconcile anyway.
+    await reloadBestEffort(run);
     pushToast(store, errorMessage(error));
   }
 
