@@ -426,7 +426,13 @@ test("case 9: a provider failure toasts and leaves the story unchanged; "
 
   await setProvider(api, { provider: "dry-run" });
   await continueButton(page).click();
-  await waitForCount(caret(page), 1, 6_000);
+  const sawCaret = await poll(async () => (await caret(page).count()) === 1, 6_000);
+  if (!sawCaret) {
+    // Diagnostic for a Linux-only failure: what did the page show instead?
+    console.log("CASE9-DIAG", JSON.stringify(await page.evaluate(() => document.body.innerText)));
+    console.log("CASE9-STORY", JSON.stringify((await api.loadStory(created.id)).path.map((n) => n.text)));
+  }
+  expect(sawCaret).toBeTrue();
   await page.keyboard.press("Escape");
   await waitForCount(continueButton(page), 1, 6_000);
 }, 30_000);
