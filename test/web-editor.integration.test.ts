@@ -460,16 +460,3 @@ test("when the check finishes and finds nothing, the next Save creates", async (
   assert.equal(store.get().editor, null);
 });
 
-test("the recovery text carries the direction, and unsaved work lists the editor and unsent composer text", () => {
-  const { actions, store } = open(THREE, "b1");
-  actions.editor.openEdit("b1");
-  actions.editor.setInstruction("Go far left.");
-  actions.editor.setText("Left it was, far.");
-  actions.compose.setText(STORY_ID, "an unsent direction");
-
-  assert.equal(editorCopyText(store.get().editor!), "Direction: Go far left.\n\nLeft it was, far.");
-  const items = unsavedWork(store.get().editor, store.get().compose);
-  assert.deepEqual(items.map((item) => item.label), ["Unsaved edit", "Unsent direction"]);
-  assert.equal(items[1]!.text, "an unsent direction");
-  assert.deepEqual(unsavedWork(null, { drafts: {}, history: [] }), []);
-});

@@ -425,3 +425,27 @@ test("case 14: unsent composer text alone warns before a reload", async () => {
 
   expect(sawBeforeUnload).toBeTrue();
 }, 60_000);
+
+test("case 15: a changed first-part editor refuses Continue, and its text stays reachable when another window writes part 1", async () => {
+  const web = await spawnEditWeb();
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("First Part Guard");
+  const page = await openStory(web, created.id, "First Part Guard");
+
+  await page.keyboard.press("w");
+  const box = page.getByRole("textbox", { name: "Your first part" });
+  expect(await poll(() => isFocused(box))).toBeTrue();
+  await box.fill("My first part, not saved yet.");
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByText("Finish or cancel the open editor first.").first().waitFor();
+  expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+  expect(await box.inputValue()).toBe("My first part, not saved yet.");
+
+  // Another window writes part 1; this window's Save then finds a story it
+  // did not expect, and the text must stay reachable.
+  await api.createNode(created.id, { text: "Written elsewhere.", parentId: null });
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+  const recovery = page.getByRole("region", { name: "Editor without a part" });
+  await recovery.waitFor();
+  expect(await recovery.getByRole("textbox", { name: "Your unsaved text" }).inputValue()).toBe("My first part, not saved yet.");
+}, 60_000);

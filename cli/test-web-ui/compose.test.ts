@@ -295,6 +295,22 @@ test("case 7: Ctrl+Up and, on an empty box, Up recall the last direction", async
   await composer(page).fill("");
   await page.keyboard.press("ArrowUp");
   expect(await composer(page).inputValue()).toBe("Rain starts.");
+
+  // Closing a retake never disturbs an unsent Direct draft that a walk holds.
+  await page.keyboard.press("Control+ArrowDown");
+  await composer(page).fill("unsent draft");
+  await page.keyboard.press("Control+ArrowUp");
+  expect(await composer(page).inputValue()).toBe("Rain starts.");
+  await page.keyboard.press("Escape");
+  await part(page, "C:").click();
+  await page.keyboard.press("Shift+R");
+  await page.getByRole("textbox", { name: "New direction for the retake" }).fill("A retake direction I typed.");
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("i");
+  expect(await composer(page).inputValue()).toBe("Rain starts.");
+  await page.keyboard.press("Control+ArrowDown");
+  await page.keyboard.press("Control+ArrowDown");
+  expect(await composer(page).inputValue()).toBe("unsent draft");
 }, 90_000);
 
 test("case 8: while this story writes the box stays editable, a send is refused and the draft stays", async () => {

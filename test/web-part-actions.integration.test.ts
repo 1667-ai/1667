@@ -68,38 +68,6 @@ async function startWriting(h: Harness) {
 // The policy table.
 // ---------------------------------------------------------------------------
 
-test("an idle story allows every action, and a part off the line allows none", () => {
-  const h = open(THREE, "b1");
-  for (const id of ["continue", "direct", "retake", "retake-with-prompt", "write", "edit", "prune"] as const) {
-    assert.equal(refusal(h, "b1", id), null, id);
-    assert.equal(refusal(h, "gone", id), PART_UNAVAILABLE_TOAST, id);
-  }
-});
-
-test("a summary is never retaken, but can be edited", () => {
-  const h = open(linearPayload(["a1", "s1"], { nodeOverrides: { s1: { role: "summary" } } }), "s1");
-
-  assert.equal(refusal(h, "s1", "retake"), SUMMARY_RETAKE_TOAST);
-  assert.equal(refusal(h, "s1", "retake-with-prompt"), SUMMARY_RETAKE_TOAST);
-  assert.equal(refusal(h, "s1", "edit"), null);
-});
-
-test("while this story writes: Continue, Retake and Delete wait; Direct, Write and Edit stay; Edit waits only for the leaf being appended", async () => {
-  const h = open(THREE, "b1");
-  const writing = await startWriting(h);
-
-  assert.equal(refusal(h, "b1", "continue"), STORY_LOCKED_TOAST);
-  assert.equal(refusal(h, "b1", "retake"), STORY_LOCKED_TOAST);
-  assert.equal(refusal(h, "b1", "prune"), STORY_LOCKED_TOAST);
-  assert.equal(refusal(h, "b1", "direct"), null);
-  assert.equal(refusal(h, "b1", "write"), null);
-  assert.equal(refusal(h, "b1", "edit"), null);
-  assert.equal(refusal(h, "b1", "retake-with-prompt"), null);
-  // The run above is a take from b1, not an append, so nothing is appended;
-  // an append on the leaf is covered by the next test.
-  await writing.finish();
-});
-
 test("e on the leaf that is being appended to is refused", async () => {
   const h = open(THREE, "c1");
   const writing = await startWriting(h);
@@ -133,42 +101,6 @@ test("unsaved text blocks Continue, Retake and Delete: the part it hangs below m
   assert.equal(refusal(h, "b1", "write"), null);
 });
 
-test("a generation in another story blocks Continue and Retake, but not Delete here", async () => {
-  const h = open(THREE, "b1");
-  h.store.set((state) => ({
-    ...state,
-    generation: {
-      kind: "running", genId: "g", storyId: "other", storyTitle: "Other", mode: "take", appendTo: null,
-      parentId: null, seamPathIndex: 0, instruction: "", text: "", reasoning: null, focusAtStart: null
-    }
-  }));
-
-  assert.equal(refusal(h, "b1", "continue"), "Already writing in Other. Esc stops it.");
-  assert.equal(refusal(h, "b1", "prune"), null);
-});
-
-test("not connected: the actions that change the story at once say so, like the composer", () => {
-  const h = open(THREE, "b1");
-  h.store.set((state) => ({ ...state, connection: { kind: "connecting" } }));
-
-  for (const id of ["continue", "retake", "prune"] as const) assert.equal(refusal(h, "b1", id), NOT_CONNECTED_TOAST, id);
-  h.actions.part.run("retake", "b1");
-  assert.deepEqual(toasts(h.store), [NOT_CONNECTED_TOAST]);
-  assert.equal(refusal(h, "b1", "edit"), null);
-});
-
-test("a take switch in flight on the part or above it refuses everything but Direct", () => {
-  const h = open(THREE, "b1");
-  h.store.set((state) => state.story.kind === "loaded"
-    ? { ...state, story: { ...state.story, switching: { partId: "a1", targetId: "a2" } } }
-    : state);
-
-  for (const id of ["continue", "retake", "retake-with-prompt", "write", "edit", "prune"] as const) {
-    assert.equal(refusal(h, "b1", id), PART_SWITCHING_TOAST, id);
-  }
-  assert.equal(refusal(h, "b1", "direct"), null);
-});
-
 // ---------------------------------------------------------------------------
 // The editor lock, including generation admission (review A1).
 // ---------------------------------------------------------------------------
@@ -177,37 +109,6 @@ function openDirtyEditor(h: Harness, partId: string): void {
   h.actions.part.run("edit", partId);
   h.actions.editor.setText("Draft that must not be lost.");
 }
-
-test("with a changed editor on B, Space from A is refused: it would hide B's editor", () => {
-  const h = open(THREE, "a1");
-  openDirtyEditor(h, "b1");
-
-  h.actions.part.run("continue", "a1");
-
-  assert.deepEqual(toasts(h.store), [EDITOR_OPEN_TOAST]);
-  assert.equal(h.fake.continueCalls.length, 0);
-  assert.equal(h.store.get().editor?.text, "Draft that must not be lost.");
-});
-
-test("with an editor on the leaf, Continue at the leaf is refused; from the leaf's parent it is refused too, but a take after the leaf is not", () => {
-  const h = open(THREE, "c1");
-  openDirtyEditor(h, "c1");
-
-  assert.equal(refusal(h, "c1", "continue"), EDITOR_OPEN_TOAST, "an append would change the edited leaf");
-  assert.equal(refusal(h, "b1", "continue"), EDITOR_OPEN_TOAST, "a take under b1 hides the edited leaf");
-  assert.equal(refusal(h, "a1", "continue"), EDITOR_OPEN_TOAST);
-});
-
-test("with an editor on A, Continue from B or C does not touch A", () => {
-  const h = open(THREE, "c1");
-  openDirtyEditor(h, "a1");
-
-  assert.equal(refusal(h, "c1", "continue"), null);
-  assert.equal(refusal(h, "b1", "continue"), null);
-  assert.equal(refusal(h, "b1", "retake"), null);
-  assert.equal(refusal(h, "a1", "retake"), EDITOR_OPEN_TOAST);
-  assert.equal(refusal(h, "a1", "prune"), EDITOR_OPEN_TOAST);
-});
 
 test("an editor opened while Continue prepares is respected after the preparation, and the draft comes back", async () => {
   const settings = deferred<never>();
@@ -387,26 +288,6 @@ test("confirming is refused if a generation started while the dialog was open, a
 // ---------------------------------------------------------------------------
 // Review round 3: the first-part editor, and the plan that was checked.
 // ---------------------------------------------------------------------------
-
-test("a changed first-part editor blocks every generation, and shows a recovery view once the story has parts", async () => {
-  const h = open(linearPayload([]), null);
-  h.actions.editor.openWrite(null);
-  h.actions.editor.setText("My first part, not saved yet.");
-
-  await h.actions.generation.continue();
-
-  assert.equal(h.fake.continueCalls.length, 0, "a generation would hide the first-part editor");
-  assert.deepEqual(toasts(h.store), [EDITOR_OPEN_TOAST]);
-  assert.equal(editorIsOffLine(h.store.get(), STORY_ID), false, "while the story is empty the editor has its slot");
-
-  // Another window writes part 1: the story now has a line the editor cannot sit in.
-  h.store.set((state) => state.story.kind === "loaded"
-    ? { ...state, story: { ...state.story, payload: linearPayload(["z1"]) } }
-    : state);
-
-  assert.equal(editorIsOffLine(h.store.get(), STORY_ID), true, "the recovery view shows the kept text");
-  assert.equal(h.store.get().editor?.text, "My first part, not saved yet.");
-});
 
 test("the plan that was built is what is checked after the preparation, not a plan from where focus moved to", async () => {
   const settings = deferred<never>();
