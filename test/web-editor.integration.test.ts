@@ -341,7 +341,7 @@ test("an unknown outcome of w is settled by finding the new take after the reloa
 test("an unknown outcome never counts a sibling that only looks alike: the full text decides", async () => {
   // Another window wrote a take under a1 whose preview and word count match
   // what this editor sent, but whose full text differs.
-  const lookalike = { ...stub("b9", "a1", "Fork text."), words: 2 };
+  const lookalike = { ...stub("b9", "a1", "Fork text."), words: 2, hasInstruction: true };
   const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, lookalike] };
   const { actions, store, fake } = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
