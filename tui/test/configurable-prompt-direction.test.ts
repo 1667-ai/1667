@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
 import { DEFAULT_WRITING_PROMPT_SETTINGS } from "../../shared/settings-v5-writing.js";
 import { resolveContinueRequestDirection } from "../../shared/writing-prompt-runtime.js";
-import { continuationIntent } from "../src/continuation-intent.js";
+import { continuationIntent } from "../../shared/continuation-intent.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import { initialState } from "../src/app.js";

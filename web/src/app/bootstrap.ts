@@ -75,12 +75,29 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
       const onPageHide = (): void => actions.story.flushReadingPosition();
       document.addEventListener("visibilitychange", onHidden);
       addEventListener("pagehide", onPageHide);
+      // A reload or a tab close mid-generation does not stop the write on
+      // the server (decision: it keeps writing in the background), but it
+      // does throw away this tab's only view of it — the live text, and any
+      // "unsaved" leftover a failed save is holding for Copy/Discard. Warn
+      // while something is in flight, being committed, or sitting unsaved —
+      // review fix #1 (P1): `"unsaved"` used to be excluded on the theory
+      // that the text "already survived one failure", but that text exists
+      // nowhere else; reloading past this dialog without saving or copying
+      // it first would lose the writer's only copy for good.
+      const onBeforeUnload = (event: BeforeUnloadEvent): void => {
+        const generation = store.get().generation;
+        if (generation.kind === "idle") return;
+        event.preventDefault();
+        event.returnValue = "";
+      };
+      addEventListener("beforeunload", onBeforeUnload);
       return () => {
         disposeConnection();
         stopRouting();
         document.removeEventListener("visibilitychange", onVisible);
         document.removeEventListener("visibilitychange", onHidden);
         removeEventListener("pagehide", onPageHide);
+        removeEventListener("beforeunload", onBeforeUnload);
       };
     }
   };

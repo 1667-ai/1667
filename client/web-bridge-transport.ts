@@ -446,6 +446,17 @@ export class WebBridgeTransport implements StoryWorkerTransport {
     this.pendingByOperation.clear();
     pending.forEach((call) => {
       call.abortCleanup?.();
+      // Text that arrived after Stop was withheld from onDelta and is normally
+      // handed over once at the terminal frame. The connection died first, so
+      // hand it over now, or the caller's recovery copy would miss it.
+      if (call.callbackError === undefined) {
+        try {
+          if (call.stoppedText.length > 0) call.onStopped?.(call.stoppedText);
+          if (call.stoppedReasoningText.length > 0) call.onReasoningStopped?.(call.stoppedReasoningText);
+        } catch {
+          // A throwing callback must not keep the call from being rejected.
+        }
+      }
       call.reject(error);
     });
   }

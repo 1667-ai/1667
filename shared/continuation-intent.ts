@@ -1,9 +1,13 @@
-import type { StoryNode, StoryPayload } from "../../shared/types.js";
-import { DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
-import { resolveDefaultContinueDirection } from "../../shared/writing-prompt-runtime.js";
+import type { StoryNode, StoryPayload } from "./types.js";
+import { DEFAULT_INSTRUCTION } from "./continuation-plan.js";
+import { resolveDefaultContinueDirection } from "./writing-prompt-runtime.js";
 
-/** One canonical description of the continuation the TUI is about to ask for.
- * Generation owns transport details; the meter consumes the same context shape. */
+/** One canonical description of the continuation a writing surface is about
+ * to ask for. Generation owns transport details; the meter consumes the same
+ * context shape. Shared between the TUI (`tui/src/generation-action.ts`,
+ * `tui/src/request-projection.ts`) and the web UI (`web/src/generation/`,
+ * #409 step 5), so both compute the exact same append-vs-new-take decision
+ * from the same story payload and focus. */
 export interface ContinuationIntent {
   leaf: StoryNode | null;
   contextParts: StoryNode[];

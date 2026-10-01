@@ -3,6 +3,7 @@ import { createPortal } from "react-dom";
 import { humanEditIsMeaningful } from "../../../shared/human-edit.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { resolveTakeTarget } from "../../../shared/story-model.js";
+import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
@@ -10,6 +11,16 @@ import { Prose } from "./Prose.js";
 import { SummaryBody } from "./SummaryBody.js";
 import { TakePeek } from "./TakePeek.js";
 import { TakeStrip } from "./TakeStrip.js";
+
+/** An append streaming into this exact part's leaf (#409 step 5) — `null`
+ * for every part that is not the live append target. `live` is false for a
+ * frozen `"unsaved"` leftover (no caret; the text still shows, but nothing
+ * is still being written). */
+export interface PartContinuation {
+  readonly text: string;
+  readonly thinking: boolean;
+  readonly live: boolean;
+}
 
 /** Matches `.take-peek`'s CSS `width` (`styles/takes.css`) above the 720px
  * breakpoint, where it shrinks to fit the viewport on its own. */
@@ -37,10 +48,24 @@ export interface PartCardProps {
   readonly payload: StoryPayload;
   readonly focused: boolean;
   readonly busy: boolean;
+  /** Disables every take control (arrows, counter, strip) without dimming
+   * the part the way `busy` does — set while this story is locked by a
+   * generation, on every part at once, not only the ones below a pending
+   * switch's own anchor (`Manuscript.tsx`). Required (review fix #11)
+   * because `Manuscript.tsx`, this component's only caller, always has an
+   * answer (`generation !== null && generation.live`) — an optional prop
+   * with a `false` default could silently paper over a caller that forgot
+   * to compute it. */
+  readonly controlsLocked: boolean;
   readonly showDirections: boolean;
   /** The take index to show while a switch on this part is in flight —
    * `part.takeIndex` otherwise (server-authoritative once it lands). */
   readonly displayTakeIndex: number;
+  /** The one part a live append is growing, or `null` for every other part
+   * — see `PartContinuation`. Required for the same reason as
+   * `controlsLocked` above: `Manuscript.tsx` always computes this per part,
+   * never omits it. */
+  readonly continuation: PartContinuation | null;
   readonly onFocus: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
   readonly onSwitchTo: (partId: string, targetId: string) => void;
@@ -53,7 +78,20 @@ export interface PartCardProps {
  * A roving-tabIndex `<article>`: only the focused part is a Tab stop, and
  * `app/keymap.ts` moves that focus with the arrow keys the TUI itself uses.
  */
-function PartCardImpl({ part, payload, focused, busy, showDirections, displayTakeIndex, onFocus, onSwitch, onSwitchTo }: PartCardProps) {
+function PartCardImpl({
+  part,
+  payload,
+  focused,
+  busy,
+  controlsLocked,
+  showDirections,
+  displayTakeIndex,
+  continuation,
+  onFocus,
+  onSwitch,
+  onSwitchTo
+}: PartCardProps) {
+  const controlsDisabled = busy || controlsLocked;
   const node = part.node;
   const humanEdit = node.attribution ?? null;
   const isLegacySummary = part.isSummary;
@@ -140,7 +178,7 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
                 siblingCount={part.siblingCount}
                 currentTakeIndex={displayTakeIndex}
                 takeSubtakes={part.takeSubtakes}
-                disabled={busy}
+                disabled={controlsDisabled}
                 onSwitchToPosition={switchToPosition}
               />
               <span className="take-stepper" ref={peek.containerRef}>
@@ -148,7 +186,7 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
                   type="button"
                   className="icon-btn take-arrow"
                   aria-label={`Previous take (${part.number})`}
-                  disabled={busy}
+                  disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, -1)}
                 >‹</button>
                 <button
@@ -158,14 +196,14 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
                   aria-haspopup="dialog"
                   aria-expanded={peek.open}
                   aria-label={`Take ${displayTakeIndex} of ${part.siblingCount}, show every take`}
-                  disabled={busy}
+                  disabled={controlsDisabled}
                   onClick={() => peek.setOpen(!peek.open)}
                 >{displayTakeIndex}/{part.siblingCount}</button>
                 <button
                   type="button"
                   className="icon-btn take-arrow"
                   aria-label={`Next take (${part.number})`}
-                  disabled={busy}
+                  disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, 1)}
                 >›</button>
                 {peek.open && peekRect !== null && createPortal(
@@ -173,7 +211,7 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
                     partId={part.id}
                     payload={payload}
                     currentTakeIndex={displayTakeIndex}
-                    disabled={busy}
+                    disabled={controlsDisabled}
                     onSwitchTo={onSwitchTo}
                     onClose={() => peek.setOpen(false)}
                     containerRef={peek.popoverRef}
@@ -196,7 +234,14 @@ function PartCardImpl({ part, payload, focused, busy, showDirections, displayTak
           <SummaryBody text={node.text} humanEdit={humanEdit} onMouseUp={handleMouseUp} />
         ) : (
           <div onMouseUp={handleMouseUp}>
-            <Prose text={node.text} humanEdit={humanEdit} />
+            <Prose
+              text={continuation === null ? node.text : appendContinuationText(node.text, continuation.text)}
+              humanEdit={humanEdit}
+              caret={continuation !== null && continuation.live && !continuation.thinking}
+            />
+            {continuation !== null && continuation.thinking && (
+              <p className="generation-thinking">Thinking…</p>
+            )}
           </div>
         )}
       </article>

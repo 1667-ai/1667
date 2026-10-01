@@ -1,5 +1,10 @@
 import type { CreateNodeRequest, StoryNode, StoryPayload } from "../../shared/types.js";
-import { isTimeoutClassFailure } from "../../shared/failure-envelope.js";
+import { continuationIntent } from "../../shared/continuation-intent.js";
+import {
+  stoppedGenerationSaveBody,
+  stoppedTextDisposition,
+  type GenerationTarget
+} from "../../shared/stopped-generation.js";
 import type { ActionTask } from "./action-runtime.js";
 import { blockUncertainRootCreation } from "./first-take-guard.js";
 import { ApiFailureError } from "./api-error.js";
@@ -12,7 +17,6 @@ import {
   revealRetakeComposer,
   resumeDirectComposer
 } from "./composer-ownership.js";
-import { continuationIntent } from "./continuation-intent.js";
 import { draftImageReferences, draftImagesFor, setDraftImages } from "./draft-image.js";
 import { factDropNotice } from "./facts-model.js";
 import { imageAttachmentFailureAction, IMAGE_REATTACH_NOTICE } from "./image-attachment-failure.js";
@@ -107,9 +111,16 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
 /** Matches exactly the failures whose envelope carries a clean-timeout
  *  provenance stamp (issue #345): the worker request deadline, the provider
  *  idle/total/header/first-token deadlines, and the HTTP operation lease
- *  deadline. `isTimeoutClassFailure` (shared/failure-envelope.ts) is a
- *  positive allowlist over that one `timeout` field — no status/code
- *  inference, no message matching.
+ *  deadline. Delegates to the shared `stoppedTextDisposition`
+ *  (`shared/stopped-generation.ts`, #409 step 5 review item 5) — the one
+ *  place the TUI and the web UI now agree on this allowlist — asking only
+ *  "is this `"save"`?": a plain (non-`ApiFailureError`) error, which the web
+ *  treats as `"keep-unsaved"` (its "Not saved" card — decision 3, connection
+ *  loss carries no server verdict but a save right now would fail too), is
+ *  *not* `"save"`, so this still returns `false` for it, exactly as it
+ *  always has. The TUI has no such distinct state and takes the plain
+ *  restore-and-toast path for both a plain error and a genuine rejection —
+ *  this function's only real distinction is "save" vs. everything else.
  *
  *  Only the code that owns a deadline stamps the field, and only when the
  *  deadline itself is the whole failure. A timeout that masks a different
@@ -122,8 +133,7 @@ export function requestGenerationStop(state: RuntimeState, repaint: () => void):
  *  output the server refused. A new failure type defaults to *not* matching
  *  here. */
 export function isTimeoutClassApiFailure(error: unknown): boolean {
-  return error instanceof ApiFailureError
-    && isTimeoutClassFailure(error.failure);
+  return stoppedTextDisposition(error) === "save";
 }
 
 export async function generate(
@@ -616,24 +626,21 @@ async function settleStoppedGeneration(
     } else {
       const genId = stream.genId;
       if (genId === undefined) throw new Error("Stopped generation lost its identity");
+      let target: GenerationTarget;
       if (stream.append) {
         const expectedTextHash = stream.appendBaseHash;
         if (expectedTextHash === undefined) throw new Error("Stopped append lost its source hash");
-        payload = await commitNodeAfterReload({
-          appendTo: stream.targetId,
-          expectedTextHash,
-          instruction: stream.instruction,
-          text,
-          genId
-        });
+        target = { mode: "append", appendTo: stream.targetId, expectedTextHash };
       } else {
-        payload = await commitNodeAfterReload({
-          parentId: stream.parentId,
-          instruction: stream.instruction,
-          text,
-          genId
-        });
+        target = { mode: "take", parentId: stream.parentId };
       }
+      // Shared with the web's own `settle.ts` (#409 step 5 review item 7) —
+      // both surfaces build the exact same `createNode` body from a stopped
+      // generation's buffered text. `substantive` (checked above) already
+      // guarantees this is never `null` here.
+      const body = stoppedGenerationSaveBody(target, genId, stream.instruction, text);
+      if (body === null) throw new Error("1667: stoppedGenerationSaveBody disagreed with streamHasSubstantiveText");
+      payload = await commitNodeAfterReload(body);
     }
     // Keep the visible prefix aligned with the durable payload. `stream.text`
     // remains the authoritative value used by this recovery commit.

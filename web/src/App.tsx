@@ -3,6 +3,7 @@ import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
 import { dismissToast } from "./app/toasts.js";
+import { GenerationBar } from "./generation/GenerationBar.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
@@ -39,15 +40,29 @@ function Shell() {
   const route = useStore(store, (state) => state.route);
   const toasts = useStore(store, (state) => state.toasts);
   const recoveryWarnings = useStore(store, (state) => state.recoveryWarnings);
+  const unsaved = useStore(store, (state) => state.generation.kind === "unsaved");
   // Below ~800px (owner decision) the sidebar is a drawer instead of a
   // persistent column; `Sidebar`'s own drawer classes (see
   // `styles/sidebar.css`) only take effect there, so this state does
   // nothing at desktop width.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // Esc-stops-a-background-generation (owner decision 2: "from anywhere")
+  // now lives in `app/keymap.ts`'s `useKeymap` (`Sidebar.tsx`, always
+  // mounted) as a sibling of its own Escape/`/` handling — review fix #3.
+  // It used to be this file's own always-mounted `useGenerationEscape`
+  // listener, independent of `registerScreenKeys`'s per-screen dispatch;
+  // folding it into the same listener is what lets a popover's own Escape
+  // (`ui/usePopover.ts`, now calling `preventDefault`) take priority over it.
 
-  if (connection.kind === "connecting") return <ConnectingScreen />;
-  if (connection.kind === "locked") return <LockedScreen />;
-  if (connection.kind === "failed") return <FailedScreen message={connection.message} />;
+  // Unsaved generation text lives only in memory. The connection screens
+  // below replace the whole UI, so they must keep its Copy/Retry/Discard bar,
+  // or a failed reconnect would leave the text unreachable.
+  const recovery = unsaved
+    ? <div className="connection-recovery"><GenerationBar viewingStoryId={null} /></div>
+    : null;
+  if (connection.kind === "connecting") return <><ConnectingScreen />{recovery}</>;
+  if (connection.kind === "locked") return <><LockedScreen />{recovery}</>;
+  if (connection.kind === "failed") return <><FailedScreen message={connection.message} />{recovery}</>;
 
   // "closed" overlays the frozen UI rather than replacing it, so the owner
   // still sees the last-known state while deciding whether to reconnect.
@@ -77,7 +92,15 @@ function Shell() {
         )}
         {route.kind === "story"
           ? <StoryView storyId={route.id} />
-          : <LibraryHome />}
+          : (
+            <>
+              <LibraryHome />
+              {/* Only ever shows a bar here while a generation is running
+               * somewhere in the background (owner decision 2) — `GenerationBar`
+               * itself renders nothing on this route while idle. */}
+              <GenerationBar viewingStoryId={null} />
+            </>
+          )}
       </main>
       <LibraryDialogs />
       <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(store, id)} />

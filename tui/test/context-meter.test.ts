@@ -32,7 +32,7 @@ import { continuationPlan, DEFAULT_INSTRUCTION } from "../../shared/continuation
 import { renderPromptPlan } from "../../shared/prompt-plan.js";
 import { effectiveFactAtPath, type EffectiveStoryFact } from "../../shared/fact-state.js";
 import { assertPromptReadyStoryPayload, type StoryPayload } from "../../shared/types.js";
-import { continuationIntent } from "../src/continuation-intent.js";
+import { continuationIntent } from "../../shared/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";

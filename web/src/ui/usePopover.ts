@@ -39,7 +39,15 @@ export function usePopover(): Popover {
       if (!insideContainer && !insidePortaledPopover) setOpen(false);
     };
     const onKey = (event: KeyboardEvent): void => {
-      if (event.key === "Escape") setOpen(false);
+      if (event.key !== "Escape") return;
+      // Review fix #3: without this, `app/keymap.ts`'s own global Escape
+      // handler (registered on `window`, which this `document`-level
+      // listener always runs before in the bubble phase) could not tell "a
+      // popover just consumed this Escape" from "nothing did" — a menu
+      // closing and a background generation stopping would both happen on
+      // the same keypress.
+      event.preventDefault();
+      setOpen(false);
     };
     document.addEventListener("mousedown", onPress);
     document.addEventListener("keydown", onKey);

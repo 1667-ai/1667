@@ -22,9 +22,35 @@ export interface StoryActionDependencies {
   /** Refreshes the Library list after a take switch lands — the switched-to
    * take can change the story's preview/updated time, the same way a rename
    * does (`story.titleChanged` is the mirror-image hook the Library calls
-   * into this slice with). */
+   * into this slice with). Also called by `adoptPayload`, for the exact same
+   * reason: a landed generation can change the row this story shows. */
   readonly storyChanged: () => void;
+  /** True while a generation (`generation/actions.ts`) is writing into, or
+   * trying to save into, `storyId` — reads `state.generation` directly
+   * rather than taking a `GenerationActions` reference, so this module never
+   * has to import the generation slice's action factory (only its pure
+   * `generationLocks` predicate, threaded in from `app/actions.ts`'s own
+   * wiring). `switchTake`/`switchTakeTo` refuse with a toast while this is
+   * true; every other key here (focus moves, chapter jumps, scroll) stays
+   * allowed. */
+  readonly isLocked: (storyId: string) => boolean;
 }
+
+/** Shown when an action is refused because a generation is writing into (or
+ * trying to save into) this exact story — reused by the take-switch keyboard
+ * path (`StoryView.tsx`'s `take-previous`/`take-next`), the take-switch
+ * mouse path (`PartCard`'s arrows, counter, and take strip, all routed
+ * through `switchTake`/`switchTakeTo`), and `generation/actions.ts`'s own
+ * `continue()` (review fix #9: it now owns this refusal itself, rather than
+ * `StoryView` building the toast inline). */
+export const STORY_LOCKED_TOAST = "Writing… Esc stops it first.";
+
+/** Shown wherever a `revision_conflict` (a save, or a fresh Continue
+ * admission, built against a payload that has since moved elsewhere) is
+ * resolved by reloading and adopting the current story instead of guessing —
+ * `runSwitchLoop` below and `generation/actions.ts`'s `finishRun` both use
+ * this exact wording. */
+export const STORY_RELOADED_TOAST = "The story changed in another window. It was reloaded.";
 
 export interface StoryActions {
   load(id: string): Promise<void>;
@@ -35,6 +61,42 @@ export interface StoryActions {
    * the pre-split code did for `state.openStory`. Focus and any in-flight
    * switch survive the swap. */
   titleChanged(updated: StoryPayload): void;
+  /**
+   * Lands a generation's payload (`generation/actions.ts`, #409 step 5) —
+   * the one path a landed take reaches `state.story` through other than
+   * `load()`/take-switch. Version-guarded and route-gated exactly like every
+   * other adoption in this file: applies only when `storyId` is the exact
+   * story currently open (a background generation's own story is never
+   * cached here just to receive this update — decision: adopted only if
+   * that story is still open) and `payload` is not known to predate what is
+   * already showing. Always refreshes the Library row regardless, since a
+   * landed generation changes that row's preview/updated time the same way
+   * a take switch does.
+   *
+   * `focusNewLeafIf`, given, moves focus onto the new leaf only if the
+   * reader's focus still equals it — set to the focused part id captured
+   * when the generation started, this is what keeps a landing from moving
+   * focus out from under a reader who moved on while it was still writing.
+   * `announcement`, given, replaces the story's live-region text — only
+   * takes effect together with an applied adoption, so it never fires for a
+   * story the reader has left.
+   *
+   * Returns whether `storyId` was in fact the open story (and so whether
+   * the update actually applied) — `generation/actions.ts` uses this to
+   * decide between updating the on-screen announcement (applied) and
+   * pushing a toast naming the story by title (not applied: the reader is
+   * elsewhere).
+   */
+  adoptPayload(
+    storyId: string,
+    payload: StoryPayload,
+    // `focusNewLeafIf` is required (not `?:`) whenever `options` itself is
+    // given (review fix #11): a caller with nothing to focus says so with
+    // `null`, the one spelling of "empty" this reads, rather than either
+    // that same explicit `null` or simply omitting the field meaning the
+    // exact same thing two different ways.
+    options?: { readonly focusNewLeafIf: string | null; readonly announcement?: string }
+  ): boolean;
   focusPart(partId: string): void;
   moveFocus(direction: -1 | 1): void;
   focusFirst(): void;
@@ -224,7 +286,7 @@ export function createStoryActions(
             next = await retryWhenBusy(() => requireApi(store).switchLine(storyId, target));
           } catch (error) {
             if (apiErrorCode(error) === "revision_conflict") {
-              pushToast(store, "The story changed in another window. It was reloaded.");
+              pushToast(store, STORY_RELOADED_TOAST);
               updateLoadedStory(store, storyId, (current) => ({ ...current, switching: null }));
               await load(storyId);
               return;
@@ -285,6 +347,39 @@ export function createStoryActions(
       ));
     },
 
+    adoptPayload: (storyId, payload, options) => {
+      deps.storyChanged();
+      let applied = false;
+      let moveFocusTo: string | null = null;
+      store.set((state) => {
+        if (state.route.kind !== "story" || state.route.id !== storyId) return state;
+        if (state.story.kind !== "loaded" || state.story.payload.id !== storyId) return state;
+        if (!isAtLeastVersion(payload, state.story.payload)) return state;
+        applied = true;
+        const focusNewLeafIf = options?.focusNewLeafIf ?? null;
+        const newLeafId = payload.path.at(-1)?.id ?? null;
+        if (focusNewLeafIf !== null
+          && newLeafId !== null
+          && state.story.focusedPartId === focusNewLeafIf) {
+          moveFocusTo = newLeafId;
+        }
+        return {
+          ...state,
+          story: {
+            ...state.story,
+            payload,
+            announcement: options?.announcement ?? state.story.announcement
+          }
+        };
+      });
+      // A separate, ordinary `setFocusedPart` call rather than folding the
+      // move into the `store.set` above: it already knows how to update
+      // `focusedPartId` and record the reading position together, and reuses
+      // it verbatim instead of duplicating that pairing here.
+      if (moveFocusTo !== null) setFocusedPart(store, storyId, moveFocusTo);
+      return applied;
+    },
+
     focusPart: (partId) => withOpenStory(store, (storyId) => setFocusedPart(store, storyId, partId)),
 
     moveFocus: (direction) => withOpenStory(store, (storyId, story) => {
@@ -310,6 +405,10 @@ export function createStoryActions(
     }),
 
     switchTake: (partId, direction) => withOpenStory(store, (storyId, story) => {
+      if (deps.isLocked(storyId)) {
+        pushToast(store, STORY_LOCKED_TOAST);
+        return;
+      }
       if (belowPendingSwitch(story, partId)) return;
       const baseId = story.switching !== null && story.switching.partId === partId
         ? story.switching.targetId
@@ -320,6 +419,10 @@ export function createStoryActions(
     }),
 
     switchTakeTo: (partId, targetId) => withOpenStory(store, (storyId, story) => {
+      if (deps.isLocked(storyId)) {
+        pushToast(store, STORY_LOCKED_TOAST);
+        return;
+      }
       if (belowPendingSwitch(story, partId)) return;
       beginSwitch(storyId, partId, targetId);
     }),

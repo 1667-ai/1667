@@ -1,12 +1,33 @@
 import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
+import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
+import { GenerationBar } from "../generation/GenerationBar.js";
+import { manuscriptGenerationView, type ManuscriptGeneration } from "../generation/state.js";
+import { useFollowStream } from "../generation/useFollowStream.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { StoryHeader } from "./StoryHeader.js";
-import { effectiveFocusedPartId, storyIdOf } from "./state.js";
+import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
+
+/** The `role="status"` region's text: a running/settling generation's own
+ * status label wins while it targets this exact story and is still live
+ * (never per token — this only actually changes value at the
+ * Thinking/Writing boundary, since the presented text is already
+ * throttled; a frozen `"unsaved"` leftover falls through to the story's
+ * own announcement instead of claiming it is still writing — review fix
+ * #10 folds this and the bar's own status text into one shared
+ * `statusLabel`, computed once by `manuscriptGenerationView`); otherwise
+ * the story's own last announcement (a landed take switch, or a generation
+ * that just landed — `story/actions.ts`'s `adoptPayload` sets both a
+ * payload and this text in the same store update, so a landing narrates
+ * itself the instant it lands, with no separate wiring here). */
+function liveRegionText(story: Extract<StoryState, { kind: "loaded" }>, generationView: ManuscriptGeneration | null): string {
+  if (generationView !== null && generationView.live) return generationView.statusLabel;
+  return story.announcement ?? "";
+}
 
 /** Roughly one prose line at the default size — `⇧↑`/`⇧↓`'s nudge. */
 const LINE_SCROLL_PX = 60;
@@ -27,8 +48,15 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   const { store, actions } = useAppContext();
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
+  const generation = useStore(store, (state) => state.generation);
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusedPartId = story !== null && story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
+  const generationView = manuscriptGenerationView(generation, storyId);
+
+  // Sticks to the bottom while this story's own generation streams; a
+  // reader who scrolls up (to reread, or to keep an earlier part in view)
+  // un-pins it until they scroll back down themselves.
+  useFollowStream(scrollRef, generationView?.live === true, generationView?.text);
 
   useEffect(() => {
     void actions.story.load(storyId);
@@ -52,7 +80,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   // fresh on every keypress rather than closing over `story`/`focusedPartId`,
   // so one registration (mount-only) never goes stale across a switch or a
   // focus move.
-  useEffect(() => registerScreenKeys((binding) => {
+  useEffect(() => registerScreenKeys((binding, event) => {
     // `app/keymap.ts`'s own listener already refuses to call a registered
     // handler at all while `fieldHasFocus()` is true — checking it again
     // here was dead code (it can never be true by the time this runs).
@@ -73,6 +101,20 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         const target = effectiveFocusedPartId(current.story);
         if (target === null) return false;
         actions.story.switchTake(target, binding.action === "take-next" ? 1 : -1);
+        return true;
+      }
+      case "continue": {
+        // `shared/reference-bindings.ts`'s "space" binding carries no `shift`
+        // field, so a Shift+Space keypress resolves here too — Shift+Space
+        // must keep the browser's own scroll, so it is refused explicitly
+        // rather than treated as a plain Continue. A repeat (held key) and a
+        // focused take-switch arrow/counter (Enter/Space already activate
+        // those) are refused the same way. `continue()` itself now owns the
+        // "already writing" refusal and its toast (review fix #9) — this
+        // screen only filters the key and calls it, so step 6's composer
+        // submit can reuse the exact same call without repeating that logic.
+        if (event.shiftKey || event.repeat || activatesOnEnterOrSpace()) return false;
+        void actions.generation.continue();
         return true;
       }
       case "scroll-line-up": return scrollBy(container, -LINE_SCROLL_PX);
@@ -110,7 +152,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
       <div className="story-main">
         <div className="story-scroll" ref={scrollRef}>
           <div className="story-body">
-            {payload.path.length === 0
+            {payload.path.length === 0 && generationView === null
               ? <p className="story-empty">This story has no text yet.</p>
               : (
                 <Manuscript
@@ -118,6 +160,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
                   focusedPartId={focusedPartId}
                   switching={story.switching}
                   showDirections={showDirections}
+                  generation={generationView}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
                   onSwitchTo={actions.story.switchTakeTo}
@@ -125,8 +168,9 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
               )}
           </div>
         </div>
+        <GenerationBar viewingStoryId={storyId} />
       </div>
-      <div role="status" className="sr-only">{story.announcement}</div>
+      <div role="status" className="sr-only">{liveRegionText(story, generationView)}</div>
     </div>
   );
 }

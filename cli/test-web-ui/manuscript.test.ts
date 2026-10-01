@@ -201,6 +201,20 @@ test("case 2: focus moves with ↑/↓, g/G, and a click; a 40-part story scroll
     return rect.top >= 0 && rect.bottom <= window.innerHeight;
   });
   expect(inViewport).toBeTrue();
+
+  // Keyboard focus on a plain button outside the manuscript (as after
+  // opening the story from its sidebar row, or clicking Continue): ↑ must
+  // still bring each newly focused part into view.
+  await page.getByRole("button", { name: /directions/i }).focus();
+  for (let press = 0; press < 25; press += 1) await page.keyboard.press("ArrowUp");
+  const fifteenth = part(page, "Part 15 text.");
+  await waitForAttribute(fifteenth, "aria-current", "true");
+  // The scroll runs in an effect after focus moves; wait for it (bounded).
+  const fifteenthVisible = await poll(async () => await fifteenth.evaluate((element) => {
+    const rect = element.getBoundingClientRect();
+    return rect.top >= 0 && rect.bottom <= window.innerHeight;
+  }), 5_000);
+  expect(fifteenthVisible).toBeTrue();
   // Seeds a 40-part story through 40 sequential bridge calls; under a loaded
   // machine that alone can pass 30 s.
 }, 60_000);

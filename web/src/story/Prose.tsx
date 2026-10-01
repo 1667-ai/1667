@@ -7,13 +7,28 @@ import type { HumanEditAttribution, TextRange } from "../../../shared/types.js";
  * paragraph. Ported from `~/source/storytavern/web/src/PartCard.tsx`'s
  * `Prose`/`AttributedText`/`paragraphsWithOffsets` (read-only here — no
  * `onMouseUp` selection wiring, no rewrite caret).
+ *
+ * `caret` (#409 step 5) appends the blinking `.caret` span right after the
+ * text, inline in the last paragraph — the one place a streaming take's
+ * cursor belongs, whether that paragraph is empty (a fresh part or new
+ * paragraph about to start) or mid-sentence.
  */
-export function Prose({ text, humanEdit = null }: { text: string; humanEdit?: HumanEditAttribution | null }) {
+export function Prose({
+  text,
+  humanEdit = null,
+  caret = false
+}: {
+  text: string;
+  humanEdit?: HumanEditAttribution | null;
+  caret?: boolean;
+}) {
+  const paragraphs = paragraphsWithOffsets(text);
   return (
     <div className="prose">
-      {paragraphsWithOffsets(text).map((paragraph) => (
+      {paragraphs.map((paragraph, index) => (
         <p key={paragraph.start}>
           <AttributedText text={paragraph.text} offset={paragraph.start} ranges={humanEdit?.ranges ?? []} />
+          {caret && index === paragraphs.length - 1 && <span className="caret" aria-hidden="true" />}
         </p>
       ))}
     </div>

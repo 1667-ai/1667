@@ -61,6 +61,22 @@ take, the previous take is the last take. Your place in the story survives
 a page reload. Your place in the story survives a restart of `1667 web`.
 The terminal app and `1667 web` share this same place.
 
+Press Space, or click Continue, to write the next part. The page shows the
+new words as they arrive. Press Escape, or click Stop, to stop early.
+`1667 web` keeps the words that arrived, and saves them.
+
+If you open a different story while `1667 web` writes, it keeps writing in
+the first story. A bar at the bottom of the page tells you which story it
+still writes in. Press Escape from any page to stop it, or click Stop in
+that bar. Only one story writes at a time.
+
+If the connection to `1667 web` breaks while it writes, the page keeps the
+new words on screen but does not save them. Click Copy to copy them. Click
+Retry to save them again. Click Discard to clear them.
+
+If you have words that are not saved, `1667 web` warns you before you
+reload the page or close the tab. Save the words, or copy them, first.
+
 ### Run the web page in development mode
 
 `bun run web:dev` starts `1667 web` and a Vite development server together.

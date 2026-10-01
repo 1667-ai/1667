@@ -1,3 +1,5 @@
+import { fieldHasFocus } from "../app/keymap-dom.js";
+
 /**
  * Imperative DOM focus for the manuscript (#409 step 4). `StoryView.tsx`
  * calls `focusPartElement` from an effect whenever the effective focused
@@ -5,27 +7,26 @@
  * directly, so the rule "never steal focus from search" lives in one spot.
  */
 
-/** True unless the keyboard is already somewhere that must keep it: the
- * search box, a dialog, or anywhere else outside `container` and not the
- * body itself. Moving focus into the manuscript from any of those would
- * steal a keystroke the owner is mid-typing elsewhere. */
+/** False only while the keyboard belongs to something the reader is using:
+ * a field (the search box), a dialog, or a popover that owns its keys.
+ * Focus on a plain button elsewhere (the sidebar row that opened this story,
+ * the Continue button) does not block it, or ↑/↓ would move the highlight
+ * without ever bringing the part into view. */
 export function canMoveFocusInto(container: HTMLElement): boolean {
   const active = document.activeElement;
-  return active === null || active === document.body || container.contains(active);
+  if (active === null || active === document.body || container.contains(active)) return true;
+  return !fieldHasFocus();
 }
 
-/** Focuses the part's own roving-tabIndex element and brings it into view
- * without scrolling the whole page (`preventScroll`) — `scrollIntoView`
- * handles bringing it into the manuscript's own scroll container, honoring
- * `.part`'s `scroll-margin-block` (`styles/manuscript.css`) so a sticky
- * header/instruction never covers it. */
+/** Brings the part into view in the manuscript's own scroll container
+ * (honoring `.part`'s `scroll-margin-block`), always, and moves keyboard
+ * focus onto it when `canMoveFocusInto` allows. */
 export function focusPartElement(container: HTMLElement, partId: string): void {
-  if (!canMoveFocusInto(container)) return;
   const target = container.querySelector<HTMLElement>(
     `[data-part-id="${CSS.escape(partId)}"]`
   );
   if (target === null) return;
-  target.focus({ preventScroll: true });
+  if (canMoveFocusInto(container)) target.focus({ preventScroll: true });
   target.scrollIntoView({ block: "nearest" });
 }
 

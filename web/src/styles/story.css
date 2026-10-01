@@ -37,7 +37,7 @@
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
 
-.story-main { display: flex; flex: 1; min-height: 0; }
+.story-main { display: flex; flex: 1; flex-direction: column; min-height: 0; }
 .story-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 .story-body {
   font-family: var(--prose); font-size: var(--prose-size); margin: 0 auto;

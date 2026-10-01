@@ -77,10 +77,10 @@
   font-family: var(--mono); font-size: 10px; line-height: 1.5; margin-top: 7px;
 }
 
-/* Long stories: every part stays in the DOM (no windowing yet — owner
-   decision), but an off-screen one skips layout/paint until it nears the
-   viewport. The estimate keeps the scrollbar's size roughly honest. */
-.part { content-visibility: auto; contain-intrinsic-size: auto 260px; }
+/* No `content-visibility: auto` on parts: its estimated heights moved parts
+   while a keyboard scroll was settling, so ↑/↓ could leave the focused part
+   out of view. Parts are memoized instead; if very long stories feel slow,
+   show a window of parts (`activePathWindow`), as StoryTavern did. */
 
 .chapter-one-heading {
   align-items: center; border-radius: 9px; display: flex; gap: 14px; justify-content: center;
