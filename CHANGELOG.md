@@ -39,6 +39,11 @@ This file records notable changes to 1667. Product terms use the definitions in
   asks before it deletes. If a send fails, your words come back to the box.
   `1667 web` warns you before you reload the page while an edit is not saved.
 
+- **`1667 web` uses one size for each kind of text, icon, and button.** Small
+  labels are larger and darker. Icons are larger. Each icon button shows a
+  short tooltip, with its key when it has one. Messages no longer cover the
+  box where you type.
+
 - **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
   the Anthropic provider, you can set effort for these models. 1667 shows
   their thoughts and uses prompt caching for them.
