@@ -77,6 +77,45 @@ Retry to save them again. Click Discard to clear them.
 If you have words that are not saved, `1667 web` warns you before you
 reload the page or close the tab. Save the words, or copy them, first.
 
+#### Direct the story
+
+Press Enter or `i` to go to the box at the bottom of the page. Type what
+happens next. Press Enter to send it. Press Shift+Enter to add a line. A
+line above the box tells you where the new words go. If the box is empty,
+Enter is the same as Continue. The box stays open while the story writes.
+You cannot send while the story writes. Your words stay in the box.
+
+If a send fails, or if you stop it before any words arrive, your words come
+back to the box. Press Control and Up Arrow, or press Up Arrow in an empty
+box, to find the directions you sent before.
+
+#### Take a part again
+
+Press `r` to write a new take of the selected part. The new take uses the
+same direction. Press Shift+R to change the direction first. The box
+changes to "Retake part N". Press Escape to leave it. You cannot take a
+summary again.
+
+#### Edit a part
+
+Press `e` to edit the selected part. The editor replaces the words of the
+part. Press Control+S, or Command+S on a Mac, to save the edit as a new
+take. Press Control+Shift+S, or Command+Shift+S, to save the edit in the
+part itself. Press Escape to close the editor. If you changed the words,
+press Escape again to throw them away. If the part changed in another
+window, `1667 web` keeps your words. Save again to replace the new words
+with yours.
+
+Press `w` to write your own take of the selected part. In a story with no
+parts, press `w` to write the first part.
+
+#### Part menu and delete
+
+Press `x`, or click the dots at the top of a part, to open the part menu.
+Press Shift+D to delete the selected part and the parts below it.
+`1667 web` asks first. While the story writes, you cannot delete a part,
+take a part again, or save an edit. Your words stay.
+
 ### Run the web page in development mode
 
 `bun run web:dev` starts `1667 web` and a Vite development server together.

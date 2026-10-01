@@ -30,6 +30,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   before you reload the page or close the tab while it holds words that are
   not saved.
 
+- **`1667 web` can direct the story, take a part again, edit, and delete.**
+  Press Enter or `i` to type what happens next. Press Enter to send it. Press
+  `r` to write a new take of a part. Press Shift+R to give the new take a new
+  direction. Press `e` to edit a part. You can save the edit as a new take or
+  in the part itself. Press `w` to write your own take. Press `x` to open the
+  part menu. Press Shift+D to delete a part and the parts below it. `1667 web`
+  asks before it deletes. If a send fails, your words come back to the box.
+  `1667 web` warns you before you reload the page while an edit is not saved.
+
 - **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
   the Anthropic provider, you can set effort for these models. 1667 shows
   their thoughts and uses prompt caching for them.
