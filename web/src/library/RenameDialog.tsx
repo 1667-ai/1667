@@ -41,8 +41,8 @@ export function RenameDialog(
           />
         </div>
         <div className="modal-actions">
-          <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
-          <button type="submit" className="btn btn-primary" disabled={trimmed.length === 0}>Save</button>
+          <button type="button" className="btn btn-ghost" title="Cancel (Esc)" onClick={onCancel}>Cancel</button>
+          <button type="submit" className="btn btn-primary" title="Save (Enter)" disabled={trimmed.length === 0}>Save</button>
         </div>
       </form>
     </Modal>

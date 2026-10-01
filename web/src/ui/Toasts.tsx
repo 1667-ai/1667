@@ -19,6 +19,7 @@ export function ToastStack(
           <button
             type="button"
             className="icon-btn toast-close"
+            title="Dismiss"
             aria-label="Dismiss"
             onClick={() => onDismiss(toast.id)}
           >

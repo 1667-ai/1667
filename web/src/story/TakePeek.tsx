@@ -84,6 +84,7 @@ export function TakePeek({ partId, payload, currentTakeIndex, disabled, onSwitch
         className={`take-peek-row${active ? " active" : ""}${virtualRow ? " virtual-row" : ""}`}
         style={virtualRow ? { top: offset * ROW_HEIGHT, height: ROW_HEIGHT } : undefined}
         disabled={disabled || active}
+        title={active ? "Reading" : `Take ${position}`}
         onClick={() => {
           onClose();
           onSwitchTo(partId, take.id);

@@ -47,7 +47,7 @@ function AttributedText({ text, offset, ranges }: { text: string; offset: number
     const localEnd = end - offset;
     if (cursor < localStart) pieces.push(text.slice(cursor, localStart));
     pieces.push(
-      <mark className="human-edit-mark" title="Written by you" key={`${localStart}:${localEnd}`}>
+      <mark className="human-edit-mark" title="Edited by you" key={`${localStart}:${localEnd}`}>
         {text.slice(localStart, localEnd)}
       </mark>
     );

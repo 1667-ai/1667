@@ -687,7 +687,7 @@ test("case 16: Escape closes an open popover without stopping a background "
   // uses; `fieldHasFocus()` does not recognize either as owning the
   // keyboard, so before this fix the same Escape that closed the menu would
   // also have stopped the generation underneath it.
-  const themeButton = page.getByTitle("Choose theme");
+  const themeButton = page.getByRole("button", { name: "Palette" });
   await themeButton.click();
   const menu = page.locator('.theme-popover[role="menu"]');
   await menu.waitFor();

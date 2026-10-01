@@ -27,7 +27,7 @@ export function StoryHeader({ payload, showDirections, onToggleDirections, onOpe
       <div className="story-identity">
         {line !== null && <span className="story-kicker">{line}</span>}
         <div className="story-title-wrap">
-          <h1 className="story-title">{payload.title}</h1>
+          <h1 className="story-title" title={payload.title}>{payload.title}</h1>
         </div>
         <span className="story-stats">
           {payload.path.length} {payload.path.length === 1 ? "part" : "parts"} ·{" "}
@@ -39,6 +39,7 @@ export function StoryHeader({ payload, showDirections, onToggleDirections, onOpe
           type="button"
           className="btn btn-ghost btn-small"
           aria-pressed={showDirections}
+          title={showDirections ? "Hide directions (p)" : "Show directions (p)"}
           onClick={onToggleDirections}
         >
           Show directions

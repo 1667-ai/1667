@@ -19,3 +19,4 @@
 }
 .composer-field:focus { border-color: var(--accent); box-shadow: var(--focus); }
 .composer-field::placeholder { color: var(--faint); }
+.composer-hint { color: var(--dim); font: var(--font-meta); white-space: nowrap; }

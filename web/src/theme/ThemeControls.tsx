@@ -20,6 +20,8 @@ export function ThemeControls(
 ) {
   const resolved = useResolvedTheme(theme);
   const { open, setOpen, containerRef } = usePopover();
+  // The toggle names the theme it switches to.
+  const toggleLabel = resolved === "dark" ? "Light theme" : "Dark theme";
 
   return (
     <>
@@ -27,7 +29,8 @@ export function ThemeControls(
         <button
           className="icon-btn theme-pick"
           type="button"
-          title="Choose theme"
+          title="Palette"
+          aria-label="Palette"
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
@@ -45,7 +48,13 @@ export function ThemeControls(
           />
         )}
       </div>
-      <button className="icon-btn theme-toggle" type="button" title="Toggle light / dark" onClick={onToggleTheme}>
+      <button
+        className="icon-btn theme-toggle"
+        type="button"
+        title={toggleLabel}
+        aria-label={toggleLabel}
+        onClick={onToggleTheme}
+      >
         <Icon path={resolved === "dark" ? ICONS.sun : ICONS.moon} />
       </button>
     </>

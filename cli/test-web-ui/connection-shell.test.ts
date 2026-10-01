@@ -97,7 +97,7 @@ test("case 10: theme follows the OS by default; the toggle sets an explicit over
   expect(await page.evaluate(() => getComputedStyle(document.body).backgroundColor))
     .toBe("rgb(19, 19, 24)");
 
-  await page.getByRole("button", { name: "Toggle light / dark" }).click();
+  await page.getByRole("button", { name: "Light theme" }).click();
 
   expect(await page.evaluate(() => document.documentElement.getAttribute("data-theme"))).toBe("light");
   // The light branch of the same token: #f7f8fa.

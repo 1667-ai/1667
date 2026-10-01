@@ -16,7 +16,7 @@ export function StoryRow(
 ) {
   return (
     <div className={`story-item${active ? " active" : ""}`}>
-      <button type="button" className="story-item-main" onClick={onOpen}>
+      <button type="button" className="story-item-main" title={summary.title} onClick={onOpen}>
         <span className="story-item-title">{summary.title}</span>
         <span className="story-item-meta">
           <span>
@@ -51,7 +51,8 @@ function RowMenu(
       <button
         type="button"
         className="icon-btn story-item-menu-trigger"
-        title={`More for ${title}`}
+        title="Story actions"
+        aria-label={`Story actions for ${title}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -64,6 +65,7 @@ function RowMenu(
             type="button"
             role="menuitem"
             className="menu-item"
+            title="Rename story"
             onClick={() => {
               setOpen(false);
               onRename();
@@ -76,6 +78,7 @@ function RowMenu(
             type="button"
             role="menuitem"
             className="menu-item menu-item-danger"
+            title="Delete story"
             onClick={() => {
               setOpen(false);
               onDelete();

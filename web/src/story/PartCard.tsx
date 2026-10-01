@@ -190,10 +190,10 @@ function PartCardImpl({
               <span className="part-badges">
                 {isLegacySummary && <span className="part-badge part-badge-summary">legacy summary</span>}
                 {node.human === true && (
-                  <span className="part-badge" title="This take began when you typed">your words</span>
+                  <span className="part-badge" title="You started this take">your words</span>
                 )}
                 {humanEditIsMeaningful(humanEdit) && (
-                  <span className="part-badge" title="You edited this take's prose">human edit</span>
+                  <span className="part-badge" title="Edited by you">human edit</span>
                 )}
               </span>
             )}
@@ -211,7 +211,8 @@ function PartCardImpl({
                 <button
                   type="button"
                   className="icon-btn take-arrow"
-                  aria-label={`Previous take (${part.number})`}
+                  title="Previous take (←)"
+                  aria-label="Previous take (←)"
                   disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, -1)}
                 ><Icon path={ICONS.chevronLeft} /></button>
@@ -222,13 +223,15 @@ function PartCardImpl({
                   aria-haspopup="dialog"
                   aria-expanded={peek.open}
                   aria-label={`Take ${displayTakeIndex} of ${part.siblingCount}, show every take`}
+                  title="All takes"
                   disabled={controlsDisabled}
                   onClick={() => peek.setOpen(!peek.open)}
                 >{displayTakeIndex}/{part.siblingCount}</button>
                 <button
                   type="button"
                   className="icon-btn take-arrow"
-                  aria-label={`Next take (${part.number})`}
+                  title="Next take (→)"
+                  aria-label="Next take (→)"
                   disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, 1)}
                 ><Icon path={ICONS.chevronRight} /></button>

@@ -55,6 +55,7 @@ export function TakeStrip({ siblingCount, currentTakeIndex, takeSubtakes, disabl
             className={glyph === "◎" ? "take-dot branch" : "take-dot"}
             aria-current={isCurrent ? "true" : undefined}
             aria-label={`Take ${position} of ${siblingCount}`}
+            title={`Take ${position} of ${siblingCount}`}
             disabled={disabled}
             onClick={() => onSwitchToPosition(position)}
           />

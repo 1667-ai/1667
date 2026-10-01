@@ -5,7 +5,17 @@ import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
-import { partActionRefusal } from "./part-policy.js";
+import {
+  EDITOR_OPEN_TOAST,
+  NOT_CONNECTED_TOAST,
+  PART_SWITCHING_TOAST,
+  PART_UNAVAILABLE_TOAST,
+  PART_WRITING_TOAST,
+  partActionRefusal,
+  STORY_LOCKED_TOAST,
+  SUMMARY_RETAKE_TOAST,
+  UNSAVED_TOAST
+} from "./part-policy.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";
 
 interface MenuItem {
@@ -30,11 +40,29 @@ const ITEMS: readonly MenuItem[] = [
   { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash }
 ];
 
+/** A disabled item's hover text: a few words, where the toast for the same
+ * refusal is a full sentence. */
+const SHORT_REFUSAL: ReadonlyMap<string, string> = new Map([
+  [STORY_LOCKED_TOAST, "Busy writing (Esc)"],
+  [UNSAVED_TOAST, "Unsaved text"],
+  [PART_UNAVAILABLE_TOAST, "Not on this line"],
+  [PART_SWITCHING_TOAST, "Take switching"],
+  [PART_WRITING_TOAST, "Still writing"],
+  [SUMMARY_RETAKE_TOAST, "Not for summaries"],
+  [EDITOR_OPEN_TOAST, "Editor open"],
+  [NOT_CONNECTED_TOAST, "Not connected"]
+]);
+
+function shortRefusal(refusal: string): string {
+  // `generationBusyToast` names the other story: "Already writing in ….".
+  return SHORT_REFUSAL.get(refusal) ?? (refusal.startsWith("Already writing in ") ? "Busy writing (Esc)" : refusal);
+}
+
 /**
  * The `···` menu in a part's header (the TUI's `x`): every action a part
  * offers, for the writer who does not know the keys. Each item asks the one
  * policy (`partActionRefusal`) while the menu is open — a refused item is
- * disabled and its hover text is the reason — and a click goes through the
+ * disabled and its hover text is the short reason — and a click goes through the
  * same dispatcher the keys use. `menuSerial` is raised by the `x` key.
  */
 export function PartActionsMenu(
@@ -126,7 +154,7 @@ export function PartActionsMenu(
               type="button"
               role="menuitem"
               className={`menu-item${item.danger === true ? " menu-item-danger" : ""}`}
-              title={refusal ?? `${item.label} (${item.key})`}
+              title={refusal === null ? `${item.label} (${item.key})` : shortRefusal(refusal)}
               disabled={refusal !== null}
               onClick={() => run(item.id)}
             >
