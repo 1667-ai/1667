@@ -139,7 +139,7 @@ test("case 2: Ctrl/Cmd+S saves as a new take and keeps the original", async () =
   await page.keyboard.press("ControlOrMeta+s");
 
   await waitForCount(part(page, "B: another way to put it."), 1);
-  expect(await part(page, "another way").getByRole("button", { name: /^Take \d+ of 2, show every take$/ }).count()).toBe(1);
+  await waitForCount(part(page, "another way").getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
 
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: another way to put it.");
@@ -213,7 +213,7 @@ test("case 5: w then Ctrl/Cmd+S writes your own take: your words, 2 takes", asyn
   await waitForCount(part(page, "B: written by hand."), 1);
   const landed = part(page, "written by hand");
   expect(await landed.locator(".part-badge").allTextContents()).toContain("your words");
-  expect(await landed.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }).count()).toBe(1);
+  await waitForCount(landed.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: written by hand.");
   expect(saved.path[1]!.parentId).toBe(seeded.a);
@@ -252,7 +252,7 @@ test("case 7: x opens the part menu; Escape closes it without stopping a backgro
   const menu = page.getByRole("menu", { name: "Actions for part 2" });
   await menu.waitFor();
   const labels = await menu.getByRole("menuitem").evaluateAll(
-    (items) => items.map((item) => item.firstChild?.textContent ?? "")
+    (items) => items.map((item) => item.querySelector("span")?.textContent ?? "")
   );
   expect(labels).toEqual(["Continue", "Direct", "Retake", "Retake with direction", "Write", "Edit", "Delete"]);
   await screenshot(page, "menu");
