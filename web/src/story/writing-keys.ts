@@ -32,6 +32,14 @@ export function handleWritingKey(
       // An empty story has no focused part: `w` writes part 1.
       actions.editor.openWrite(partId);
       return true;
+    case "open-actions":
+      if (partId === null) return false;
+      actions.part.openMenu(partId);
+      return true;
+    case "prune":
+      if (partId === null) return false;
+      actions.part.askDelete(partId);
+      return true;
     case "edit":
       if (partId === null) return false;
       actions.editor.openEdit(partId);

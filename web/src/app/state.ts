@@ -4,6 +4,7 @@ import type { EditorState } from "../editor/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
+import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
 import type { ConnectionState } from "./connection.js";
@@ -34,6 +35,8 @@ export interface AppState {
   readonly compose: ComposeState;
   /** The one open inline editor, if any (#409 step 6). See `editor/state.ts`. */
   readonly editor: EditorState | null;
+  /** The part menu request and the delete confirmation (#409 step 6). */
+  readonly partUi: PartUiState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -55,6 +58,7 @@ export function initialAppState(
     generation: initialGenerationState(),
     compose: initialComposeState(),
     editor: null,
+    partUi: initialPartUiState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

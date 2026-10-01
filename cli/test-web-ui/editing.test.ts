@@ -64,6 +64,8 @@ async function isFocused(locator: Locator): Promise<boolean> {
  * `AI_1667_WEB_UI_SCREENSHOTS`; does nothing when it is not set. */
 async function screenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.AI_1667_WEB_UI_SCREENSHOTS;
+  // Let the entrance animations finish first.
+  if (dir !== undefined) await page.waitForTimeout(500);
   if (dir !== undefined) await page.screenshot({ path: `${dir}/web-compose-${name}.png` });
 }
 
@@ -236,4 +238,75 @@ test("case 6: w on an empty story writes part 1", async () => {
   expect(saved.path).toHaveLength(1);
   expect(saved.path[0]!.text).toBe("In the beginning.");
   expect(saved.path[0]!.parentId).toBeNull();
+}, 60_000);
+
+test("case 7: x opens the part menu; Escape closes it without stopping a background run; an item acts", async () => {
+  const web = await spawnEditWeb(60);
+  const seeded = await seedThreeParts(web, "Part Menu");
+  const page = await openStory(web, seeded.storyId, "Part Menu");
+  const diagnostics = await collectPageDiagnostics(page);
+  await part(page, "B:").click();
+  await waitForAttribute(part(page, "B:"), "aria-current", "true");
+
+  await page.keyboard.press("x");
+  const menu = page.getByRole("menu", { name: "Actions for part 2" });
+  await menu.waitFor();
+  const labels = await menu.getByRole("menuitem").evaluateAll(
+    (items) => items.map((item) => item.firstChild?.textContent ?? "")
+  );
+  expect(labels).toEqual(["Continue", "Direct", "Retake", "Retake with direction", "Write", "Edit", "Delete"]);
+  await screenshot(page, "menu");
+  await page.keyboard.press("Escape");
+  await waitForCount(menu, 0);
+
+  // A run on the leaf keeps going through a menu's Escape, and the menu's
+  // changing items wait while it writes.
+  await part(page, "C:").click();
+  await page.keyboard.press("Space");
+  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await part(page, "B:").getByRole("button", { name: "Part actions (x)" }).click();
+  await menu.waitFor();
+  expect(await menu.getByRole("menuitem", { name: /^Retake\b(?! with)/ }).isDisabled()).toBeTrue();
+  expect(await menu.getByRole("menuitem", { name: /^Delete/ }).isDisabled()).toBeTrue();
+  expect(await menu.getByRole("menuitem", { name: /^Edit/ }).isDisabled()).toBeFalse();
+  await page.keyboard.press("Escape");
+  await waitForCount(menu, 0);
+  expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
+
+  await page.keyboard.press("Escape");
+  await page.getByRole("button", { name: "Continue" }).waitFor();
+  await part(page, "B:").click();
+  await part(page, "B:").getByRole("button", { name: "Part actions (x)" }).click();
+  await menu.getByRole("menuitem", { name: /^Edit/ }).click();
+  await editorProse(page, 2).waitFor();
+  expect(await poll(() => isFocused(editorProse(page, 2)))).toBeTrue();
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.cspViolations).toEqual([]);
+}, 90_000);
+
+test("case 8: D asks first; Cancel keeps everything; confirming deletes the part and what is below it", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Delete Part");
+  const page = await openStory(web, seeded.storyId, "Delete Part");
+  await part(page, "B:").click();
+  await waitForAttribute(part(page, "B:"), "aria-current", "true");
+
+  await page.keyboard.press("Shift+D");
+  const dialog = page.getByRole("dialog", { name: "Delete part" });
+  await dialog.waitFor();
+  expect(await dialog.textContent()).toContain("Delete part 2 and the 1 part below it?");
+  await screenshot(page, "delete");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await waitForCount(dialog, 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).path).toHaveLength(3);
+
+  await page.keyboard.press("Shift+D");
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Delete", exact: true }).click();
+  await waitForCount(dialog, 0);
+  await waitForCount(page.locator(".part"), 1);
+  expect(await poll(() => isFocused(part(page, "A:")))).toBeTrue();
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  expect(saved.path).toHaveLength(1);
+  expect(saved.nodes).toHaveLength(1);
 }, 60_000);

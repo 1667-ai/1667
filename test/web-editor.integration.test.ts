@@ -9,7 +9,9 @@ import {
   SUMMARY_FORK_TOAST
 } from "../web/src/editor/actions.js";
 import { editorDirty } from "../web/src/editor/state.js";
-import { STORY_LOCKED_TOAST } from "../web/src/story/actions.js";
+import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../web/src/story/actions.js";
+import { EDITOR_OPEN_TOAST } from "../web/src/editor/state.js";
+import { deleteQuestion } from "../web/src/story/part-ui-state.js";
 import { PART_WRITING_TOAST } from "../web/src/story/part-guard.js";
 import {
   STORY_ID,
@@ -359,4 +361,113 @@ test("an unknown outcome of w is settled by finding the new take after the reloa
 
   assert.equal(store.get().editor, null);
   assert.equal(focusedPart(store), "b2");
+});
+
+// ---------------------------------------------------------------------------
+// `D`: delete with confirmation.
+// ---------------------------------------------------------------------------
+
+test("D asks first: the plan counts the part and the parts below it, and nothing is deleted yet", () => {
+  const { actions, store, fake } = open(THREE, "b1");
+
+  actions.part.askDelete("b1");
+
+  const plan = store.get().partUi.deletePlan;
+  assert.equal(plan?.nodeId, "b1");
+  assert.equal(plan?.partNumber, 2);
+  assert.equal(plan?.parts, 2, "b1 and c1");
+  assert.equal(deleteQuestion(plan!), "Delete part 2 and the 1 part below it?");
+  assert.equal(fake.deleteNodeCalls.length, 0);
+
+  actions.part.cancelDelete();
+  assert.equal(store.get().partUi.deletePlan, null);
+});
+
+test("confirming sends the counted subtree size, lands focus on the previous part, and closes the dialog", async () => {
+  const after = linearPayload(["a1"]);
+  const { actions, store, fake } = open(THREE, "b1", { deleteNode: async () => after });
+
+  actions.part.askDelete("b1");
+  await actions.part.confirmDelete();
+
+  assert.deepEqual(fake.deleteNodeCalls, [{ storyId: STORY_ID, nodeId: "b1", count: 2 }]);
+  assert.equal(store.get().partUi.deletePlan, null);
+  assert.equal(focusedPart(store), "a1");
+  const story = store.get().story;
+  assert.equal(story.kind === "loaded" ? story.payload.path.length : -1, 1);
+});
+
+test("deleting the first part lands focus on the new first part", async () => {
+  const after = linearPayload(["z1"]);
+  const { actions, store } = open(THREE, "a1", { deleteNode: async () => after });
+
+  actions.part.askDelete("a1");
+  await actions.part.confirmDelete();
+
+  assert.equal(focusedPart(store), "z1");
+});
+
+test("a conflict reloads the story, closes the dialog, and says the story was reloaded", async () => {
+  const reloaded = linearPayload(["a1", "b1", "c1", "d1"]);
+  const { actions, store, fake } = open(THREE, "b1", {
+    deleteNode: async () => { throw plainFailure("conflict", "count changed"); },
+    loadStory: async () => reloaded
+  });
+
+  actions.part.askDelete("b1");
+  await actions.part.confirmDelete();
+
+  assert.equal(fake.loadStoryCalls.length, 1);
+  assert.equal(store.get().partUi.deletePlan, null);
+  assert.deepEqual(toasts(store), [STORY_RELOADED_TOAST]);
+  const story = store.get().story;
+  assert.equal(story.kind === "loaded" ? story.payload : null, reloaded);
+});
+
+test("an unknown outcome that the reload shows as deleted counts as deleted", async () => {
+  const { actions, store } = open(THREE, "b1", {
+    deleteNode: async () => { throw new Error("socket closed"); },
+    loadStory: async () => linearPayload(["a1"])
+  });
+
+  actions.part.askDelete("b1");
+  await actions.part.confirmDelete();
+
+  assert.equal(store.get().partUi.deletePlan, null);
+  assert.deepEqual(toasts(store), []);
+  assert.equal(focusedPart(store), "a1");
+});
+
+test("D is refused while this story writes, while an editor sits in the part, and on a switching part", async () => {
+  const gate = deferred<{ payload: StoryPayload } | null>();
+  const writing = open(THREE, "c1", { continueStory: () => gate.promise });
+  const run = writing.actions.generation.continue();
+  await waitFor(() => writing.fake.continueCalls.length === 1);
+  writing.actions.part.askDelete("b1");
+  assert.deepEqual(toasts(writing.store), [STORY_LOCKED_TOAST]);
+  assert.equal(writing.store.get().partUi.deletePlan, null);
+  gate.resolve({ payload: THREE });
+  await run;
+
+  const editing = open(THREE, "b1");
+  editing.actions.editor.openEdit("b1");
+  editing.actions.editor.setText("Draft.");
+  editing.actions.part.askDelete("b1");
+  assert.deepEqual(toasts(editing.store), [EDITOR_OPEN_TOAST]);
+  assert.equal(editing.store.get().editor?.text, "Draft.");
+});
+
+test("confirming is refused if a generation started while the dialog was open", async () => {
+  const gate = deferred<{ payload: StoryPayload } | null>();
+  const { actions, store, fake } = open(THREE, "b1", { continueStory: () => gate.promise });
+  actions.part.askDelete("b1");
+  const run = actions.generation.continue();
+  await waitFor(() => fake.continueCalls.length === 1);
+
+  await actions.part.confirmDelete();
+
+  assert.equal(fake.deleteNodeCalls.length, 0);
+  assert.notEqual(store.get().partUi.deletePlan, null, "the dialog stays; nothing was lost");
+  gate.resolve({ payload: THREE });
+  await run;
 });

@@ -76,6 +76,8 @@ async function waitForAttribute(locator: Locator, name: string, value: string): 
  * `AI_1667_WEB_UI_SCREENSHOTS`; does nothing when it is not set. */
 async function screenshot(page: Page, name: string): Promise<void> {
   const dir = process.env.AI_1667_WEB_UI_SCREENSHOTS;
+  // Let the entrance animations finish first.
+  if (dir !== undefined) await page.waitForTimeout(500);
   if (dir !== undefined) await page.screenshot({ path: `${dir}/web-compose-${name}.png` });
 }
 

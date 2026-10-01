@@ -10,6 +10,7 @@ import { manuscriptGenerationView, type ManuscriptGeneration } from "../generati
 import { useFollowStream } from "../generation/useFollowStream.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
+import { PruneDialog } from "./PruneDialog.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { handleWritingKey } from "./writing-keys.js";
 import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
@@ -51,6 +52,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
   const generation = useStore(store, (state) => state.generation);
+  const partUi = useStore(store, (state) => state.partUi);
   const editor = useStore(store, (state) => state.editor);
   const editingPartId = editor !== null && editor.storyId === storyId ? editor.partId : null;
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -172,6 +174,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
                   switching={story.switching}
                   showDirections={showDirections}
                   editingPartId={editingPartId}
+                  menuRequest={partUi.menuRequest}
                   generation={generationView}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
@@ -182,6 +185,14 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         </div>
         <GenerationBar viewingStoryId={storyId} />
       </div>
+      {partUi.deletePlan !== null && partUi.deletePlan.storyId === storyId && (
+        <PruneDialog
+          plan={partUi.deletePlan}
+          deleting={partUi.deleting}
+          onCancel={actions.part.cancelDelete}
+          onDelete={() => void actions.part.confirmDelete()}
+        />
+      )}
       <div role="status" className="sr-only">{liveRegionText(story, generationView)}</div>
     </div>
   );

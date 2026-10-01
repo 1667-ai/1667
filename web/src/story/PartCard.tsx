@@ -8,6 +8,7 @@ import type { StoryPayload } from "../../../shared/types.js";
 import { PartEditor } from "../editor/PartEditor.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
+import { PartActionsMenu } from "./PartActionsMenu.js";
 import { Prose } from "./Prose.js";
 import { SummaryBody } from "./SummaryBody.js";
 import { TakePeek } from "./TakePeek.js";
@@ -62,6 +63,8 @@ export interface PartCardProps {
   /** True while the inline editor sits in this part's slot (`editor/`): the
    * editor replaces the part's body, and the take controls stay still. */
   readonly editing: boolean;
+  /** Raised by the `x` key for this part: its menu opens. */
+  readonly menuSerial: number;
   /** The take index to show while a switch on this part is in flight —
    * `part.takeIndex` otherwise (server-authoritative once it lands). */
   readonly displayTakeIndex: number;
@@ -90,6 +93,7 @@ function PartCardImpl({
   controlsLocked,
   showDirections,
   editing,
+  menuSerial,
   displayTakeIndex,
   continuation,
   onFocus,
@@ -231,6 +235,7 @@ function PartCardImpl({
               </span>
             </>
           )}
+          <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
         {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}
         {!editing && showDirections && node.instruction.length > 0 && (

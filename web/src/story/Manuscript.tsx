@@ -16,6 +16,8 @@ export interface ManuscriptProps {
   readonly showDirections: boolean;
   /** The part whose slot holds the inline editor, if any. */
   readonly editingPartId: string | null;
+  /** The `x` key's request, for the part menu that should open. */
+  readonly menuRequest: { readonly partId: string; readonly serial: number } | null;
   /** The generation currently writing into (or with unsaved leftover text
    * in) this exact story, if any — `null` the rest of the time. See
    * `generation/state.ts`'s `manuscriptGenerationView`. */
@@ -44,7 +46,7 @@ function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): reado
  * changes (every mutation and landed switch replaces it wholesale, so
  * reference equality is exactly the right memo key).
  */
-export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, generation, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
+export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, menuRequest, generation, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
   const model = useMemo(() => createManuscriptModel(payload), [payload]);
 
   const switchingAnchor = switching === null
@@ -82,6 +84,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
               controlsLocked={locked}
               showDirections={showDirections}
               editing={row.id === editingPartId}
+              menuSerial={menuRequest?.partId === row.id ? menuRequest.serial : 0}
               displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
               continuation={generation !== null && generation.mode === "append" && generation.appendTo === row.id
                 ? { text: generation.text, thinking: generation.thinking, live: generation.live }

@@ -17,3 +17,21 @@
 .part-editor-prose:focus, .part-editor-direction:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
 .part-editor-note { color: var(--dim); font-family: var(--ui); font-size: 13px; margin: 0; }
 .part-editor-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+
+/* ---------- the part menu (`···`) and the delete confirm ---------- */
+.part-menu { flex: 0 0 auto; position: relative; }
+.part-menu-trigger { height: 26px; width: 26px; }
+.part-menu-popover {
+  animation: rise 140ms ease both; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
+  box-shadow: var(--dropdown-shadow); display: flex; flex-direction: column; padding: 5px; position: absolute;
+  right: 0; top: 30px; width: 220px; z-index: 62;
+}
+.part-menu-item {
+  align-items: center; background: transparent; border: 0; border-radius: 8px; color: var(--ink); cursor: pointer;
+  display: flex; font-family: var(--ui); font-size: 14px; justify-content: space-between; padding: 8px 10px; text-align: left; width: 100%;
+}
+.part-menu-item:hover:not(:disabled), .part-menu-item:focus-visible { background: var(--row-hover); outline: 0; }
+.part-menu-item:disabled { cursor: default; opacity: .4; }
+.part-menu-key { color: var(--faint); font-family: var(--mono); font-size: 11px; }
+.part-menu-danger { color: var(--danger); }
+.part-menu-danger:hover:not(:disabled) { background: var(--danger-soft); }
