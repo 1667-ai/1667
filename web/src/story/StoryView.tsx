@@ -4,6 +4,7 @@ import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
+import { PartEditor } from "../editor/PartEditor.js";
 import { GenerationBar } from "../generation/GenerationBar.js";
 import { manuscriptGenerationView, type ManuscriptGeneration } from "../generation/state.js";
 import { useFollowStream } from "../generation/useFollowStream.js";
@@ -156,7 +157,14 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         <div className="story-scroll" ref={scrollRef}>
           <div className="story-body">
             {payload.path.length === 0 && generationView === null
-              ? <p className="story-empty">This story has no text yet.</p>
+              ? (editor !== null && editor.storyId === storyId && editor.mode === "first"
+                ? (
+                  <article className="part" aria-label="Part 1">
+                    <div className="part-header"><span className="part-number">PART 1</span></div>
+                    <PartEditor partNumber={1} showDirections={false} />
+                  </article>
+                )
+                : <p className="story-empty">This story has no text yet. Press w to write the first part.</p>)
               : (
                 <Manuscript
                   payload={payload}

@@ -23,6 +23,9 @@ export type SaveKind = "new" | "in-place";
 export interface EditorActions {
   /** `e`: opens the editor on this part. */
   openEdit(partId: string): void;
+  /** `w`: opens an empty editor for the writer's own take of this part, or —
+   * with `null` on an empty story — for the first part. */
+  openWrite(partId: string | null): void;
   setText(text: string): void;
   setInstruction(text: string): void;
   /** Saves the open editor: as a new take (the default, and the only Save of
@@ -192,6 +195,33 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
       }
       openSerial = ++serial;
       store.set((state) => ({ ...state, editor: openEditorState(storyId, "edit", node) }));
+    },
+
+    openWrite: (partId) => {
+      const state = store.get();
+      if (state.route.kind !== "story" || state.story.kind !== "loaded" || state.story.payload.id !== state.route.id) return;
+      const storyId = state.story.payload.id;
+      const current = state.editor;
+      const mode = partId === null ? "first" : "write";
+      if (current !== null && current.storyId === storyId && current.mode === mode && current.partId === partId) return;
+      let node = null;
+      if (partId === null) {
+        if (state.story.payload.path.length > 0) return;
+      } else {
+        const target = openPart(store, partId);
+        if (target === null) return;
+        if (partSwitchPending(target.story, partId)) {
+          pushToast(store, PART_SWITCHING_TOAST);
+          return;
+        }
+        node = target.node;
+      }
+      if (current !== null && editorDirty(current)) {
+        pushToast(store, EDITOR_OPEN_TOAST);
+        return;
+      }
+      openSerial = ++serial;
+      store.set((s) => ({ ...s, editor: openEditorState(storyId, mode, node) }));
     },
 
     setText: (text) => update((editor) => (

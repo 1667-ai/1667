@@ -285,3 +285,78 @@ test("a take switch, retake, or second editor cannot take the edited part away",
   assert.equal(store.get().editor?.text, "Draft.");
   assert.equal(toasts(store).length, 3);
 });
+
+// ---------------------------------------------------------------------------
+// `w`: the writer's own take, and the first part.
+// ---------------------------------------------------------------------------
+
+test("w writes the writer's own take next to the part: parentId and text only, focus on the new take", async () => {
+  const landed = linearPayload(["a1", "b2"], { nodeOverrides: { b2: { text: "My own words." } } });
+  const { actions, fake, store } = open(THREE, "b1", { createNode: async () => landed });
+
+  actions.editor.openWrite("b1");
+  assert.equal(store.get().editor?.text, "", "the editor opens empty");
+  actions.editor.setText("  My own words.  ");
+  await actions.editor.save("new");
+
+  assert.deepEqual(fake.createNodeCalls[0]!.body, { parentId: "a1", text: "My own words." });
+  assert.equal(store.get().editor, null);
+  assert.equal(focusedPart(store), "b2");
+});
+
+test("w on the first part sends no parent and an empty direction", async () => {
+  const landed = linearPayload(["a1"], { nodeOverrides: { a1: { text: "Once upon a time." } } });
+  const { actions, fake, store } = open(linearPayload([]), null, { createNode: async () => landed });
+
+  actions.editor.openWrite(null);
+  assert.equal(store.get().editor?.mode, "first");
+  actions.editor.setText("Once upon a time.");
+  await actions.editor.save("new");
+
+  assert.deepEqual(fake.createNodeCalls[0]!.body, { parentId: null, instruction: "", text: "Once upon a time." });
+  assert.equal(focusedPart(store), "a1");
+});
+
+test("w refuses blank text, and Save in place does not exist for it", async () => {
+  const { actions, fake, store } = open(THREE, "b1");
+
+  actions.editor.openWrite("b1");
+  await actions.editor.save("new");
+  actions.editor.setText("Words.");
+  await actions.editor.save("in-place");
+
+  assert.equal(toasts(store)[0], NOTHING_TO_SAVE_TOAST);
+  assert.equal(fake.createNodeCalls.length, 0);
+  assert.equal(store.get().editor?.text, "Words.");
+});
+
+test("a failed w keeps the draft; a revision_conflict reloads and does not retry by itself", async () => {
+  const { actions, fake, store } = open(THREE, "b1", {
+    createNode: async () => { throw plainFailure("revision_conflict", "stale"); },
+    loadStory: async () => THREE
+  });
+
+  actions.editor.openWrite("b1");
+  actions.editor.setText("Words.");
+  await actions.editor.save("new");
+
+  assert.equal(fake.createNodeCalls.length, 1);
+  assert.equal(fake.loadStoryCalls.length, 1);
+  assert.equal(store.get().editor?.text, "Words.");
+  assert.equal(store.get().editor?.saving, false);
+});
+
+test("an unknown outcome of w is settled by finding the new take after the reload", async () => {
+  const created = linearPayload(["a1", "b2"], { nodeOverrides: { b2: { text: "Words." } } });
+  const { actions, store } = open(THREE, "b1", {
+    createNode: async () => { throw new Error("socket closed"); },
+    loadStory: async () => created
+  });
+
+  actions.editor.openWrite("b1");
+  actions.editor.setText("Words.");
+  await actions.editor.save("new");
+
+  assert.equal(store.get().editor, null);
+  assert.equal(focusedPart(store), "b2");
+});

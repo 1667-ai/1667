@@ -28,6 +28,10 @@ export function handleWritingKey(
       if (activatesOnEnterOrSpace()) return false;
       actions.compose.requestFocus();
       return true;
+    case "write":
+      // An empty story has no focused part: `w` writes part 1.
+      actions.editor.openWrite(partId);
+      return true;
     case "edit":
       if (partId === null) return false;
       actions.editor.openEdit(partId);

@@ -193,3 +193,47 @@ test("case 4: Escape closes a clean editor, a changed one needs a second Escape,
   expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(1);
   expect(await part(page, "A: the opening part.").count()).toBe(1);
 }, 60_000);
+
+test("case 5: w then Ctrl/Cmd+S writes your own take: your words, ×2", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Write Own Take");
+  const page = await openStory(web, seeded.storyId, "Write Own Take");
+  await part(page, "B:").click();
+  await waitForAttribute(part(page, "B:"), "aria-current", "true");
+
+  await page.keyboard.press("w");
+  const box = page.getByRole("textbox", { name: "Your take of part 2" });
+  expect(await poll(() => isFocused(box))).toBeTrue();
+  expect(await box.inputValue()).toBe("");
+  await box.fill("B: written by hand.");
+  await page.keyboard.press("ControlOrMeta+s");
+
+  await waitForCount(part(page, "B: written by hand."), 1);
+  const landed = part(page, "written by hand");
+  expect(await landed.locator(".part-badge").allTextContents()).toContain("your words");
+  expect(await landed.locator(".label-chip").textContent()).toContain("×2");
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  expect(saved.path[1]!.text).toBe("B: written by hand.");
+  expect(saved.path[1]!.parentId).toBe(seeded.a);
+  expect(saved.nodes.filter((node) => node.parentId === seeded.a)).toHaveLength(2);
+}, 60_000);
+
+test("case 6: w on an empty story writes part 1", async () => {
+  const web = await spawnEditWeb();
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Empty Story");
+  const page = await openStory(web, created.id, "Empty Story");
+
+  await page.getByText("This story has no text yet.").waitFor();
+  await page.keyboard.press("w");
+  const box = page.getByRole("textbox", { name: "Your first part" });
+  expect(await poll(() => isFocused(box))).toBeTrue();
+  await box.fill("In the beginning.");
+  await page.getByRole("button", { name: "Save", exact: true }).click();
+
+  await waitForCount(part(page, "In the beginning."), 1);
+  const saved = await api.loadStory(created.id);
+  expect(saved.path).toHaveLength(1);
+  expect(saved.path[0]!.text).toBe("In the beginning.");
+  expect(saved.path[0]!.parentId).toBeNull();
+}, 60_000);
