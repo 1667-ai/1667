@@ -66,16 +66,29 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
 
   const hostFor = (storyId: string): DraftHost => ({
     read: () => composeDraftOf(store.get().compose, storyId),
-    write: (update) => writeDraft(storyId, update),
-    browsingHistory: () => isBrowsingHistory(store.get().compose)
+    write: (update) => writeDraft(storyId, update)
   });
 
-  /** A sent text goes to the history, and the walk starts over. */
-  const pushHistory = (text: string): void =>
+  /** A text goes to the history, and this story's walk starts over. */
+  const pushHistory = (storyId: string, text: string): void =>
     writeCompose((compose) => {
       const history = text.trim().length > 0 ? [...compose.history, text] : compose.history;
-      return { ...compose, history, historyIndex: history.length, historyDraft: null };
+      const current = composeDraftOf(compose, storyId);
+      const drafts = current.walk === null
+        ? compose.drafts
+        : { ...compose.drafts, [storyId]: { ...current, walk: null } };
+      return { ...compose, history, drafts };
     });
+
+  /** Closes retake mode. A direction the writer changed goes to the history
+   * first, so closing or retargeting a retake never throws it away. */
+  const archiveRetake = (storyId: string): void => {
+    const retake = composeDraftOf(store.get().compose, storyId).retake;
+    if (retake === null) return;
+    const node = openPart(store, retake.nodeId)?.node;
+    if (retake.text.trim().length > 0 && retake.text !== node?.instruction) pushHistory(storyId, retake.text);
+    writeDraft(storyId, (draft) => ({ ...draft, retake: null }));
+  };
 
   return {
     requestFocus: () => writeCompose((compose) => ({ ...compose, focusRequest: compose.focusRequest + 1 })),
@@ -102,7 +115,9 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         pushToast(store, EDITOR_OPEN_TOAST);
         return;
       }
-      // A retake already open for this part keeps what the writer typed.
+      // A retake already open for this part keeps what the writer typed; one
+      // open for another part is archived before this one replaces it.
+      if (composeDraftOf(store.get().compose, storyId).retake?.nodeId !== node.id) archiveRetake(storyId);
       writeDraft(storyId, (draft) => (
         draft.retake?.nodeId === node.id ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
       ));
@@ -110,20 +125,7 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
       writeCompose((compose) => ({ ...compose, focusRequest: compose.focusRequest + 1 }));
     },
 
-    cancelRetake: (storyId) => {
-      const retake = composeDraftOf(store.get().compose, storyId).retake;
-      if (retake === null) return;
-      const node = openPart(store, retake.nodeId)?.node;
-      // A direction the writer changed is kept in the history, so Escape
-      // never throws it away.
-      if (retake.text.trim().length > 0 && retake.text !== node?.instruction) {
-        writeCompose((compose) => {
-          const history = [...compose.history, retake.text];
-          return { ...compose, history, historyIndex: history.length, historyDraft: null };
-        });
-      }
-      writeDraft(storyId, (draft) => ({ ...draft, retake: null }));
-    },
+    cancelRetake: archiveRetake,
 
     submit: (storyId) => {
       const refusal = submitRefusal(store.get(), storyId);
@@ -141,7 +143,7 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
           return false;
         }
         const text = draft.retake.text;
-        pushHistory(text);
+        pushHistory(storyId, text);
         const handle = createRetakeDraft(host, { nodeId: target.node.id, text }, draft.direct);
         writeDraft(storyId, (current) => ({ ...current, retake: null }));
         // Focus the part being replaced: a landed take moves focus onto
@@ -158,7 +160,7 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         void deps.generation.continue();
         return true;
       }
-      pushHistory(text);
+      pushHistory(storyId, text);
       const handle = createDirectDraft(host, text);
       writeDraft(storyId, (current) => ({ ...current, direct: "" }));
       void deps.generation.continue({ instruction: text, draft: handle });
@@ -167,20 +169,17 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
 
     historyMove: (storyId, direction) => writeCompose((compose) => {
       const draft = composeDraftOf(compose, storyId);
-      const next = Math.max(0, Math.min(compose.history.length, compose.historyIndex + direction));
-      if (next === compose.historyIndex) return compose;
-      const live = compose.historyIndex === compose.history.length;
-      const historyDraft = live ? visibleComposeText(draft) : compose.historyDraft;
-      const text = next === compose.history.length ? (historyDraft ?? "") : (compose.history[next] ?? "");
+      const last = compose.history.length;
+      const index = draft.walk?.index ?? last;
+      const next = Math.max(0, Math.min(last, index + direction));
+      if (next === index) return compose;
+      const saved = draft.walk?.draft ?? visibleComposeText(draft);
+      const text = next === last ? saved : (compose.history[next] ?? "");
+      const walk = next === last ? null : { index: next, draft: saved };
       const nextDraft: StoryComposeDraft = draft.retake === null
-        ? { ...draft, direct: text }
-        : { ...draft, retake: { ...draft.retake, text } };
-      return {
-        ...compose,
-        drafts: { ...compose.drafts, [storyId]: nextDraft },
-        historyIndex: next,
-        historyDraft: next === compose.history.length ? null : historyDraft
-      };
+        ? { ...draft, direct: text, walk }
+        : { ...draft, retake: { ...draft.retake, text }, walk };
+      return { ...compose, drafts: { ...compose.drafts, [storyId]: nextDraft } };
     })
   };
 }

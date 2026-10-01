@@ -675,3 +675,38 @@ test("the history is shared by every story", async () => {
 
   assert.equal(composeDraftOf(store.get().compose, "story-2").direct, "from story one");
 });
+
+// ---------------------------------------------------------------------------
+// Review fixes: per-story history walk, retake retargeting.
+// ---------------------------------------------------------------------------
+
+test("a history walk belongs to its story: Ctrl+Down in another story never brings the first story's draft", async () => {
+  const { actions, store } = open(linearPayload(["a1", "b1"]), "b1");
+  actions.compose.setText(STORY_ID, "sent once");
+  actions.compose.submit(STORY_ID);
+  await waitFor(() => store.get().generation.kind === "idle");
+  actions.compose.setText(STORY_ID, "half-typed in story one");
+  actions.compose.historyMove(STORY_ID, -1);
+  assert.equal(draftOf(store).direct, "sent once");
+
+  actions.compose.setText("story-2", "my own text");
+  actions.compose.historyMove("story-2", 1);
+
+  assert.equal(composeDraftOf(store.get().compose, "story-2").direct, "my own text");
+  actions.compose.historyMove(STORY_ID, 1);
+  assert.equal(draftOf(store).direct, "half-typed in story one", "the first story's walk is intact");
+});
+
+test("R on another part archives a typed retake direction instead of replacing it silently", () => {
+  const payload = linearPayload(["a1", "b1", "c1"], {
+    nodeOverrides: { b1: { instruction: "Go left." }, c1: { instruction: "Go on." } }
+  });
+  const { actions, store } = open(payload, "c1");
+  actions.compose.startRetake("b1");
+  actions.compose.setText(STORY_ID, "A direction I typed.");
+
+  actions.compose.startRetake("c1");
+
+  assert.deepEqual(draftOf(store).retake, { nodeId: "c1", text: "Go on." });
+  assert.deepEqual(store.get().compose.history, ["A direction I typed."]);
+});

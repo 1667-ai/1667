@@ -1,7 +1,7 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import { textHash, type StoryApi } from "../../../client/api.js";
 import { isExplicitMutationUnsent } from "../../../client/api-error.js";
-import { findCreatedTake } from "../../../shared/created-take.js";
+import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 
@@ -51,10 +51,14 @@ export type EditorSaveOutcome =
 
 const CONFLICT_CODES: ReadonlySet<string | null> = new Set(["conflict", "revision_conflict"]);
 
-/** A failure that does not say whether the change was applied: the transport
- * was lost, or the server said so. A structured failure is a verdict; an
+/** A failure that does not say whether the change was applied: the bridge
+ * says the outcome is uncertain, the transport was lost, or the server says
+ * so. This is checked before anything else: a bridge failure with an
+ * uncertain outcome still carries a structured envelope, but that envelope is
+ * not a verdict on the mutation. A plain structured failure is a verdict; an
  * unsent mutation is a verdict too. */
 function outcomeUnknown(error: unknown): boolean {
+  if (error instanceof WebBridgeTransportError && error.mutationOutcome === "uncertain") return true;
   if (apiErrorCode(error) === "mutation_outcome_unknown") return true;
   if (isExplicitMutationUnsent(error)) return false;
   const structured = typeof error === "object" && error !== null
@@ -66,14 +70,14 @@ function outcomeUnknown(error: unknown): boolean {
 export async function saveEditor(api: StoryApi, request: EditorSaveRequest): Promise<EditorSaveOutcome> {
   try {
     const payload = await send(api, request);
-    return { kind: "saved", payload, landedId: landedIdOf(request, payload) };
+    return { kind: "saved", payload, landedId: await landedIdOf(api, request, payload) };
   } catch (error) {
     // Always reload after a failure: a failed call can still move the story's
     // version, and the reload is how an unknown outcome is settled.
     const reloaded = await api.loadStory(request.storyId).catch(() => null);
     if (CONFLICT_CODES.has(apiErrorCode(error))) return { kind: "conflict", payload: reloaded };
     if (reloaded !== null && outcomeUnknown(error)) {
-      const landedId = landedAfterUnknown(request, reloaded);
+      const landedId = await landedAfterUnknown(api, request, reloaded);
       if (landedId !== undefined) return { kind: "saved", payload: reloaded, landedId };
     }
     return { kind: "failed", payload: reloaded, error };
@@ -104,22 +108,31 @@ function parentOf(request: EditorSaveRequest): string | null {
   return request.kind === "write" ? request.parentId : request.kind === "fork" ? request.base.parentId : null;
 }
 
-function landedIdOf(request: EditorSaveRequest, payload: StoryPayload): string | null {
+/** The new take a successful create returned: found among the unknown nodes
+ * under the right parent, by exact text and direction. A success payload is
+ * the server's own answer, so a missing take is not an error — focus just
+ * stays where it is. */
+async function landedIdOf(
+  api: StoryApi,
+  request: EditorSaveRequest,
+  payload: StoryPayload
+): Promise<string | null> {
   if (request.kind === "in-place") return request.base.id;
-  const created = findCreatedTake(
-    payload,
-    request.knownNodeIds,
-    parentOf(request),
-    request.instruction,
-    request.text
-  );
-  return created?.id ?? null;
+  return await findExactNewTake(api, request, payload) ?? null;
 }
 
-/** After an unknown outcome: did the reload show the change? A new take is
- * found by its parent, direction, and text; an in-place edit is saved when the
- * reloaded part holds the submitted text. `undefined` means not saved. */
-function landedAfterUnknown(request: EditorSaveRequest, reloaded: StoryPayload): string | null | undefined {
+/** After an unknown outcome: did the reload show the change? An in-place edit
+ * is saved when the reloaded part holds exactly the submitted text and
+ * direction. A new take is saved only when a node that did not exist before
+ * holds exactly the submitted text and direction: the stub's preview and word
+ * count only nominate a candidate, and the candidate's full text decides. A
+ * sibling written in another window with the same start never counts.
+ * `undefined` means not saved. */
+async function landedAfterUnknown(
+  api: StoryApi,
+  request: EditorSaveRequest,
+  reloaded: StoryPayload
+): Promise<string | null | undefined> {
   if (request.kind === "in-place") {
     const node = reloaded.path.find((candidate) => candidate.id === request.base.id);
     if (node === undefined) return undefined;
@@ -127,5 +140,31 @@ function landedAfterUnknown(request: EditorSaveRequest, reloaded: StoryPayload):
     const instruction = request.patch.instruction ?? request.base.instruction;
     return node.text === text && node.instruction === instruction ? node.id : undefined;
   }
-  return landedIdOf(request, reloaded) ?? undefined;
+  return await findExactNewTake(api, request, reloaded);
+}
+
+const MAX_CANDIDATES = 8;
+
+async function findExactNewTake(
+  api: StoryApi,
+  request: Exclude<EditorSaveRequest, { kind: "in-place" }>,
+  payload: StoryPayload
+): Promise<string | undefined> {
+  const parentId = parentOf(request);
+  const exact = (node: { readonly text: string; readonly instruction: string }): boolean =>
+    node.text === request.text && node.instruction === request.instruction;
+  const onPath = payload.path.find((node) =>
+    !request.knownNodeIds.has(node.id) && node.parentId === parentId && exact(node));
+  if (onPath !== undefined) return onPath.id;
+  const candidates = payload.nodes
+    .filter((node) => !request.knownNodeIds.has(node.id) && node.parentId === parentId
+      && !payload.path.some((onLine) => onLine.id === node.id))
+    .slice(-MAX_CANDIDATES);
+  for (const candidate of candidates) {
+    // The stub has only a preview; the take's own line has its full text.
+    const line = await api.getTakeLine(request.storyId, candidate.id).catch(() => null);
+    const full = line?.parts.at(-1);
+    if (full !== undefined && full.id === candidate.id && exact(full)) return candidate.id;
+  }
+  return undefined;
 }

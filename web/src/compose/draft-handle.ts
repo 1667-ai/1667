@@ -5,9 +5,6 @@ import type { StoryComposeDraft } from "./state.js";
 export interface DraftHost {
   read(): StoryComposeDraft;
   write(update: (draft: StoryComposeDraft) => StoryComposeDraft): void;
-  /** True while the writer walks the history; a clear then must not wipe
-   * text that came from the history. */
-  browsingHistory(): boolean;
 }
 
 /**
@@ -33,7 +30,9 @@ export function createDirectDraft(host: DraftHost, text: string): DraftHandle {
     },
     clear: () => {
       if (!restored) return;
-      if (host.read().direct !== text || host.browsingHistory()) return;
+      const current = host.read();
+      // A clear must not wipe text that came from the history.
+      if (current.direct !== text || current.walk !== null) return;
       host.write((draft) => ({ ...draft, direct: "" }));
     }
   };

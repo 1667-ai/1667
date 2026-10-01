@@ -28,7 +28,7 @@ export function Composer(
   const draft = useStore(store, (state) => composeDraftOf(state.compose, storyId));
   const story = useStore(store, (state) => (state.story.kind === "loaded" && state.story.payload.id === storyId ? state.story : null));
   const focusRequest = useStore(store, (state) => state.compose.focusRequest);
-  const browsing = useStore(store, (state) => isBrowsingHistory(state.compose));
+  const browsing = isBrowsingHistory(draft);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
   const seenFocusRequest = useRef(focusRequest);
 

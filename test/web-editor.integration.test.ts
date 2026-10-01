@@ -13,8 +13,11 @@ import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../web/src/story/actio
 import { EDITOR_OPEN_TOAST } from "../web/src/editor/state.js";
 import { deleteQuestion } from "../web/src/story/part-ui-state.js";
 import { PART_WRITING_TOAST } from "../web/src/story/part-guard.js";
+import { ApiFailureError } from "../client/api-error.js";
+import { WebBridgeTransportError } from "../client/web-bridge-transport.js";
 import {
   STORY_ID,
+  stub,
   connectedState,
   createActionsForStore,
   deferred,
@@ -470,4 +473,70 @@ test("confirming is refused if a generation started while the dialog was open", 
   assert.notEqual(store.get().partUi.deletePlan, null, "the dialog stays; nothing was lost");
   gate.resolve({ payload: THREE });
   await run;
+});
+
+// ---------------------------------------------------------------------------
+// Review fixes: exact evidence after an unknown outcome.
+// ---------------------------------------------------------------------------
+
+test("an unknown outcome never counts a sibling that only looks alike: the full text decides", async () => {
+  // Another window wrote a take under a1 whose preview and word count match
+  // what this editor sent, but whose full text differs.
+  const lookalike = { ...stub("b9", "a1", "Fork text."), words: 2 };
+  const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, lookalike] };
+  const { actions, store, fake } = open(THREE, "b1", {
+    createNode: async () => { throw new Error("socket closed"); },
+    loadStory: async () => reloaded,
+    getTakeLine: async () => ({
+      forkIndex: 0,
+      skipped: 0,
+      parts: [{ id: "b9", parentId: "a1", instruction: "Go left.", text: "Fork text. And more from elsewhere.", model: "human", createdAt: new Date(0).toISOString(), activeChildId: null }]
+    })
+  });
+
+  actions.editor.openEdit("b1");
+  actions.editor.setText("Fork text.");
+  await actions.editor.save("new");
+
+  assert.equal(store.get().editor?.text, "Fork text.", "no exact match: the draft is kept");
+  assert.equal(fake.loadStoryCalls.length, 1);
+});
+
+test("an off-line take that matches exactly is found through its own line", async () => {
+  const exactStub = { ...stub("b9", "a1", "Fork text."), words: 2 };
+  const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, exactStub] };
+  const { actions, store } = open(THREE, "b1", {
+    createNode: async () => { throw new Error("socket closed"); },
+    loadStory: async () => reloaded,
+    getTakeLine: async () => ({
+      forkIndex: 0,
+      skipped: 0,
+      parts: [{ id: "b9", parentId: "a1", instruction: "Go left.", text: "Fork text.", model: "human", createdAt: new Date(0).toISOString(), activeChildId: null }]
+    })
+  });
+
+  actions.editor.openEdit("b1");
+  actions.editor.setText("Fork text.");
+  await actions.editor.save("new");
+
+  assert.equal(store.get().editor, null);
+});
+
+test("a bridge failure that says the outcome is uncertain is reconciled, not taken as a definite failure", async () => {
+  const created = linearPayload(["a1", "b2"], { nodeOverrides: { b2: { instruction: "Go left.", text: "Fork text." } } });
+  const uncertain = new WebBridgeTransportError(
+    { kind: "plain", code: "provider_failure", message: "unsure", status: 500 } as ConstructorParameters<typeof ApiFailureError>[0],
+    "uncertain",
+    undefined
+  );
+  const { actions, store } = open(THREE, "b1", {
+    createNode: async () => { throw uncertain; },
+    loadStory: async () => created
+  });
+
+  actions.editor.openEdit("b1");
+  actions.editor.setText("Fork text.");
+  await actions.editor.save("new");
+
+  assert.equal(store.get().editor, null, "the reload shows the take: saved");
 });

@@ -17,6 +17,15 @@ export interface RetakeDraft {
 export interface StoryComposeDraft {
   readonly direct: string;
   readonly retake: RetakeDraft | null;
+  /** A walk through the history, per story: where it is, and the text the
+   * box held when it began (put back when the walk passes the newest entry).
+   * `null` while the box shows live text. */
+  readonly walk: HistoryWalk | null;
+}
+
+export interface HistoryWalk {
+  readonly index: number;
+  readonly draft: string;
 }
 
 export interface ComposeState {
@@ -24,21 +33,16 @@ export interface ComposeState {
   /** Sent directions of this browser session, oldest first. Shared by every
    * story, like the TUI's. Never saved. */
   readonly history: readonly string[];
-  /** `history.length` means "not browsing": the composer shows live text. */
-  readonly historyIndex: number;
-  /** The text that was in the composer when browsing began, put back when
-   * the writer walks past the newest entry. */
-  readonly historyDraft: string | null;
   /** Raised by one each time something asks the composer to take keyboard
    * focus (Enter or `i` in the manuscript, starting a retake). */
   readonly focusRequest: number;
 }
 
 export function initialComposeState(): ComposeState {
-  return { drafts: {}, history: [], historyIndex: 0, historyDraft: null, focusRequest: 0 };
+  return { drafts: {}, history: [], focusRequest: 0 };
 }
 
-const EMPTY_DRAFT: StoryComposeDraft = { direct: "", retake: null };
+const EMPTY_DRAFT: StoryComposeDraft = { direct: "", retake: null, walk: null };
 
 export function composeDraftOf(state: ComposeState, storyId: string): StoryComposeDraft {
   return state.drafts[storyId] ?? EMPTY_DRAFT;
@@ -49,6 +53,6 @@ export function visibleComposeText(draft: StoryComposeDraft): string {
   return draft.retake === null ? draft.direct : draft.retake.text;
 }
 
-export function isBrowsingHistory(state: ComposeState): boolean {
-  return state.historyIndex !== state.history.length;
+export function isBrowsingHistory(draft: StoryComposeDraft): boolean {
+  return draft.walk !== null;
 }

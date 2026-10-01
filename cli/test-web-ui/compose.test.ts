@@ -360,3 +360,16 @@ test("case 9: R opens retake mode filled with the old direction; the new directi
   expect(diagnostics.consoleErrors).toEqual([]);
   expect(diagnostics.cspViolations).toEqual([]);
 }, 60_000);
+
+test("case 11: i focuses the composer even when a button has the keyboard", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project);
+  const seeded = await seedThreeParts(web, "Button Focus");
+  const page = await openSeededPage(web, seeded.storyId, "Button Focus");
+
+  await continueButton(page).focus();
+  await page.keyboard.press("i");
+
+  expect(await poll(() => isFocused(composer(page)))).toBeTrue();
+  expect(await composer(page).inputValue()).toBe("");
+}, 60_000);

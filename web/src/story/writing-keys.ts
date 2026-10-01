@@ -25,7 +25,7 @@ export function handleWritingKey(
       // Enter on a focused button or link keeps its own meaning (a take
       // arrow activates). `preventDefault` (via the return) keeps an `i`
       // from being typed into the box it opens.
-      if (activatesOnEnterOrSpace()) return false;
+      if (event.key === "Enter" && activatesOnEnterOrSpace()) return false;
       actions.compose.requestFocus();
       return true;
     case "write":

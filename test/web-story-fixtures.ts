@@ -41,7 +41,7 @@ export async function waitFor(condition: () => boolean, timeoutMs = 2_000): Prom
   }
 }
 
-function stub(id: string, parentId: string | null, text: string): NodeStub {
+export function stub(id: string, parentId: string | null, text: string): NodeStub {
   return {
     id,
     parentId,
@@ -159,6 +159,7 @@ export interface FakeApiOptions {
   readonly editNode?: StoryApi["editNode"];
   readonly deleteNode?: StoryApi["deleteNode"];
   readonly loadStory?: StoryApi["loadStory"];
+  readonly getTakeLine?: StoryApi["getTakeLine"];
   readonly defaultContinueDirection?: string;
 }
 
@@ -206,6 +207,10 @@ export function fakeApi(overrides: FakeApiOptions = {}): FakeApi {
       return linearPayload(["a1"]);
     },
     listStories: async () => [],
+    getTakeLine: async (storyId, nodeId) => {
+      if (overrides.getTakeLine !== undefined) return overrides.getTakeLine(storyId, nodeId);
+      throw new Error("no take line in this fake");
+    },
     getSettings: async () => {
       if (overrides.defaultContinueDirection === undefined) throw new Error("no settings in this fake");
       return { activeWriting: { defaultContinueDirection: overrides.defaultContinueDirection } } as never;
