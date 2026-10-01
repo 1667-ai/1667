@@ -15,7 +15,7 @@ import { adoptSameStoryPayload } from "../src/story-adoption.js";
 import { openDirectComposer } from "../src/composer-ownership.js";
 import { setComposerText } from "../src/composer-model.js";
 import { initialSettingsOverlay } from "../src/settings-overlay-model.js";
-import { findCreatedTake } from "../src/created-take.js";
+import { findCreatedTake } from "../../shared/created-take.js";
 import { countWords } from "../../shared/story-text.js";
 import { nodeStubPreviewText } from "../../shared/node-stub.js";
 import type { StoryPayload } from "../../shared/types.js";
