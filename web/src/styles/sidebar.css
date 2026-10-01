@@ -18,6 +18,7 @@
 }
 
 .brand {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
@@ -48,69 +49,26 @@
 }
 
 .brand-actions {
-  position: relative;
   display: flex;
   align-items: center;
   gap: var(--s-1);
 }
 
-/* `theme/ThemeControls.tsx` wraps its palette trigger and popover in this
-   element so `ui/usePopover.ts` has an explicit container around both
-   (review fix C9) — DOM containment is all that check needs, so this stays
-   an ordinary static block, deliberately NOT `position: relative`: the
-   popover's own `right: 0` (below) needs `.brand-actions` — flush with the
-   sidebar's own inner width — as its positioning ancestor, not this
-   ~30px-wide trigger button's own box. A plain `<div>` around one `<button>`
-   already sizes to that button's content as a flex item, so this needs no
-   layout rule of its own. */
-
-.theme-pick,
-.theme-pick:hover:not(:disabled) {
-  color: var(--accent);
-}
+/* `theme/ThemeControls.tsx` wraps its palette trigger and popover in
+   `.theme-pick-wrap` so `ui/usePopover.ts` has one container around both
+   (review fix C9). It sets no `position`, so the popover below is placed
+   against `.brand` and spans the sidebar's inner width. */
 
 .theme-popover {
-  position: absolute;
-  top: 36px;
-  /* Relative to `.brand-actions` — `.theme-pick-wrap` (above) deliberately
-     sets no `position`, so this stays flush with the sidebar's inner right
-     edge and full inner width, exactly as before `usePopover` needed an
-     explicit container around the trigger. */
+  top: calc(100% - var(--s-1));
   right: 0;
-  width: 236px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--shadow-pop);
-  padding: 6px;
-  z-index: 60;
-  animation: rise 150ms ease both;
+  left: 0;
+  width: auto;
+  max-width: none;
 }
 
-.theme-popover-label {
-  font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
-  color: var(--dim);
-  padding: 8px 10px 6px;
-}
-
-.theme-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 9px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-}
-
-.theme-row:hover {
-  background: var(--row-hover);
-}
-
-.theme-row.active {
+.theme-row.active,
+.theme-row.active:hover:not(:disabled) {
   background: var(--accent-soft);
 }
 
@@ -127,21 +85,17 @@
 }
 
 .theme-dot-overlap {
-  margin-left: -5px;
+  margin-left: calc(-1 * var(--s-1));
 }
 
 .theme-row-text {
-  flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .theme-row-name {
-  font-size: var(--fs-ui);
   font-weight: 500;
-  line-height: 1;
   color: var(--ink);
 }
 
@@ -275,49 +229,8 @@
 }
 
 .story-item-menu-popover {
-  position: absolute;
-  top: 30px;
-  right: 4px;
-  width: 160px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--shadow-pop);
-  padding: 5px;
-  z-index: 60;
-  animation: rise 150ms ease both;
-}
-
-.story-item-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--ink);
-  font-size: var(--fs-ui);
-  cursor: pointer;
-  text-align: left;
-}
-
-.story-item-menu-item svg {
-  width: var(--icon-sm);
-  height: var(--icon-sm);
-}
-
-.story-item-menu-item:hover {
-  background: var(--row-hover);
-}
-
-.story-item-menu-danger {
-  color: var(--danger);
-}
-
-.story-item-menu-danger:hover {
-  background: var(--danger-soft);
+  top: calc(100% + var(--s-1));
+  right: var(--s-1);
 }
 
 /* ---------- drawer breakpoint (owner decision: below ~800px) ---------- */

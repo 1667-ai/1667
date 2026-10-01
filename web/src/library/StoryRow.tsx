@@ -59,30 +59,30 @@ function RowMenu(
         <Icon path={ICONS.dots} />
       </button>
       {open && (
-        <div className="story-item-menu-popover" role="menu">
+        <div className="menu story-item-menu-popover" role="menu">
           <button
             type="button"
             role="menuitem"
-            className="story-item-menu-item"
+            className="menu-item"
             onClick={() => {
               setOpen(false);
               onRename();
             }}
           >
             <Icon path={ICONS.pen} />
-            Rename
+            <span className="menu-item-text">Rename</span>
           </button>
           <button
             type="button"
             role="menuitem"
-            className="story-item-menu-item story-item-menu-danger"
+            className="menu-item menu-item-danger"
             onClick={() => {
               setOpen(false);
               onDelete();
             }}
           >
             <Icon path={ICONS.trash} />
-            Delete
+            <span className="menu-item-text">Delete</span>
           </button>
         </div>
       )}

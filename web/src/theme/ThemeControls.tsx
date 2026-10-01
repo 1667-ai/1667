@@ -60,8 +60,8 @@ function ThemePicker(
   }
 ) {
   return (
-    <div className="theme-popover" role="menu" aria-label="Theme">
-      <div className="theme-popover-label">Palette</div>
+    <div className="menu theme-popover" role="menu" aria-label="Theme">
+      <div className="menu-heading">Palette</div>
       {PALETTES.map((candidate) => {
         const dots = candidate.dots[mode];
         return (
@@ -70,7 +70,7 @@ function ThemePicker(
             type="button"
             role="menuitemradio"
             aria-checked={candidate.id === palette}
-            className={`theme-row${candidate.id === palette ? " active" : ""}`}
+            className={`menu-item theme-row${candidate.id === palette ? " active" : ""}`}
             onClick={() => onSelectPalette(candidate.id)}
           >
             <span className="theme-dots">

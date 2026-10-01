@@ -107,7 +107,7 @@ export function PartActionsMenu(
         <Icon path={ICONS.dots} />
       </button>
       {open && (
-        <div className="part-menu-popover" role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
+        <div className="menu part-menu-popover" role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
           {items.map((item) => {
             const refusal = state === null ? null : partActionRefusal(state, part.id, item.id);
             return (
@@ -115,14 +115,14 @@ export function PartActionsMenu(
               key={item.id}
               type="button"
               role="menuitem"
-              className={`part-menu-item${item.danger === true ? " part-menu-danger" : ""}`}
+              className={`menu-item${item.danger === true ? " menu-item-danger" : ""}`}
               title={refusal ?? `${item.label} (${item.key})`}
               disabled={refusal !== null}
               onClick={() => run(item.id)}
             >
               <Icon path={item.icon} />
-              <span className="part-menu-label">{item.label}</span>
-              <span className="part-menu-key" aria-hidden="true">{item.key}</span>
+              <span className="menu-item-text">{item.label}</span>
+              <span className="menu-key" aria-hidden="true">{item.key}</span>
             </button>
             );
           })}

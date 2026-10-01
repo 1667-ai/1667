@@ -30,7 +30,8 @@ export interface TakePeekProps {
 }
 
 const VIRTUAL_THRESHOLD = 50;
-const ROW_HEIGHT = 76;
+/** One row's height in the virtual list: heading, two snippet lines, meta. */
+const ROW_HEIGHT = 88;
 const VIEWPORT_HEIGHT = 360;
 const OVERSCAN = 3;
 
