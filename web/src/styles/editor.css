@@ -23,7 +23,7 @@
 .part-menu-trigger { height: 26px; width: 26px; }
 .part-menu-popover {
   animation: rise 140ms ease both; background: var(--surface); border: 1px solid var(--line); border-radius: 12px;
-  box-shadow: var(--dropdown-shadow); display: flex; flex-direction: column; padding: 5px; position: absolute;
+  box-shadow: var(--shadow-pop); display: flex; flex-direction: column; padding: 5px; position: absolute;
   right: 0; top: 30px; width: 220px; z-index: 62;
 }
 .part-menu-item {

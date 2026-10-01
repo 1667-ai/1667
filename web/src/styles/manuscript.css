@@ -88,7 +88,7 @@
 }
 .chapter-one-heading > span { background: var(--line); height: 1px; width: 34px; }
 .chapter-one-heading strong {
-  color: var(--meta); font-family: var(--mono); font-size: 9px; font-weight: 600;
+  color: var(--dim); font-family: var(--mono); font-size: 9px; font-weight: 600;
   letter-spacing: .2em; line-height: 1;
 }
 
@@ -96,14 +96,14 @@
 .chapter-divider-kicker { align-items: center; display: flex; gap: 14px; justify-content: center; margin-bottom: 6px; }
 .chapter-divider-kicker > span { background: var(--line); height: 1px; width: 44px; }
 .chapter-divider-kicker strong {
-  color: var(--meta); font-family: var(--mono); font-size: 9.5px; font-weight: 600;
+  color: var(--dim); font-family: var(--mono); font-size: 9.5px; font-weight: 600;
   letter-spacing: .2em; line-height: 1;
 }
 .chapter-title {
   color: var(--ink); font-family: var(--serif); font-size: 21px; font-weight: 500; line-height: 1.25; padding: 2px 6px;
 }
-.chapter-title.untitled { color: var(--meta-soft); font-size: 15px; font-style: italic; font-weight: 400; }
+.chapter-title.untitled { color: var(--faint); font-size: 15px; font-style: italic; font-weight: 400; }
 .chapter-divider-meta {
-  color: var(--meta-soft); font-family: var(--mono); font-size: 8.5px; font-weight: 500;
+  color: var(--faint); font-family: var(--mono); font-size: 8.5px; font-weight: 500;
   letter-spacing: .08em; line-height: 1; margin-top: 5px;
 }

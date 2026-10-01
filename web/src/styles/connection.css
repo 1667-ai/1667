@@ -12,13 +12,13 @@
 }
 .connection-card {
   background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: var(--dropdown-shadow); display: flex; flex-direction: column; gap: 14px;
+  box-shadow: var(--shadow-modal); display: flex; flex-direction: column; gap: 14px;
   max-width: 40ch; padding: 28px 30px; text-align: center;
 }
 .connection-card p { color: var(--ink); font-size: 15px; line-height: 1.6; }
 .connection-detail { color: var(--dim); font-family: var(--mono); font-size: 12.5px; }
 .connection-overlay {
-  align-items: center; background: rgba(15, 16, 28, 0.5); display: flex; inset: 0;
+  align-items: center; background: var(--scrim); display: flex; inset: 0;
   justify-content: center; padding: 24px; position: fixed; z-index: 90;
 }
 .connection-overlay .connection-card { animation: rise 200ms ease both; }

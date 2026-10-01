@@ -43,7 +43,7 @@
    stylesheet value here would only ever be overridden, never used. */
 .take-peek {
   animation: rise 140ms ease both; background: var(--surface); border: 1px solid var(--line);
-  border-radius: 14px; box-shadow: var(--dropdown-shadow); color: var(--ink); text-align: left;
+  border-radius: 14px; box-shadow: var(--shadow-pop); color: var(--ink); text-align: left;
   width: 320px; z-index: 62;
 }
 .take-peek > header {
@@ -72,7 +72,7 @@
   display: inline-flex; font-family: var(--mono); font-size: 8.5px; font-weight: 600;
   gap: 4px; letter-spacing: .07em; line-height: 1; padding: 4px 7px; text-transform: uppercase;
 }
-.label-canon { background: rgba(224, 168, 60, .18); color: var(--stale-amber); }
+.label-canon { background: var(--canon-soft); color: var(--stale-amber); }
 .label-alt { background: var(--accent-soft); color: var(--accent); }
 .label-draft { background: var(--chip); color: var(--dim); }
 .label-discarded { background: var(--danger-soft); color: var(--danger); }

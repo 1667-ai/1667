@@ -12,7 +12,7 @@
  */
 
 dialog.modal::backdrop {
-  background: rgba(15, 16, 28, 0.42);
+  background: var(--scrim);
 }
 
 .modal {
@@ -26,7 +26,7 @@ dialog.modal::backdrop {
   display: flex;
   flex-direction: column;
   gap: 16px;
-  box-shadow: 0 30px 80px -20px rgba(15, 16, 28, 0.5);
+  box-shadow: var(--shadow-modal);
   animation: rise 250ms ease both;
   color: var(--ink);
 }
