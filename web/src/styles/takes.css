@@ -71,7 +71,7 @@
 }
 .take-peek-row.virtual-row { left: var(--s-1); position: absolute; right: var(--s-1); width: auto; }
 .take-peek-row:hover:not(:disabled) { background: var(--row-hover); }
-.take-peek-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); opacity: 1; }
+.take-peek-row.active { background: var(--accent-soft); box-shadow: var(--bar-accent); opacity: 1; }
 .take-peek-heading {
   align-items: center; color: var(--dim); display: flex; font: var(--font-meta); gap: var(--s-2);
   letter-spacing: var(--ls-label); text-transform: uppercase; width: 100%;

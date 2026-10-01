@@ -47,6 +47,10 @@
   --shadow-pop: 0 20px 50px -16px rgba(20, 22, 40, 0.4);
   --shadow-modal: 0 30px 80px -20px rgba(15, 16, 28, 0.5);
   --shadow-panel: -24px 0 60px -24px rgba(15, 16, 28, 0.4);
+  /* The 2 px bar on the left of the current part, the active take, and a
+     summary card. */
+  --bar-accent: inset 2px 0 0 var(--accent);
+  --bar-summary: inset 2px 0 0 var(--summary);
   --serif: "Newsreader Variable", "Newsreader", Georgia, serif;
   --mono: "Spline Sans Mono Variable", "Spline Sans Mono", ui-monospace, monospace;
   --ui: system-ui, -apple-system, "Segoe UI", sans-serif;

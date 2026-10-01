@@ -20,7 +20,7 @@
    that holds keyboard focus without being current (focus stays on the
    previous part while a new one streams in) shows the same bar. */
 .part[aria-current="true"], .part:focus-visible {
-  box-shadow: inset 2px 0 0 var(--accent);
+  box-shadow: var(--bar-accent);
   padding-left: var(--s-3);
   margin-left: calc(-1 * var(--s-3));
 }
@@ -54,7 +54,7 @@
 
 .part-summary-body {
   background: var(--summary-soft); border: 1px solid color-mix(in srgb, var(--summary) 40%, var(--line));
-  border-radius: var(--r-lg); box-shadow: inset 3px 0 0 var(--summary); padding: var(--s-4);
+  border-radius: var(--r-lg); box-shadow: var(--bar-summary); padding: var(--s-4);
 }
 .summary-card-label {
   background: var(--summary-soft); border-radius: var(--r-pill); color: var(--summary); display: inline-flex;
