@@ -31,3 +31,9 @@
 .recovery-banner ul { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
 .recovery-banner li { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
 .recovery-banner li span { color: var(--dim); font-size: 13px; }
+
+/* Unsaved work listed on a connection screen (`ui/UnsavedWork.tsx`). */
+.unsaved-work { background: var(--bg); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 14px 24px; }
+.unsaved-work-item { align-items: center; display: flex; gap: 12px; }
+.unsaved-work-label { color: var(--dim); flex: 0 0 160px; font-family: var(--ui); font-size: 14px; }
+.unsaved-work-text { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; flex: 1; font-family: var(--ui); font-size: 14px; padding: 8px 10px; resize: none; }

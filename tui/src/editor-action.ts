@@ -50,7 +50,7 @@ import type {
 } from "./state.js";
 import type { ActionContext } from "./action-context.js";
 import { textHash } from "./api.js";
-import { findCreatedTake } from "./created-take.js";
+import { findCreatedTake } from "../../shared/created-take.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { moveComposerTo, setComposerText } from "./composer-model.js";
 import {

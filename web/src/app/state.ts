@@ -1,7 +1,10 @@
 import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
+import { initialComposeState, type ComposeState } from "../compose/state.js";
+import type { EditorState } from "../editor/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
+import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
 import type { ConnectionState } from "./connection.js";
@@ -28,6 +31,12 @@ export interface AppState {
    * top level, not inside `story`, because it outlives the reader leaving
    * the story it targets. See `generation/state.ts`. */
   readonly generation: GenerationState;
+  /** The composer's drafts and history (#409 step 6). See `compose/state.ts`. */
+  readonly compose: ComposeState;
+  /** The one open inline editor, if any (#409 step 6). See `editor/state.ts`. */
+  readonly editor: EditorState | null;
+  /** The part menu request and the delete confirmation (#409 step 6). */
+  readonly partUi: PartUiState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -47,6 +56,9 @@ export function initialAppState(
     library: initialLibraryState(),
     story: initialStoryState(),
     generation: initialGenerationState(),
+    compose: initialComposeState(),
+    editor: null,
+    partUi: initialPartUiState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

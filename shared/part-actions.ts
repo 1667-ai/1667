@@ -1,4 +1,4 @@
-import type { StoryNode } from "../../shared/types.js";
+import type { StoryNode } from "./types.js";
 
 export type PartActionId =
   | "direct" | "continue" | "retake" | "retake-with-prompt" | "write" | "edit"

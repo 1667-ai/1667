@@ -19,7 +19,7 @@ import {
   type PlacementStop
 } from "./aside-placement-model.js";
 import { completePlacementLanding } from "./aside-placement-settle.js";
-import { findCreatedTake } from "./created-take.js";
+import { findCreatedTake } from "../../shared/created-take.js";
 import { generationBusy } from "./generation-action.js";
 import {
   createStoryViewModel,

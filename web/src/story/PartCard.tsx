@@ -5,8 +5,10 @@ import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { resolveTakeTarget } from "../../../shared/story-model.js";
 import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { PartEditor } from "../editor/PartEditor.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
+import { PartActionsMenu } from "./PartActionsMenu.js";
 import { Prose } from "./Prose.js";
 import { SummaryBody } from "./SummaryBody.js";
 import { TakePeek } from "./TakePeek.js";
@@ -58,6 +60,11 @@ export interface PartCardProps {
    * to compute it. */
   readonly controlsLocked: boolean;
   readonly showDirections: boolean;
+  /** True while the inline editor sits in this part's slot (`editor/`): the
+   * editor replaces the part's body, and the take controls stay still. */
+  readonly editing: boolean;
+  /** Raised by the `x` key for this part: its menu opens. */
+  readonly menuSerial: number;
   /** The take index to show while a switch on this part is in flight —
    * `part.takeIndex` otherwise (server-authoritative once it lands). */
   readonly displayTakeIndex: number;
@@ -85,13 +92,15 @@ function PartCardImpl({
   busy,
   controlsLocked,
   showDirections,
+  editing,
+  menuSerial,
   displayTakeIndex,
   continuation,
   onFocus,
   onSwitch,
   onSwitchTo
 }: PartCardProps) {
-  const controlsDisabled = busy || controlsLocked;
+  const controlsDisabled = busy || controlsLocked || editing;
   const node = part.node;
   const humanEdit = node.attribution ?? null;
   const isLegacySummary = part.isSummary;
@@ -226,11 +235,13 @@ function PartCardImpl({
               </span>
             </>
           )}
+          <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
-        {showDirections && node.instruction.length > 0 && (
+        {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}
+        {!editing && showDirections && node.instruction.length > 0 && (
           <div className="part-instruction">{node.instruction}</div>
         )}
-        {isLegacySummary ? (
+        {editing ? null : isLegacySummary ? (
           <SummaryBody text={node.text} humanEdit={humanEdit} onMouseUp={handleMouseUp} />
         ) : (
           <div onMouseUp={handleMouseUp}>

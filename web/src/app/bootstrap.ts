@@ -1,3 +1,4 @@
+import { unsavedWork } from "./unsaved-work.js";
 import type { ThemeMode } from "../theme/themes.js";
 import { createAppActions, type AppActions } from "./actions.js";
 import { connect, reconnect } from "./connection.js";
@@ -85,8 +86,9 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
       // nowhere else; reloading past this dialog without saving or copying
       // it first would lose the writer's only copy for good.
       const onBeforeUnload = (event: BeforeUnloadEvent): void => {
-        const generation = store.get().generation;
-        if (generation.kind === "idle") return;
+        const { generation, editor, compose } = store.get();
+        // A changed editor and unsent composer text exist only in this page.
+        if (generation.kind === "idle" && unsavedWork(editor, compose).length === 0) return;
         event.preventDefault();
         event.returnValue = "";
       };

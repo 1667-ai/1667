@@ -57,12 +57,21 @@ export function registerScreenKeys(handler: ScreenKeyHandler): () => void {
 export function useKeymap(keymap: Keymap): void {
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent): void => {
+      // A key something already handled is nobody else's. This is
+      // load-bearing for two hand-backs: the composer's Enter and an editor's
+      // close both move keyboard focus off the field in their own handler,
+      // which runs before this listener — so by the time it runs, no field
+      // has focus any more, and without this check the same key would be
+      // read again as a screen key (Enter would reopen the composer it just
+      // left). `usePopover`'s Escape and every field's Escape rely on it too:
+      // they call `preventDefault` so a close never also stops a generation.
+      if (event.defaultPrevented) return;
       if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !fieldHasFocus()) {
         event.preventDefault();
         keymap.searchRef.current?.focus();
         return;
       }
-      if (event.key === "Escape" && !event.defaultPrevented && !fieldHasFocus() && keymap.stopGeneration()) {
+      if (event.key === "Escape" && !fieldHasFocus() && keymap.stopGeneration()) {
         event.preventDefault();
         return;
       }

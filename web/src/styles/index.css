@@ -11,5 +11,7 @@
 @import "./manuscript.css";
 @import "./takes.css";
 @import "./generation.css";
+@import "./compose.css";
+@import "./editor.css";
 @import "./connection.css";
 @import "./toast.css";

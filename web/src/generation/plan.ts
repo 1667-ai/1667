@@ -1,14 +1,14 @@
 import { continuationIntent } from "../../../shared/continuation-intent.js";
 import type { GenerationTarget } from "../../../shared/stopped-generation.js";
-import type { StoryPayload } from "../../../shared/types.js";
+import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { textHash } from "../../../client/api.js";
 
 /**
  * What Continue is about to ask for, computed the exact same way the TUI's
  * own `generate()` does (`shared/continuation-intent.ts`, moved there in
  * step 5 precisely so both surfaces share it) — TUI parity is an owner
- * decision, not a coincidence. Only an empty instruction is in scope for
- * step 5 (the composer seam, `instruction`, is step 6's).
+ * decision, not a coincidence. A typed instruction always opens a take; a
+ * retake (`regenerateNode`) opens a sibling of that part.
  */
 export interface GenerationPlan {
   readonly target: GenerationTarget;
@@ -31,14 +31,28 @@ export interface GenerationPlan {
   readonly instruction: string;
 }
 
-export async function planContinue(
-  payload: StoryPayload,
-  focusedPartId: string | null,
-  requestedInstruction = "",
-  defaultContinueDirection?: string
-): Promise<GenerationPlan> {
-  const intent = continuationIntent(payload, focusedPartId, requestedInstruction, null, defaultContinueDirection);
-  const seamPathIndex = intent.fromSeam ? intent.focusPathIndex : payload.path.length - 1;
+export interface PlanRequest {
+  readonly focusedPartId: string | null;
+  /** What the writer typed; empty for a plain Continue. */
+  readonly instruction?: string;
+  readonly defaultContinueDirection?: string;
+  /** The part a retake replaces. */
+  readonly retakeNode?: StoryNode | null;
+}
+
+export async function planContinue(payload: StoryPayload, request: PlanRequest): Promise<GenerationPlan> {
+  const requestedInstruction = request.instruction ?? "";
+  const regenerateNode = request.retakeNode ?? null;
+  const intent = continuationIntent(payload, request.focusedPartId, requestedInstruction, regenerateNode, request.defaultContinueDirection);
+  // A retake hides the part it replaces and everything below it, so the
+  // streaming take takes that part's own number (the TUI's `virtualNumber`).
+  // A Continue from the middle hides what follows the focused part.
+  let seamPathIndex = intent.fromSeam ? intent.focusPathIndex : payload.path.length - 1;
+  if (regenerateNode !== null) {
+    const retakeIndex = payload.path.findIndex((node) => node.id === regenerateNode.id);
+    if (retakeIndex < 0) throw new Error("1667 web: retake target is not on the line");
+    seamPathIndex = retakeIndex - 1;
+  }
   if (intent.appendLast) {
     const leaf = intent.leaf;
     // `intent.appendLast` is only ever true when `continuationIntent` found

@@ -53,7 +53,7 @@ import {
   type PartAction,
   type PartActionId,
   type PartActionSelection
-} from "./part-actions.js";
+} from "../../shared/part-actions.js";
 import { createPrunePlan } from "./prune-model.js";
 import type { PendingGenerationDraft, RuntimeState } from "./state.js";
 import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";

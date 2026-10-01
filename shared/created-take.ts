@@ -1,6 +1,6 @@
-import { countWords } from "../../shared/story-text.js";
-import { nodeStubHasInstruction, nodeStubPreviewText } from "../../shared/node-stub.js";
-import type { NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
+import { countWords } from "./story-text.js";
+import { nodeStubHasInstruction, nodeStubPreviewText } from "./node-stub.js";
+import type { NodeStub, StoryNode, StoryPayload } from "./types.js";
 
 /** Mutation responses carry node stubs for off-path siblings, not a separate
  * created ID. Match the canonical wire projection without assuming reroute. */
