@@ -1,0 +1,181 @@
+import type { GenerationActions } from "../generation/actions.js";
+import { RETAKE_GONE_TOAST } from "../generation/actions.js";
+import type { AppState } from "../app/state.js";
+import type { Store } from "../app/store.js";
+import { pushToast } from "../app/toasts.js";
+import { STORY_LOCKED_TOAST, type StoryActions } from "../story/actions.js";
+import { openPart, SUMMARY_RETAKE_TOAST } from "../story/part-actions.js";
+import { PART_SWITCHING_TOAST, partSwitchPending } from "../story/part-guard.js";
+import { createDirectDraft, createRetakeDraft, type DraftHost } from "./draft-handle.js";
+import {
+  composeDraftOf,
+  isBrowsingHistory,
+  visibleComposeText,
+  type ComposeState,
+  type StoryComposeDraft
+} from "./state.js";
+
+export interface ComposeActionDependencies {
+  readonly story: Pick<StoryActions, "focusPart">;
+  readonly generation: Pick<GenerationActions, "continue">;
+}
+
+export interface ComposeActions {
+  /** Asks the composer to take keyboard focus (Enter or `i`). */
+  requestFocus(): void;
+  /** The writer typed: replaces the text the box shows. */
+  setText(storyId: string, text: string): void;
+  /** `R`: opens retake mode for this part, filled with its direction. */
+  startRetake(partId: string): void;
+  /** Closes retake mode. The Direct text comes back. */
+  cancelRetake(storyId: string): void;
+  /** Sends the box. Returns whether it was sent; a refusal shows a toast and
+   * keeps the draft in the box. */
+  submit(storyId: string): boolean;
+  /** Walks the history: -1 older, 1 newer. */
+  historyMove(storyId: string, direction: -1 | 1): void;
+}
+
+/** Why a send is refused right now, or `null`. Every wording keeps the
+ * promise "draft kept". */
+function submitRefusal(state: AppState, storyId: string): string | null {
+  if (state.connection.kind !== "connected") return "Not connected. Draft kept.";
+  const generation = state.generation;
+  if (generation.kind === "idle") return null;
+  if (generation.storyId !== storyId) {
+    return `Already writing in ${generation.storyTitle}. Esc stops it. Draft kept.`;
+  }
+  if (generation.kind === "unsaved") return "The last text is not saved yet. Retry or discard it first. Draft kept.";
+  return `${STORY_LOCKED_TOAST} Draft kept.`;
+}
+
+export function createComposeActions(store: Store<AppState>, deps: ComposeActionDependencies): ComposeActions {
+  const writeCompose = (update: (compose: ComposeState) => ComposeState): void =>
+    store.set((state) => {
+      const compose = update(state.compose);
+      return compose === state.compose ? state : { ...state, compose };
+    });
+
+  const writeDraft = (storyId: string, update: (draft: StoryComposeDraft) => StoryComposeDraft): void =>
+    writeCompose((compose) => {
+      const current = composeDraftOf(compose, storyId);
+      const next = update(current);
+      return next === current ? compose : { ...compose, drafts: { ...compose.drafts, [storyId]: next } };
+    });
+
+  const hostFor = (storyId: string): DraftHost => ({
+    read: () => composeDraftOf(store.get().compose, storyId),
+    write: (update) => writeDraft(storyId, update),
+    browsingHistory: () => isBrowsingHistory(store.get().compose)
+  });
+
+  /** A sent text goes to the history, and the walk starts over. */
+  const pushHistory = (text: string): void =>
+    writeCompose((compose) => {
+      const history = text.trim().length > 0 ? [...compose.history, text] : compose.history;
+      return { ...compose, history, historyIndex: history.length, historyDraft: null };
+    });
+
+  return {
+    requestFocus: () => writeCompose((compose) => ({ ...compose, focusRequest: compose.focusRequest + 1 })),
+
+    setText: (storyId, text) => writeDraft(storyId, (draft) => (
+      draft.retake === null
+        ? (draft.direct === text ? draft : { ...draft, direct: text })
+        : (draft.retake.text === text ? draft : { ...draft, retake: { ...draft.retake, text } })
+    )),
+
+    startRetake: (partId) => {
+      const target = openPart(store, partId);
+      if (target === null) return;
+      if (target.node.role === "summary") {
+        pushToast(store, SUMMARY_RETAKE_TOAST);
+        return;
+      }
+      if (partSwitchPending(target.story, partId)) {
+        pushToast(store, PART_SWITCHING_TOAST);
+        return;
+      }
+      const { storyId, node } = target;
+      // A retake already open for this part keeps what the writer typed.
+      writeDraft(storyId, (draft) => (
+        draft.retake?.nodeId === node.id ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
+      ));
+      deps.story.focusPart(partId);
+      writeCompose((compose) => ({ ...compose, focusRequest: compose.focusRequest + 1 }));
+    },
+
+    cancelRetake: (storyId) => {
+      const retake = composeDraftOf(store.get().compose, storyId).retake;
+      if (retake === null) return;
+      const node = openPart(store, retake.nodeId)?.node;
+      // A direction the writer changed is kept in the history, so Escape
+      // never throws it away.
+      if (retake.text.trim().length > 0 && retake.text !== node?.instruction) {
+        writeCompose((compose) => {
+          const history = [...compose.history, retake.text];
+          return { ...compose, history, historyIndex: history.length, historyDraft: null };
+        });
+      }
+      writeDraft(storyId, (draft) => ({ ...draft, retake: null }));
+    },
+
+    submit: (storyId) => {
+      const refusal = submitRefusal(store.get(), storyId);
+      if (refusal !== null) {
+        pushToast(store, refusal);
+        return false;
+      }
+      const draft = composeDraftOf(store.get().compose, storyId);
+      const host = hostFor(storyId);
+
+      if (draft.retake !== null) {
+        const target = openPart(store, draft.retake.nodeId);
+        if (target === null || target.node.role === "summary") {
+          pushToast(store, RETAKE_GONE_TOAST);
+          return false;
+        }
+        const text = draft.retake.text;
+        pushHistory(text);
+        const handle = createRetakeDraft(host, { nodeId: target.node.id, text }, draft.direct);
+        writeDraft(storyId, (current) => ({ ...current, retake: null }));
+        // Focus the part being replaced: a landed take moves focus onto
+        // itself only when focus still sits where the run started.
+        deps.story.focusPart(target.node.id);
+        void deps.generation.continue({ instruction: text, retakeOf: target.node.id, draft: handle });
+        return true;
+      }
+
+      const text = draft.direct;
+      if (text.trim().length === 0) {
+        // An empty box is a plain Continue.
+        writeDraft(storyId, (current) => (current.direct === "" ? current : { ...current, direct: "" }));
+        void deps.generation.continue();
+        return true;
+      }
+      pushHistory(text);
+      const handle = createDirectDraft(host, text);
+      writeDraft(storyId, (current) => ({ ...current, direct: "" }));
+      void deps.generation.continue({ instruction: text, draft: handle });
+      return true;
+    },
+
+    historyMove: (storyId, direction) => writeCompose((compose) => {
+      const draft = composeDraftOf(compose, storyId);
+      const next = Math.max(0, Math.min(compose.history.length, compose.historyIndex + direction));
+      if (next === compose.historyIndex) return compose;
+      const live = compose.historyIndex === compose.history.length;
+      const historyDraft = live ? visibleComposeText(draft) : compose.historyDraft;
+      const text = next === compose.history.length ? (historyDraft ?? "") : (compose.history[next] ?? "");
+      const nextDraft: StoryComposeDraft = draft.retake === null
+        ? { ...draft, direct: text }
+        : { ...draft, retake: { ...draft.retake, text } };
+      return {
+        ...compose,
+        drafts: { ...compose.drafts, [storyId]: nextDraft },
+        historyIndex: next,
+        historyDraft: next === compose.history.length ? null : historyDraft
+      };
+    })
+  };
+}

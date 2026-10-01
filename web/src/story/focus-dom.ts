@@ -37,3 +37,11 @@ export function isClickSelectionCollapsed(): boolean {
   const selection = window.getSelection();
   return selection === null || selection.isCollapsed;
 }
+
+/** Puts keyboard focus back on the part that holds reading focus — where the
+ * composer or an editor hands the keyboard back. Does nothing when no part
+ * carries it. */
+export function focusCurrentPart(): void {
+  document.querySelector<HTMLElement>('.story-scroll [data-part-id][aria-current="true"]')
+    ?.focus({ preventScroll: true });
+}

@@ -1,4 +1,5 @@
 import type { ReferenceBinding } from "../../../shared/reference-bindings.js";
+import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import type { ContentActions } from "../app/content-actions.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
 
@@ -20,6 +21,17 @@ export function handleWritingKey(
   if (event.repeat) return false;
   const partId = effectiveFocusedPartId(story);
   switch (binding.action) {
+    case "compose":
+      // Enter on a focused button or link keeps its own meaning (a take
+      // arrow activates). `preventDefault` (via the return) keeps an `i`
+      // from being typed into the box it opens.
+      if (activatesOnEnterOrSpace()) return false;
+      actions.compose.requestFocus();
+      return true;
+    case "retake-with-prompt":
+      if (partId === null) return false;
+      actions.compose.startRetake(partId);
+      return true;
     case "regenerate":
       if (partId === null) return false;
       actions.part.retake(partId);

@@ -1,77 +1,103 @@
+import type { ReactNode } from "react";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
+import { Composer, useSendFromButton } from "../compose/Composer.js";
 import { manuscriptGenerationView, type GenerationState } from "./state.js";
 
 /**
- * The bottom bar for Continue/Stop (#409 step 5) — mounted twice: at the
- * bottom of the open story's own main area (`StoryView.tsx`), and at the
- * library route (`App.tsx`'s `Shell`, only while a generation is running
- * somewhere) so "one web generation at a time" always has a visible Stop
- * from wherever the reader is (owner decision 2). `viewingStoryId` is the
- * story this particular mount belongs to — `null` for the library mount,
- * which never offers a Continue CTA of its own (there is no focused part to
- * continue from on that route).
+ * The bottom bar (#409 steps 5 and 6) — mounted twice: at the bottom of the
+ * open story's own main area (`StoryView.tsx`), and at the library route
+ * (`App.tsx`'s `Shell`, only while a generation is running somewhere) so
+ * "one web generation at a time" always has a visible Stop from wherever the
+ * reader is (owner decision 2). `viewingStoryId` is the story this particular
+ * mount belongs to — `null` for the library mount, which has no focused part
+ * and so no composer and no Continue.
  *
- * Look ported from StoryTavern's `ComposerFooter` (`btn-primary btn-cta`,
- * `btn-danger btn-cta`) — see `styles/generation.css`/`styles/buttons.css`.
+ * In a story the bar holds the composer, with the Continue / Stop button (or
+ * Copy / Retry / Discard for unsaved text) beside it. Look ported from
+ * StoryTavern's `ComposerFooter` (`btn-primary btn-cta`, `btn-danger
+ * btn-cta`) — see `styles/generation.css`, `styles/compose.css`.
  */
 export function GenerationBar({ viewingStoryId }: { readonly viewingStoryId: string | null }) {
   const { store, actions } = useAppContext();
   const generation = useStore(store, (state) => state.generation);
+  const send = useSendFromButton(viewingStoryId ?? "");
 
+  const inThisStory = generation.kind !== "idle" && generation.storyId === viewingStoryId;
+  const status = generation.kind === "idle" ? null : statusText(generation, inThisStory);
+
+  let buttons: ReactNode;
   if (generation.kind === "idle") {
-    if (viewingStoryId === null) return null;
-    return (
-      <div className="generation-bar">
+    buttons = (
+      <button
+        type="button"
+        className="btn btn-primary btn-cta"
+        aria-keyshortcuts="Space"
+        title="Continue (Enter in the box, Space elsewhere)"
+        onClick={send}
+      >
+        Continue
+      </button>
+    );
+  } else if (generation.kind === "unsaved") {
+    buttons = (
+      <>
         <button
           type="button"
-          className="btn btn-primary btn-cta"
-          aria-keyshortcuts="Space"
-          onClick={() => { void actions.generation.continue(); }}
+          className="btn"
+          title="Copy the unsaved text"
+          onClick={() => { void actions.generation.copyUnsaved(); }}
         >
-          Continue
+          Copy
         </button>
-      </div>
+        <button
+          type="button"
+          className="btn"
+          title="Try to save the text again"
+          onClick={() => { void actions.generation.retrySave(); }}
+        >
+          Retry
+        </button>
+        <button
+          type="button"
+          className="btn btn-danger"
+          title="Throw the unsaved text away"
+          onClick={actions.generation.discardUnsaved}
+        >
+          Discard
+        </button>
+      </>
+    );
+  } else if (generation.kind === "settling") {
+    buttons = <button type="button" className="btn btn-primary btn-cta" disabled>Saving…</button>;
+  } else {
+    buttons = (
+      <button
+        type="button"
+        className="btn btn-danger btn-cta"
+        aria-keyshortcuts="Escape"
+        title="Stop (Esc)"
+        onClick={actions.generation.stop}
+      >
+        Stop
+      </button>
     );
   }
 
-  const inThisStory = generation.storyId === viewingStoryId;
-  const status = statusText(generation, inThisStory);
+  const barClass = `generation-bar${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`;
 
-  if (generation.kind === "unsaved") {
+  if (viewingStoryId !== null) {
     return (
-      <div className="generation-bar generation-bar-unsaved">
-        <span className="generation-status">{status}</span>
-        <div className="generation-bar-actions">
-          <button type="button" className="btn" onClick={() => { void actions.generation.copyUnsaved(); }}>
-            Copy
-          </button>
-          <button type="button" className="btn" onClick={() => { void actions.generation.retrySave(); }}>
-            Retry
-          </button>
-          <button type="button" className="btn btn-danger" onClick={actions.generation.discardUnsaved}>
-            Discard
-          </button>
-        </div>
+      <div className={`${barClass} generation-bar-compose`}>
+        <Composer storyId={viewingStoryId} status={status}>{buttons}</Composer>
       </div>
     );
   }
-
+  if (generation.kind === "idle") return null;
   return (
-    <div className="generation-bar">
+    <div className={barClass}>
       <span className="generation-status">{status}</span>
-      {generation.kind === "settling"
-        ? <button type="button" className="btn btn-primary btn-cta" disabled>Saving…</button>
-        : (
-          <button
-            type="button"
-            className="btn btn-danger btn-cta"
-            aria-keyshortcuts="Escape"
-            onClick={actions.generation.stop}
-          >
-            Stop
-          </button>
-        )}
+      <div className="generation-bar-actions">{buttons}</div>
     </div>
   );
 }

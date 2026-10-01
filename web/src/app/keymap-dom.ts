@@ -97,6 +97,15 @@ export function resolveManuscriptBinding(event: KeyboardEvent): ReferenceBinding
   return null;
 }
 
+/** The composer's chords (⌃↑ / ⌃↓ history, and the ⌃R / ⌃G keys that resolve
+ * but do nothing on the web). Plain keys type, so only the `compose-chord`
+ * lane is tried, in the `COMPOSE` mode. ⌘ and ⌥ never resolve, for the same
+ * reason they never do in `resolveManuscriptBinding`. */
+export function resolveComposeBinding(event: KeyboardEvent): ReferenceBinding | null {
+  if (event.metaKey || event.altKey) return null;
+  return resolveReferenceBinding("compose-chord", keyEventFromDom(event), "COMPOSE");
+}
+
 /** True when the keyboard is owned by a field, so a plain letter must type
  * instead of running a command: an `input`/`textarea`/`select`, a
  * `contenteditable` element, an open `<dialog>`, or anything inside an
