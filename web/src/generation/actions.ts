@@ -10,7 +10,7 @@ import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { STORY_RELOADED_TOAST, type AdoptFocus } from "../story/actions.js";
-import { RETAKE_GONE_TOAST, STORY_LOCKED_TOAST, generationBusyToast, generationEditorRefusal } from "../story/part-policy.js";
+import { RETAKE_GONE_TOAST, STORY_LOCKED_TOAST, generationBusyToast, generationEditorRefusal, planEditorRefusal } from "../story/part-policy.js";
 import { planContinue, type GenerationPlan } from "./plan.js";
 import type { GenerationState } from "./state.js";
 import {
@@ -421,7 +421,7 @@ export function createGenerationActions(
     };
     /** `refused` is a toast to show; `silent` means there is nothing to say
      * (not connected, no open story) and the draft just comes back. */
-    const check = (): { readonly refused: string | null; readonly silent: boolean } => {
+    const check = (plan?: GenerationPlan): { readonly refused: string | null; readonly silent: boolean } => {
       const state = store.get();
       if (activeRun !== null) {
         const routeStory = state.route.kind === "story" ? state.route.id : "";
@@ -430,12 +430,17 @@ export function createGenerationActions(
       if (state.connection.kind !== "connected" || state.route.kind !== "story") return { refused: null, silent: true };
       const story = state.story;
       if (story.kind !== "loaded" || story.payload.id !== state.route.id) return { refused: null, silent: true };
+      // Before the preparation there is no plan yet, so the request is
+      // checked as asked; afterwards the plan that was built is what is
+      // checked, whatever focus has done in between.
       return {
-        refused: generationEditorRefusal(state, {
-          focusedPartId: effectiveFocusedPartId(story),
-          instruction,
-          ...(request.retakeOf === undefined ? {} : { retakeOf: request.retakeOf })
-        }),
+        refused: plan !== undefined
+          ? planEditorRefusal(state, story.payload.id, plan)
+          : generationEditorRefusal(state, {
+            focusedPartId: effectiveFocusedPartId(story),
+            instruction,
+            ...(request.retakeOf === undefined ? {} : { retakeOf: request.retakeOf })
+          }),
         silent: false
       };
     };
@@ -480,9 +485,12 @@ export function createGenerationActions(
       return refuse(errorMessage(error));
     }
 
-    const second = check();
+    const second = check(plan);
     if (second.refused !== null) return refuse(second.refused);
-    if (second.silent || store.get().connection !== connection) return refuse();
+    // The story on screen must still be the one this plan was built for.
+    const now = store.get().story;
+    const sameStory = now.kind === "loaded" && now.payload.id === story.payload.id;
+    if (second.silent || !sameStory || store.get().connection !== connection) return refuse();
     return { connection, storyId: story.payload.id, storyTitle: story.payload.title, focusedPartId, plan };
   }
   return {

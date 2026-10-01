@@ -383,3 +383,47 @@ test("confirming is refused if a generation started while the dialog was open, a
   assert.deepEqual(toasts(h.store), [STORY_LOCKED_TOAST]);
   await writing.finish();
 });
+
+// ---------------------------------------------------------------------------
+// Review round 3: the first-part editor, and the plan that was checked.
+// ---------------------------------------------------------------------------
+
+test("a changed first-part editor blocks every generation, and shows a recovery view once the story has parts", async () => {
+  const h = open(linearPayload([]), null);
+  h.actions.editor.openWrite(null);
+  h.actions.editor.setText("My first part, not saved yet.");
+
+  await h.actions.generation.continue();
+
+  assert.equal(h.fake.continueCalls.length, 0, "a generation would hide the first-part editor");
+  assert.deepEqual(toasts(h.store), [EDITOR_OPEN_TOAST]);
+  assert.equal(editorIsOffLine(h.store.get(), STORY_ID), false, "while the story is empty the editor has its slot");
+
+  // Another window writes part 1: the story now has a line the editor cannot sit in.
+  h.store.set((state) => state.story.kind === "loaded"
+    ? { ...state, story: { ...state.story, payload: linearPayload(["z1"]) } }
+    : state);
+
+  assert.equal(editorIsOffLine(h.store.get(), STORY_ID), true, "the recovery view shows the kept text");
+  assert.equal(h.store.get().editor?.text, "My first part, not saved yet.");
+});
+
+test("the plan that was built is what is checked after the preparation, not a plan from where focus moved to", async () => {
+  const settings = deferred<never>();
+  const h = open(THREE, "a1", { getSettings: () => settings.promise });
+  // Continue from part 1 would hide parts 2 and 3. While it prepares, the
+  // writer moves to part 2 and opens an editor there — a position from which
+  // a recomputed plan would not touch part 2.
+  const run = h.actions.generation.continue();
+  h.actions.story.focusPart("b1");
+  h.actions.editor.openEdit("b1");
+  h.actions.editor.setText("Draft that must not be lost.");
+
+  settings.reject(new Error("no settings"));
+  await run;
+
+  assert.equal(h.fake.continueCalls.length, 0);
+  assert.equal(h.store.get().generation.kind, "idle");
+  assert.equal(h.store.get().editor?.text, "Draft that must not be lost.");
+  assert.deepEqual(toasts(h.store), [EDITOR_OPEN_TOAST]);
+});

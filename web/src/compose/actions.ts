@@ -66,14 +66,19 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
     write: (update) => writeDraft(storyId, update)
   });
 
-  /** A text goes to the history, and this story's walk starts over. */
-  const pushHistory = (storyId: string, text: string): void =>
+  /** A text goes to the history, and the walk of the box that sent it starts
+   * over. The other box's walk is left alone. */
+  const pushHistory = (storyId: string, text: string, box: "direct" | "retake"): void =>
     writeCompose((compose) => {
       const history = text.trim().length > 0 ? [...compose.history, text] : compose.history;
       const current = composeDraftOf(compose, storyId);
-      const drafts = current.walk === null
+      const walking = box === "direct" ? current.walk : current.retakeWalk;
+      const drafts = walking === null
         ? compose.drafts
-        : { ...compose.drafts, [storyId]: { ...current, walk: null } };
+        : {
+          ...compose.drafts,
+          [storyId]: box === "direct" ? { ...current, walk: null } : { ...current, retakeWalk: null }
+        };
       return { ...compose, history, drafts };
     });
 
@@ -83,8 +88,8 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
     const retake = composeDraftOf(store.get().compose, storyId).retake;
     if (retake === null) return;
     const node = openPart(store.get(), retake.nodeId)?.node;
-    if (retake.text.trim().length > 0 && retake.text !== node?.instruction) pushHistory(storyId, retake.text);
-    writeDraft(storyId, (draft) => ({ ...draft, retake: null }));
+    if (retake.text.trim().length > 0 && retake.text !== node?.instruction) pushHistory(storyId, retake.text, "retake");
+    writeDraft(storyId, (draft) => ({ ...draft, retake: null, retakeWalk: null }));
   };
 
   return {
@@ -131,9 +136,9 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
           return false;
         }
         const text = draft.retake.text;
-        pushHistory(storyId, text);
+        pushHistory(storyId, text, "retake");
         const handle = createRetakeDraft(host, { nodeId: target.node.id, text }, draft.direct);
-        writeDraft(storyId, (current) => ({ ...current, retake: null }));
+        writeDraft(storyId, (current) => ({ ...current, retake: null, retakeWalk: null }));
         // Focus the part being replaced: a landed take moves focus onto
         // itself only when focus still sits where the run started.
         deps.story.focusPart(target.node.id);
@@ -148,7 +153,7 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         void deps.generation.continue();
         return true;
       }
-      pushHistory(storyId, text);
+      pushHistory(storyId, text, "direct");
       const handle = createDirectDraft(host, text);
       writeDraft(storyId, (current) => ({ ...current, direct: "" }));
       void deps.generation.continue({ instruction: text, draft: handle });
@@ -157,16 +162,17 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
 
     historyMove: (storyId, direction) => writeCompose((compose) => {
       const draft = composeDraftOf(compose, storyId);
+      const current = draft.retake === null ? draft.walk : draft.retakeWalk;
       const last = compose.history.length;
-      const index = draft.walk?.index ?? last;
+      const index = current?.index ?? last;
       const next = Math.max(0, Math.min(last, index + direction));
       if (next === index) return compose;
-      const saved = draft.walk?.draft ?? visibleComposeText(draft);
+      const saved = current?.draft ?? visibleComposeText(draft);
       const text = next === last ? saved : (compose.history[next] ?? "");
       const walk = next === last ? null : { index: next, draft: saved };
       const nextDraft: StoryComposeDraft = draft.retake === null
         ? { ...draft, direct: text, walk }
-        : { ...draft, retake: { ...draft.retake, text }, walk };
+        : { ...draft, retake: { ...draft.retake, text }, retakeWalk: walk };
       return { ...compose, drafts: { ...compose.drafts, [storyId]: nextDraft } };
     })
   };

@@ -345,3 +345,83 @@ test("case 10: with a changed editor on part 2, Space on part 1 is refused and t
   expect(await editorProse(page, 2).inputValue()).toBe("B: changed, not saved.");
   expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
 }, 60_000);
+
+test("case 11: clicking back into an open editor's text keeps the keyboard there", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Editor Focus");
+  const page = await openStory(web, seeded.storyId, "Editor Focus");
+  await part(page, "B:").click();
+  await page.keyboard.press("e");
+  await editorProse(page, 2).fill("B: ");
+
+  await part(page, "A:").click();
+  await waitForAttribute(part(page, "A:"), "aria-current", "true");
+  await editorProse(page, 2).click();
+  expect(await poll(() => isFocused(editorProse(page, 2)))).toBeTrue();
+  await page.keyboard.type("pwe typed after the click");
+
+  expect(await editorProse(page, 2).inputValue()).toContain("pwe typed after the click");
+  expect(await isFocused(editorProse(page, 2))).toBeTrue();
+}, 60_000);
+
+test("case 12: the recovery view shows the edited direction too", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Recovery Direction");
+  const page = await openStory(web, seeded.storyId, "Recovery Direction");
+  await page.getByRole("button", { name: "Show directions" }).click();
+  await part(page, "B:").click();
+  await page.keyboard.press("e");
+  await page.getByRole("textbox", { name: "Direction" }).fill("Go far left.");
+  await editorProse(page, 2).fill("B: my words, kept.");
+  await seeded.api.deleteNode(seeded.storyId, seeded.b, 2);
+
+  await page.getByRole("button", { name: "Save in place" }).click();
+  const recovery = page.getByRole("region", { name: "Editor without a part" });
+  await recovery.waitFor();
+
+  expect(await recovery.getByRole("textbox", { name: "Your unsaved direction" }).inputValue()).toBe("Go far left.");
+  expect(await recovery.getByRole("textbox", { name: "Your unsaved text" }).inputValue()).toBe("B: my words, kept.");
+}, 60_000);
+
+test("case 13: unsent composer text and a changed editor warn before a reload and stay reachable when the connection is gone", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Unsaved Work");
+  const page = await openStory(web, seeded.storyId, "Unsaved Work");
+  await part(page, "C:").click();
+  await page.keyboard.press("i");
+  await page.getByRole("textbox", { name: "What happens next?" }).fill("An unsent direction.");
+  await page.keyboard.press("Escape");
+
+  web.child.kill("SIGKILL");
+  await web.exit;
+  const work = page.getByRole("region", { name: "Unsaved work" });
+  await work.waitFor({ timeout: 10_000 });
+  expect(await work.getByRole("textbox", { name: "Unsent direction" }).inputValue()).toBe("An unsent direction.");
+  await work.getByRole("button", { name: "Copy" }).waitFor();
+
+  let sawBeforeUnload = false;
+  page.on("dialog", (dialog) => {
+    if (dialog.type() === "beforeunload") sawBeforeUnload = true;
+    void dialog.accept();
+  });
+  await page.reload().catch(() => {});
+  expect(sawBeforeUnload).toBeTrue();
+}, 60_000);
+
+test("case 14: unsent composer text alone warns before a reload", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Composer Unload");
+  const page = await openStory(web, seeded.storyId, "Composer Unload");
+  await part(page, "C:").click();
+  await page.keyboard.press("i");
+  await page.getByRole("textbox", { name: "What happens next?" }).fill("An unsent direction.");
+
+  let sawBeforeUnload = false;
+  page.on("dialog", (dialog) => {
+    if (dialog.type() === "beforeunload") sawBeforeUnload = true;
+    void dialog.accept();
+  });
+  await page.reload();
+
+  expect(sawBeforeUnload).toBeTrue();
+}, 60_000);

@@ -8,7 +8,9 @@ import {
   PART_GONE_TOAST,
   SUMMARY_FORK_TOAST
 } from "../web/src/editor/actions.js";
-import { editorDirty } from "../web/src/editor/state.js";
+import { editorCopyText, editorDirty } from "../web/src/editor/state.js";
+import { unsavedWork } from "../web/src/app/unsaved-work.js";
+import { UNRESOLVED_TOAST } from "../web/src/editor/actions.js";
 import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../web/src/story/actions.js";
 import { ApiFailureError } from "../client/api-error.js";
 import { WebBridgeTransportError } from "../client/web-bridge-transport.js";
@@ -398,4 +400,76 @@ test("a bridge failure that says the outcome is uncertain is reconciled, not tak
   await actions.editor.save("new");
 
   assert.equal(store.get().editor, null, "the reload shows the take: saved");
+});
+
+// ---------------------------------------------------------------------------
+// Review round 3: a create that may have committed is never sent twice.
+// ---------------------------------------------------------------------------
+
+test("a lost answer whose check cannot finish keeps the request, and the next Save settles it before it creates again", async () => {
+  const lookalike = { ...stub("b9", "a1", "Fork text."), words: 2, hasInstruction: true };
+  const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, lookalike] };
+  let lineWorks = false;
+  const { actions, fake, store } = open(THREE, "b1", {
+    createNode: async () => { throw new Error("socket closed"); },
+    loadStory: async () => reloaded,
+    getTakeLine: async () => {
+      if (!lineWorks) throw new Error("line unavailable");
+      return {
+        forkIndex: 0,
+        skipped: 0,
+        parts: [{ id: "b9", parentId: "a1", instruction: "Go left.", text: "Fork text.", model: "human", createdAt: new Date(0).toISOString(), activeChildId: null }]
+      };
+    }
+  });
+
+  actions.editor.openEdit("b1");
+  actions.editor.setText("Fork text.");
+  await actions.editor.save("new");
+  assert.equal(fake.createNodeCalls.length, 1);
+  assert.notEqual(store.get().editor?.pending, null, "the request is kept as evidence");
+  assert.ok(toasts(store).includes(UNRESOLVED_TOAST));
+
+  await actions.editor.save("new");
+  assert.equal(fake.createNodeCalls.length, 1, "still unresolved: nothing is created again");
+
+  lineWorks = true;
+  await actions.editor.save("new");
+  assert.equal(fake.createNodeCalls.length, 1, "the check found the first create: nothing is written twice");
+  assert.equal(store.get().editor, null);
+});
+
+test("when the check finishes and finds nothing, the next Save creates", async () => {
+  let creates = 0;
+  const { actions, fake, store } = open(THREE, "b1", {
+    createNode: async () => {
+      creates += 1;
+      if (creates === 1) throw new Error("socket closed");
+      return linearPayload(["a1", "b2"], { nodeOverrides: { b2: { instruction: "Go left.", text: "Fork text." } } });
+    },
+    loadStory: async () => THREE
+  });
+
+  actions.editor.openEdit("b1");
+  actions.editor.setText("Fork text.");
+  await actions.editor.save("new");
+  // The reload succeeded and showed no new take: a plain failure, not unresolved.
+  assert.equal(store.get().editor?.pending, null);
+  await actions.editor.save("new");
+  assert.equal(fake.createNodeCalls.length, 2);
+  assert.equal(store.get().editor, null);
+});
+
+test("the recovery text carries the direction, and unsaved work lists the editor and unsent composer text", () => {
+  const { actions, store } = open(THREE, "b1");
+  actions.editor.openEdit("b1");
+  actions.editor.setInstruction("Go far left.");
+  actions.editor.setText("Left it was, far.");
+  actions.compose.setText(STORY_ID, "an unsent direction");
+
+  assert.equal(editorCopyText(store.get().editor!), "Direction: Go far left.\n\nLeft it was, far.");
+  const items = unsavedWork(store.get().editor, store.get().compose);
+  assert.deepEqual(items.map((item) => item.label), ["Unsaved edit", "Unsent direction"]);
+  assert.equal(items[1]!.text, "an unsent direction");
+  assert.deepEqual(unsavedWork(null, { drafts: {}, history: [] }), []);
 });

@@ -47,7 +47,21 @@ export type EditorSaveOutcome =
   | { readonly kind: "conflict"; readonly payload: StoryPayload | null }
   /** Nothing is known to be saved. `payload` is the reload (`null` if it
    * failed). The draft is kept. */
-  | { readonly kind: "failed"; readonly payload: StoryPayload | null; readonly error: unknown };
+  | { readonly kind: "failed"; readonly payload: StoryPayload | null; readonly error: unknown }
+  /** The call may have committed, and the check that would tell could not
+   * finish. The editor keeps the request as evidence and must settle it
+   * (`reconcileEditor`) before it creates anything again — a second create
+   * after a lost answer would write the text twice. */
+  | { readonly kind: "unresolved"; readonly payload: StoryPayload | null; readonly error: unknown }
+  /** `reconcileEditor` only: the check finished, and the earlier call left
+   * nothing behind. It is safe to send again. */
+  | { readonly kind: "absent"; readonly payload: StoryPayload };
+
+/** What looking for an earlier call's result found. */
+type Resolution =
+  | { readonly kind: "found"; readonly id: string | null }
+  | { readonly kind: "absent" }
+  | { readonly kind: "unresolved" };
 
 const CONFLICT_CODES: ReadonlySet<string | null> = new Set(["conflict", "revision_conflict"]);
 
@@ -76,12 +90,32 @@ export async function saveEditor(api: StoryApi, request: EditorSaveRequest): Pro
     // version, and the reload is how an unknown outcome is settled.
     const reloaded = await api.loadStory(request.storyId).catch(() => null);
     if (CONFLICT_CODES.has(apiErrorCode(error))) return { kind: "conflict", payload: reloaded };
-    if (reloaded !== null && outcomeUnknown(error)) {
-      const landedId = await landedAfterUnknown(api, request, reloaded);
-      if (landedId !== undefined) return { kind: "saved", payload: reloaded, landedId };
+    if (outcomeUnknown(error)) {
+      const resolution: Resolution = reloaded === null
+        ? { kind: "unresolved" }
+        : await resolveEarlierCall(api, request, reloaded);
+      if (resolution.kind === "found") return { kind: "saved", payload: reloaded!, landedId: resolution.id };
+      // Only a create can be written twice; an in-place edit sent again is
+      // answered with a conflict if the first one landed.
+      if (resolution.kind === "unresolved" && request.kind !== "in-place") {
+        return { kind: "unresolved", payload: reloaded, error };
+      }
     }
     return { kind: "failed", payload: reloaded, error };
   }
+}
+
+/** Settles an earlier unresolved call: reload, then look for its result. Used
+ * by the next Save before it may create anything again. */
+export async function reconcileEditor(api: StoryApi, request: EditorSaveRequest): Promise<EditorSaveOutcome> {
+  const reloaded = await api.loadStory(request.storyId).catch(() => null);
+  if (reloaded === null) {
+    return { kind: "unresolved", payload: null, error: new Error("The story could not be reloaded.") };
+  }
+  const resolution = await resolveEarlierCall(api, request, reloaded);
+  if (resolution.kind === "found") return { kind: "saved", payload: reloaded, landedId: resolution.id };
+  if (resolution.kind === "absent") return { kind: "absent", payload: reloaded };
+  return { kind: "unresolved", payload: reloaded, error: new Error("The earlier save could not be checked.") };
 }
 
 async function send(api: StoryApi, request: EditorSaveRequest): Promise<StoryPayload> {
@@ -118,7 +152,8 @@ async function landedIdOf(
   payload: StoryPayload
 ): Promise<string | null> {
   if (request.kind === "in-place") return request.base.id;
-  return await findExactNewTake(api, request, payload) ?? null;
+  const found = await findExactNewTake(api, request, payload);
+  return found.kind === "found" ? found.id : null;
 }
 
 /** After an unknown outcome: did the reload show the change? An in-place edit
@@ -126,19 +161,21 @@ async function landedIdOf(
  * direction. A new take is saved only when a node that did not exist before
  * holds exactly the submitted text and direction: the stub's preview and word
  * count only nominate a candidate, and the candidate's full text decides. A
- * sibling written in another window with the same start never counts.
- * `undefined` means not saved. */
-async function landedAfterUnknown(
+ * sibling written in another window with the same start never counts. A
+ * candidate whose full text could not be read leaves the answer open. */
+async function resolveEarlierCall(
   api: StoryApi,
   request: EditorSaveRequest,
   reloaded: StoryPayload
-): Promise<string | null | undefined> {
+): Promise<Resolution> {
   if (request.kind === "in-place") {
     const node = reloaded.path.find((candidate) => candidate.id === request.base.id);
-    if (node === undefined) return undefined;
+    if (node === undefined) return { kind: "absent" };
     const text = request.patch.text ?? request.base.text;
     const instruction = request.patch.instruction ?? request.base.instruction;
-    return node.text === text && node.instruction === instruction ? node.id : undefined;
+    return node.text === text && node.instruction === instruction
+      ? { kind: "found", id: node.id }
+      : { kind: "absent" };
   }
   return await findExactNewTake(api, request, reloaded);
 }
@@ -149,22 +186,27 @@ async function findExactNewTake(
   api: StoryApi,
   request: Exclude<EditorSaveRequest, { kind: "in-place" }>,
   payload: StoryPayload
-): Promise<string | undefined> {
+): Promise<Resolution> {
   const parentId = parentOf(request);
   const exact = (node: { readonly text: string; readonly instruction: string }): boolean =>
     node.text === request.text && node.instruction === request.instruction;
   const onPath = payload.path.find((node) =>
     !request.knownNodeIds.has(node.id) && node.parentId === parentId && exact(node));
-  if (onPath !== undefined) return onPath.id;
+  if (onPath !== undefined) return { kind: "found", id: onPath.id };
   const candidates = payload.nodes
     .filter((node) => !request.knownNodeIds.has(node.id) && node.parentId === parentId
       && !payload.path.some((onLine) => onLine.id === node.id))
     .slice(-MAX_CANDIDATES);
+  let unread = false;
   for (const candidate of candidates) {
     // The stub has only a preview; the take's own line has its full text.
     const line = await api.getTakeLine(request.storyId, candidate.id).catch(() => null);
-    const full = line?.parts.at(-1);
-    if (full !== undefined && full.id === candidate.id && exact(full)) return candidate.id;
+    if (line === null) {
+      unread = true;
+      continue;
+    }
+    const full = line.parts.at(-1);
+    if (full !== undefined && full.id === candidate.id && exact(full)) return { kind: "found", id: candidate.id };
   }
-  return undefined;
+  return unread ? { kind: "unresolved" } : { kind: "absent" };
 }

@@ -1,6 +1,7 @@
 import { continuationIntent } from "../../../shared/continuation-intent.js";
 import type { PartActionId } from "../../../shared/part-actions.js";
 import type { AppState } from "../app/state.js";
+import type { GenerationPlan } from "../generation/plan.js";
 import { appendingTo } from "../generation/state.js";
 import { editorDirty } from "../editor/state.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
@@ -89,9 +90,10 @@ export function generationEditorRefusal(
 ): string | null {
   const editor = state.editor;
   const story = state.story;
-  if (editor === null || editor.mode === "first" || story.kind !== "loaded" || editor.storyId !== story.payload.id) {
-    return null;
-  }
+  if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id) return null;
+  // The first-part editor sits where the first generated part would stream:
+  // a changed one is never hidden by it.
+  if (editor.mode === "first") return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
   const path = story.payload.path;
   const editorIndex = path.findIndex((node) => node.id === editor.base.id);
   if (editorIndex < 0) return null;
@@ -103,6 +105,33 @@ export function generationEditorRefusal(
   if (intent.appendLast) return editorIndex === path.length - 1 ? EDITOR_OPEN_TOAST : null;
   if (intent.fromSeam) return editorIndex > intent.focusPathIndex ? EDITOR_OPEN_TOAST : null;
   return null;
+}
+
+/**
+ * The same question as `generationEditorRefusal`, asked of the plan a start
+ * actually built: its target and the seam it hides everything after. The start
+ * asks it after its async preparation, so what is checked is what will run —
+ * not a plan recomputed from wherever focus has moved to meanwhile.
+ */
+export function planEditorRefusal(
+  state: AppState,
+  storyId: string,
+  plan: Pick<GenerationPlan, "target" | "seamPathIndex">
+): string | null {
+  const editor = state.editor;
+  const story = state.story;
+  if (editor === null || story.kind !== "loaded" || story.payload.id !== storyId || editor.storyId !== storyId) {
+    return null;
+  }
+  if (editor.mode === "first") return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
+  const path = story.payload.path;
+  const editorIndex = path.findIndex((node) => node.id === editor.base.id);
+  if (editorIndex < 0) return null;
+  if (plan.target.mode === "append") {
+    const appendIndex = path.findIndex((node) => node.id === (plan.target as { appendTo: string }).appendTo);
+    return editorIndex === appendIndex ? EDITOR_OPEN_TOAST : null;
+  }
+  return editorIndex > plan.seamPathIndex ? EDITOR_OPEN_TOAST : null;
 }
 
 /**

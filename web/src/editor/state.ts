@@ -1,4 +1,5 @@
 import type { StoryNode } from "../../../shared/types.js";
+import type { EditorSaveRequest } from "./save.js";
 import type { AppState } from "../app/state.js";
 
 /**
@@ -20,6 +21,10 @@ interface EditorFields {
   readonly overwriteArmed: boolean;
   /** The first Escape on a changed editor; the second one discards. */
   readonly discardArmed: boolean;
+  /** A create that may have committed, whose check could not finish. The next
+   * Save settles it before it sends anything, so the text is never written
+   * twice. */
+  readonly pending: EditorSaveRequest | null;
 }
 
 export type EditorState =
@@ -33,7 +38,7 @@ export function openEditorState(
   mode: EditorState["mode"],
   node: StoryNode | null
 ): EditorState {
-  const fields = { storyId, saving: false, overwriteArmed: false, discardArmed: false };
+  const fields = { storyId, saving: false, overwriteArmed: false, discardArmed: false, pending: null };
   if (mode === "first" || node === null) return { ...fields, mode: "first", text: "", instruction: "" };
   return {
     ...fields,
@@ -64,11 +69,24 @@ export function editorTitle(editor: EditorState, partNumber: number): string {
   return `Your take of part ${partNumber}`;
 }
 
-/** True when the open editor belongs to `storyId`, but the part it sits in is
- * no longer on that story's line — another window deleted it, or switched the
- * line away. The editor keeps the writer's text; `EditorRecovery` shows it. */
+/** True when the open editor belongs to `storyId`, but has no slot on that
+ * story's line any more: the part it sits in left the line (another window
+ * deleted it or switched the line away), or it was the first-part editor and
+ * the story now has parts. The editor keeps the writer's text;
+ * `EditorRecovery` shows it. */
 export function editorIsOffLine(state: AppState, storyId: string): boolean {
-  const id = state.editor !== null && state.editor.storyId === storyId ? editorPartId(state.editor) : null;
-  return id !== null && state.story.kind === "loaded" && state.story.payload.id === storyId
-    && !state.story.payload.path.some((node) => node.id === id);
+  const editor = state.editor;
+  if (editor === null || editor.storyId !== storyId) return false;
+  if (state.story.kind !== "loaded" || state.story.payload.id !== storyId) return false;
+  const path = state.story.payload.path;
+  if (editor.mode === "first") return path.length > 0;
+  return !path.some((node) => node.id === editor.base.id);
+}
+
+/** Everything the editor holds, as one text to copy: the direction (when it
+ * has one) above the prose. */
+export function editorCopyText(editor: EditorState): string {
+  return editor.mode === "edit" && editor.instruction.length > 0
+    ? `Direction: ${editor.instruction}\n\n${editor.text}`
+    : editor.text;
 }

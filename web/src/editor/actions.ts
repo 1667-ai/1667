@@ -6,7 +6,7 @@ import { generationLocks } from "../generation/state.js";
 import { STORY_RELOADED_TOAST } from "../story/actions.js";
 import { STORY_LOCKED_TOAST } from "../story/part-policy.js";
 import { openPart } from "../story/state.js";
-import { saveEditor, type EditorSaveRequest } from "./save.js";
+import { reconcileEditor, saveEditor, type EditorSaveOutcome, type EditorSaveRequest } from "./save.js";
 import { editorDirty, editorPartId, openEditorState, type EditorState } from "./state.js";
 
 export interface EditorActionDependencies {
@@ -38,6 +38,10 @@ export const NOTHING_TO_SAVE_TOAST = "Write some prose before saving.";
 export const PART_GONE_TOAST = "This part no longer exists. Copy your text before closing.";
 export const PART_OFF_LINE_TOAST = "This part is no longer on the story line. Copy your text before closing.";
 export const PART_CHANGED_TOAST = "The part changed in another window. Save again to overwrite.";
+export const UNRESOLVED_TOAST =
+  "Could not check whether your last save went through. Save again to check; nothing is written twice. Draft kept.";
+export const EARLIER_SAVE_LANDED_TOAST =
+  "Your earlier save did go through. Your newer changes are still in the editor.";
 export const SUMMARY_FORK_TOAST = "A summary can only be saved in place.";
 
 type BuiltSave =
@@ -153,7 +157,34 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
 
     const token = opened;
     update((current) => ({ ...current, saving: true, discardArmed: false }));
-    const outcome = await saveEditor(state.connection.api, built.request);
+    const api = state.connection.api;
+    let outcome: EditorSaveOutcome;
+    if (editor.pending !== null) {
+      // An earlier create may have committed. Settle that first: only when it
+      // is known to have left nothing behind may this Save create again.
+      const settled = await reconcileEditor(api, editor.pending);
+      if (opened !== token || store.get().editor === null) return;
+      if (settled.kind === "unresolved") {
+        update((current) => ({ ...current, saving: false }));
+        pushToast(store, UNRESOLVED_TOAST);
+        return;
+      }
+      if (settled.payload !== null) deps.story.adoptPayload(editor.storyId, settled.payload);
+      update((current) => ({ ...current, pending: null }));
+      if (settled.kind === "saved" && editor.pending.kind !== "in-place" && editor.pending.text !== editor.text.trim()) {
+        // It landed, but the writer has typed more since: keep going from the
+        // saved part instead of writing the new text beside it.
+        const landed = settled.payload.path.find((node) => node.id === settled.landedId) ?? null;
+        update((current) => (landed === null
+          ? { ...current, saving: false }
+          : { ...openEditorState(current.storyId, "edit", landed), text: current.text, instruction: current.instruction }));
+        pushToast(store, EARLIER_SAVE_LANDED_TOAST);
+        return;
+      }
+      outcome = settled.kind === "saved" ? settled : await saveEditor(api, built.request);
+    } else {
+      outcome = await saveEditor(api, built.request);
+    }
     const stillOpen = opened === token && store.get().editor !== null;
 
     if (outcome.kind === "saved") {
@@ -190,8 +221,13 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
       return;
     }
 
+    if (outcome.kind === "unresolved") {
+      update((current) => ({ ...current, saving: false, pending: built.request }));
+      pushToast(store, UNRESOLVED_TOAST);
+      return;
+    }
     update((current) => ({ ...current, saving: false }));
-    pushToast(store, `${errorMessage(outcome.error)} Draft kept.`);
+    pushToast(store, outcome.kind === "failed" ? `${errorMessage(outcome.error)} Draft kept.` : "Draft kept.");
   }
 
   return {

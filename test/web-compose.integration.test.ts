@@ -488,3 +488,23 @@ test("the history is shared by every story", async () => {
 
   assert.equal(composeDraftOf(h.store.get().compose, "story-2").direct, "from story one");
 });
+
+test("closing a retake never disturbs an unsent Direct draft that the Direct walk is holding", async () => {
+  const payload = linearPayload(["a1", "b1"], { nodeOverrides: { b1: { instruction: "Go left." } } });
+  const h = open(payload, "b1");
+  send(h, "an old direction");
+  await idle(h);
+  h.actions.compose.setText(STORY_ID, "unsent direct draft");
+  h.actions.compose.historyMove(STORY_ID, -1);
+  assert.equal(directOf(h), "an old direction");
+
+  h.actions.part.run("retake-with-prompt", "b1");
+  h.actions.compose.setText(STORY_ID, "A retake direction I typed.");
+  h.actions.compose.cancelRetake(STORY_ID);
+
+  assert.equal(directOf(h), "an old direction", "the Direct box still shows the recalled entry");
+  h.actions.compose.historyMove(STORY_ID, 1);
+  assert.equal(directOf(h), "A retake direction I typed.", "the archived retake direction is the newest entry");
+  h.actions.compose.historyMove(STORY_ID, 1);
+  assert.equal(directOf(h), "unsent direct draft", "walking past the newest entry gives the unsent draft back");
+});

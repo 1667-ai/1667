@@ -3,6 +3,7 @@ import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
 import { dismissToast } from "./app/toasts.js";
+import { UnsavedWork, useHasUnsavedWork } from "./ui/UnsavedWork.js";
 import { GenerationBar } from "./generation/GenerationBar.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
@@ -57,8 +58,14 @@ function Shell() {
   // Unsaved generation text lives only in memory. The connection screens
   // below replace the whole UI, so they must keep its Copy/Retry/Discard bar,
   // or a failed reconnect would leave the text unreachable.
-  const recovery = unsaved
-    ? <div className="connection-recovery"><GenerationBar /></div>
+  const hasUnsavedWork = useHasUnsavedWork();
+  const recovery = unsaved || hasUnsavedWork
+    ? (
+      <div className="connection-recovery">
+        {unsaved && <GenerationBar />}
+        <UnsavedWork />
+      </div>
+    )
     : null;
   if (connection.kind === "connecting") return <><ConnectingScreen />{recovery}</>;
   if (connection.kind === "locked") return <><LockedScreen />{recovery}</>;
@@ -105,6 +112,7 @@ function Shell() {
       <LibraryDialogs />
       <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(store, id)} />
       {closed !== null && <ClosedOverlay message={closed} onReconnect={actions.reconnect} />}
+      {closed !== null && hasUnsavedWork && <div className="connection-recovery"><UnsavedWork /></div>}
     </div>
   );
 }
