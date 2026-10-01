@@ -72,6 +72,13 @@ async function waitForAttribute(locator: Locator, name: string, value: string): 
   expect(ok).toBeTrue();
 }
 
+/** Saves a screenshot as `web-compose-<name>.png` into the directory named by
+ * `AI_1667_WEB_UI_SCREENSHOTS`; does nothing when it is not set. */
+async function screenshot(page: Page, name: string): Promise<void> {
+  const dir = process.env.AI_1667_WEB_UI_SCREENSHOTS;
+  if (dir !== undefined) await page.screenshot({ path: `${dir}/web-compose-${name}.png` });
+}
+
 function composer(page: Page): Locator {
   return page.getByRole("textbox", { name: "What happens next?" });
 }
@@ -199,6 +206,7 @@ test("case 4: a direction and Enter write a part that records it; p shows it; Sh
   expect(await page.locator(".composer-target").textContent()).toContain("after part 3");
 
   await composer(page).fill("She turns around.");
+  await screenshot(page, "composer");
   await page.keyboard.press("Enter");
   await waitForCount(page.locator(".part-streaming"), 1);
   expect(await composer(page).inputValue()).toBe("");
@@ -304,4 +312,49 @@ test("case 8: while this story writes the box stays editable, a send is refused 
   await page.getByText("Draft kept.").first().waitFor();
   expect(await composer(page).inputValue()).toBe("a draft while it writes");
   expect(await stopButton(page).count()).toBe(1);
+}, 60_000);
+
+
+test("case 9: R opens retake mode filled with the old direction; the new direction is saved; Escape brings the Direct draft back", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project);
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("R Story");
+  const pA = await api.createNode(created.id, { text: "A: the opening part.", parentId: null });
+  const a = pA.path.at(-1)!.id;
+  await api.createNode(created.id, { text: "B: the middle part.", parentId: a, instruction: "Go left." });
+  const page = await openSeededPage(web, created.id, "R Story");
+  const diagnostics = await collectPageDiagnostics(page);
+  await part(page, "B:").click();
+  await waitForAttribute(part(page, "B:"), "aria-current", "true");
+
+  await page.keyboard.press("i");
+  await composer(page).fill("my direct draft");
+  await page.keyboard.press("Escape");
+
+  await page.keyboard.press("Shift+R");
+  const retakeBox = page.getByRole("textbox", { name: "New direction for the retake" });
+  expect(await poll(() => isFocused(retakeBox))).toBeTrue();
+  expect(await retakeBox.inputValue()).toBe("Go left.");
+  expect(await page.locator(".composer-target").textContent()).toBe("Retake part 2 — new direction");
+  await screenshot(page, "retake");
+
+  await page.keyboard.press("Escape");
+  expect(await composer(page).inputValue()).toBe("my direct draft");
+
+  await part(page, "B:").click();
+  await page.keyboard.press("Shift+R");
+  await retakeBox.fill("Go right.");
+  await page.keyboard.press("Enter");
+  await waitForCount(page.locator(".part-streaming"), 1);
+  expect(await composer(page).inputValue()).toBe("my direct draft");
+  await waitForCount(page.locator(".part-streaming"), 0, 10_000);
+  await waitForCount(page.locator(".part"), 2);
+
+  const saved = await api.loadStory(created.id);
+  expect(saved.path[1]!.instruction).toBe("Go right.");
+  expect(saved.path[1]!.parentId).toBe(a);
+  expect(saved.nodes.filter((node) => node.parentId === a)).toHaveLength(2);
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.cspViolations).toEqual([]);
 }, 60_000);
