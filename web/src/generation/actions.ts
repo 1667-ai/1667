@@ -87,7 +87,11 @@ export interface GenerationActionDependencies {
 type StoryAdoptPayload = (
   storyId: string,
   payload: StoryPayload,
-  options?: { readonly focusNewLeafIf: string | null; readonly announcement?: string }
+  options?: {
+    readonly focusNewLeafIf: string | null;
+    readonly announcement?: string;
+    readonly focusPartId?: string;
+  }
 ) => boolean;
 
 type Connected = Extract<ConnectionState, { kind: "connected" }>;

@@ -3,6 +3,7 @@ import { RETAKE_GONE_TOAST } from "../generation/actions.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
+import { EDITOR_OPEN_TOAST, editorBlocksChange } from "../editor/state.js";
 import { STORY_LOCKED_TOAST, type StoryActions } from "../story/actions.js";
 import { openPart, SUMMARY_RETAKE_TOAST } from "../story/part-actions.js";
 import { PART_SWITCHING_TOAST, partSwitchPending } from "../story/part-guard.js";
@@ -97,6 +98,10 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         return;
       }
       const { storyId, node } = target;
+      if (editorBlocksChange(store.get().editor, storyId, target.story.payload.path, partId)) {
+        pushToast(store, EDITOR_OPEN_TOAST);
+        return;
+      }
       // A retake already open for this part keeps what the writer typed.
       writeDraft(storyId, (draft) => (
         draft.retake?.nodeId === node.id ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }

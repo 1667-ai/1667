@@ -50,6 +50,8 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
   const generation = useStore(store, (state) => state.generation);
+  const editor = useStore(store, (state) => state.editor);
+  const editingPartId = editor !== null && editor.storyId === storyId ? editor.partId : null;
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusedPartId = story !== null && story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
   const generationView = manuscriptGenerationView(generation, storyId);
@@ -161,6 +163,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
                   focusedPartId={focusedPartId}
                   switching={story.switching}
                   showDirections={showDirections}
+                  editingPartId={editingPartId}
                   generation={generationView}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}

@@ -14,6 +14,8 @@ export interface ManuscriptProps {
   readonly focusedPartId: string | null;
   readonly switching: { readonly partId: string; readonly targetId: string } | null;
   readonly showDirections: boolean;
+  /** The part whose slot holds the inline editor, if any. */
+  readonly editingPartId: string | null;
   /** The generation currently writing into (or with unsaved leftover text
    * in) this exact story, if any — `null` the rest of the time. See
    * `generation/state.ts`'s `manuscriptGenerationView`. */
@@ -42,7 +44,7 @@ function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): reado
  * changes (every mutation and landed switch replaces it wholesale, so
  * reference equality is exactly the right memo key).
  */
-export function Manuscript({ payload, focusedPartId, switching, showDirections, generation, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
+export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, generation, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
   const model = useMemo(() => createManuscriptModel(payload), [payload]);
 
   const switchingAnchor = switching === null
@@ -79,6 +81,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
               busy={busyFromPathIndex !== null && row.pathIndex > busyFromPathIndex}
               controlsLocked={locked}
               showDirections={showDirections}
+              editing={row.id === editingPartId}
               displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
               continuation={generation !== null && generation.mode === "append" && generation.appendTo === row.id
                 ? { text: generation.text, thinking: generation.thinking, live: generation.live }

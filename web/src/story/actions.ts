@@ -15,6 +15,7 @@ import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
+import { EDITOR_OPEN_TOAST, editorBlocksChange } from "../editor/state.js";
 import { belowPendingSwitch } from "./part-guard.js";
 import { chapterJumpPartId, firstPartId, lastPartId, nextPartId } from "./focus-model.js";
 import { effectiveFocusedPartId, loadedStoryState, type StoryState } from "./state.js";
@@ -96,7 +97,14 @@ export interface StoryActions {
     // `null`, the one spelling of "empty" this reads, rather than either
     // that same explicit `null` or simply omitting the field meaning the
     // exact same thing two different ways.
-    options?: { readonly focusNewLeafIf: string | null; readonly announcement?: string }
+    options?: {
+      readonly focusNewLeafIf: string | null;
+      readonly announcement?: string;
+      /** Moves focus onto this part when it is on the adopted line — a
+       * saved edit or a new take lands the writer on it. Wins over
+       * `focusNewLeafIf`. */
+      readonly focusPartId?: string;
+    }
   ): boolean;
   focusPart(partId: string): void;
   moveFocus(direction: -1 | 1): void;
@@ -377,6 +385,10 @@ export function createStoryActions(
       // move into the `store.set` above: it already knows how to update
       // `focusedPartId` and record the reading position together, and reuses
       // it verbatim instead of duplicating that pairing here.
+      const requested = options?.focusPartId;
+      if (applied && requested !== undefined && payload.path.some((node) => node.id === requested)) {
+        moveFocusTo = requested;
+      }
       if (moveFocusTo !== null) setFocusedPart(store, storyId, moveFocusTo);
       return applied;
     },
@@ -411,6 +423,10 @@ export function createStoryActions(
         return;
       }
       if (belowPendingSwitch(story, partId)) return;
+      if (editorBlocksChange(store.get().editor, storyId, story.payload.path, partId)) {
+        pushToast(store, EDITOR_OPEN_TOAST);
+        return;
+      }
       const baseId = story.switching !== null && story.switching.partId === partId
         ? story.switching.targetId
         : partId;
@@ -425,6 +441,10 @@ export function createStoryActions(
         return;
       }
       if (belowPendingSwitch(story, partId)) return;
+      if (editorBlocksChange(store.get().editor, storyId, story.payload.path, partId)) {
+        pushToast(store, EDITOR_OPEN_TOAST);
+        return;
+      }
       beginSwitch(storyId, partId, targetId);
     }),
 

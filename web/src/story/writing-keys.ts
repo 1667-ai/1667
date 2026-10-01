@@ -28,6 +28,10 @@ export function handleWritingKey(
       if (activatesOnEnterOrSpace()) return false;
       actions.compose.requestFocus();
       return true;
+    case "edit":
+      if (partId === null) return false;
+      actions.editor.openEdit(partId);
+      return true;
     case "retake-with-prompt":
       if (partId === null) return false;
       actions.compose.startRetake(partId);

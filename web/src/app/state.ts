@@ -1,5 +1,6 @@
 import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
+import type { EditorState } from "../editor/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
@@ -31,6 +32,8 @@ export interface AppState {
   readonly generation: GenerationState;
   /** The composer's drafts and history (#409 step 6). See `compose/state.ts`. */
   readonly compose: ComposeState;
+  /** The one open inline editor, if any (#409 step 6). See `editor/state.ts`. */
+  readonly editor: EditorState | null;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -51,6 +54,7 @@ export function initialAppState(
     story: initialStoryState(),
     generation: initialGenerationState(),
     compose: initialComposeState(),
+    editor: null,
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

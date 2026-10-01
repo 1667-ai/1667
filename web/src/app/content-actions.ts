@@ -1,4 +1,5 @@
 import { createComposeActions, type ComposeActions } from "../compose/actions.js";
+import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
 import { generationLocks } from "../generation/state.js";
@@ -14,6 +15,7 @@ export interface ContentActions {
   readonly generation: GenerationActions;
   readonly part: PartActions;
   readonly compose: ComposeActions;
+  readonly editor: EditorActions;
 }
 
 /**
@@ -54,6 +56,7 @@ export function createContentActions(
     isLocked: (storyId) => generationLocks(store.get().generation, storyId)
   });
   const compose = createComposeActions(store, { story, generation });
-  return { library, story, generation, part, compose };
+  const editor = createEditorActions(store, { story });
+  return { library, story, generation, part, compose, editor };
 }
 

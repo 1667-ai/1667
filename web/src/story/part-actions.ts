@@ -3,6 +3,7 @@ import type { GenerationActions } from "../generation/actions.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
+import { EDITOR_OPEN_TOAST, editorBlocksChange } from "../editor/state.js";
 import { STORY_LOCKED_TOAST, type StoryActions } from "./actions.js";
 import { partChangeRefusal } from "./part-guard.js";
 import type { StoryState } from "./state.js";
@@ -55,6 +56,10 @@ export function createPartActions(store: Store<AppState>, deps: PartActionDepend
       }
       // Focus first: a landed take moves focus only if it still sits where
       // the run started, and that is the part being retaken.
+      if (editorBlocksChange(store.get().editor, storyId, story.payload.path, partId)) {
+        pushToast(store, EDITOR_OPEN_TOAST);
+        return;
+      }
       deps.story.focusPart(partId);
       void deps.generation.continue({ instruction: node.instruction, retakeOf: node.id });
     }
