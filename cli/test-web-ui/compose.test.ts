@@ -8,7 +8,8 @@ import {
   collectPageDiagnostics,
   launchChrome,
   openInspectionApi,
-  openTestPage
+  openTestPage,
+  seedForkedStory
 } from "./web-ui-fixture.js";
 
 /**
@@ -35,10 +36,10 @@ afterEach(async () => {
   await cleanupWebProcesses();
 });
 
-async function spawnComposeWeb(project: ScratchProject): Promise<ReadyWeb> {
+async function spawnComposeWeb(project: ScratchProject, wordDelayMs = WORD_DELAY_MS): Promise<ReadyWeb> {
   return await spawnWeb(
     ["--data", project.dataDir, "--port", "0", "--no-open"],
-    { ...project.env, [DRY_RUN_WORD_DELAY_VARIABLE]: String(WORD_DELAY_MS) }
+    { ...project.env, [DRY_RUN_WORD_DELAY_VARIABLE]: String(wordDelayMs) }
   );
 }
 
@@ -69,6 +70,18 @@ async function waitForCount(locator: Locator, count: number, timeoutMs = 5_000):
 async function waitForAttribute(locator: Locator, name: string, value: string): Promise<void> {
   const ok = await poll(async () => (await locator.getAttribute(name)) === value);
   expect(ok).toBeTrue();
+}
+
+function composer(page: Page): Locator {
+  return page.getByRole("textbox", { name: "What happens next?" });
+}
+
+async function isFocused(locator: Locator): Promise<boolean> {
+  return await locator.evaluate((element) => element === document.activeElement);
+}
+
+function stopButton(page: Page): Locator {
+  return page.getByRole("button", { name: "Stop" });
 }
 
 function continueButton(page: Page): Locator {
@@ -123,4 +136,172 @@ test("case 1: r on a middle part streams a new take in its place, hides the old 
   await page.waitForTimeout(300);
   expect(diagnostics.consoleErrors).toEqual([]);
   expect(diagnostics.cspViolations).toEqual([]);
+}, 60_000);
+
+async function openSeededPage(web: ReadyWeb, storyId: string, title: string): Promise<Page> {
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, storyId);
+  await page.getByRole("heading", { name: title }).waitFor();
+  return page;
+}
+
+test("case 2: Enter and i focus the composer, and the i is not typed", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project);
+  const seeded = await seedThreeParts(web, "Focus Story");
+  const page = await openSeededPage(web, seeded.storyId, "Focus Story");
+  const diagnostics = await collectPageDiagnostics(page);
+  await part(page, "C:").click();
+  await waitForAttribute(part(page, "C:"), "aria-current", "true");
+
+  await page.keyboard.press("i");
+  expect(await poll(() => isFocused(composer(page)))).toBeTrue();
+  expect(await composer(page).inputValue()).toBe("");
+
+  await page.keyboard.press("Escape");
+  expect(await poll(async () => !(await isFocused(composer(page))))).toBeTrue();
+  await page.keyboard.press("Enter");
+  expect(await poll(() => isFocused(composer(page)))).toBeTrue();
+  expect(await composer(page).inputValue()).toBe("");
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.cspViolations).toEqual([]);
+}, 60_000);
+
+test("case 3: Enter on a focused take arrow activates the arrow instead of opening the composer", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+  const page = await openSeededPage(web, seeded.storyId, "Forked Story");
+  await part(page, "B1:").click();
+
+  const next = page.getByRole("button", { name: /Next take/ }).first();
+  await next.focus();
+  await page.keyboard.press("Enter");
+
+  await waitForCount(part(page, "B2:"), 1);
+  expect(await isFocused(composer(page))).toBeFalse();
+}, 60_000);
+
+test("case 4: a direction and Enter write a part that records it; p shows it; Shift+Enter adds a line", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project);
+  const seeded = await seedThreeParts(web, "Direction Story");
+  const page = await openSeededPage(web, seeded.storyId, "Direction Story");
+  const diagnostics = await collectPageDiagnostics(page);
+  await part(page, "C:").click();
+
+  await page.keyboard.press("i");
+  await composer(page).pressSequentially("She turns");
+  await page.keyboard.press("Shift+Enter");
+  await composer(page).pressSequentially("around.");
+  expect(await composer(page).inputValue()).toBe("She turns\naround.");
+  expect(await page.locator(".composer-target").textContent()).toContain("after part 3");
+
+  await composer(page).fill("She turns around.");
+  await page.keyboard.press("Enter");
+  await waitForCount(page.locator(".part-streaming"), 1);
+  expect(await composer(page).inputValue()).toBe("");
+  await waitForCount(page.locator(".part-streaming"), 0, 10_000);
+  await waitForCount(page.locator(".part"), 4);
+
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  const landed = saved.path.at(-1)!;
+  expect(landed.instruction).toBe("She turns around.");
+  expect(landed.text).toContain('"She turns around"');
+
+  await part(page, "A:").click();
+  await page.keyboard.press("p");
+  await waitForCount(page.locator(".part-instruction"), 1);
+  expect(await page.locator(".part-instruction").textContent()).toBe("She turns around.");
+  await page.waitForTimeout(300);
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.cspViolations).toEqual([]);
+}, 60_000);
+
+test("case 5: Escape in the composer during a stream leaves the box without stopping; a second Escape stops", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project, 60);
+  const seeded = await seedThreeParts(web, "Escape Story");
+  const page = await openSeededPage(web, seeded.storyId, "Escape Story");
+  await part(page, "C:").click();
+
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await waitForCount(stopButton(page), 1);
+  await page.keyboard.press("i");
+  expect(await poll(() => isFocused(composer(page)))).toBeTrue();
+  await composer(page).pressSequentially("next idea");
+
+  await page.keyboard.press("Escape");
+  expect(await poll(async () => !(await isFocused(composer(page))))).toBeTrue();
+  expect(await stopButton(page).count()).toBe(1);
+  expect(await composer(page).inputValue()).toBe("next idea");
+
+  await page.keyboard.press("Escape");
+  await waitForCount(continueButton(page), 1, 10_000);
+  expect(await composer(page).inputValue()).toBe("next idea");
+}, 60_000);
+
+test("case 6: a Direct send stopped while the model is still thinking puts the text back", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project, 250);
+  const seeded = await seedThreeParts(web, "Thinking Story");
+  const page = await openSeededPage(web, seeded.storyId, "Thinking Story");
+  await part(page, "C:").click();
+
+  await page.keyboard.press("i");
+  await composer(page).fill("She never turns around.");
+  await page.keyboard.press("Enter");
+  await waitForCount(stopButton(page), 1);
+  expect(await composer(page).inputValue()).toBe("");
+  await page.keyboard.press("Escape");
+  await waitForCount(continueButton(page), 1, 10_000);
+
+  expect(await composer(page).inputValue()).toBe("She never turns around.");
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  expect(saved.path).toHaveLength(3);
+}, 60_000);
+
+test("case 7: Ctrl+Up and, on an empty box, Up recall the last direction", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project);
+  const seeded = await seedThreeParts(web, "History Story");
+  const page = await openSeededPage(web, seeded.storyId, "History Story");
+  await part(page, "C:").click();
+
+  await page.keyboard.press("i");
+  await composer(page).fill("Rain starts.");
+  await page.keyboard.press("Enter");
+  await waitForCount(continueButton(page), 1, 10_000);
+
+  await page.keyboard.press("i");
+  await composer(page).fill("half typed");
+  await page.keyboard.press("Control+ArrowUp");
+  expect(await composer(page).inputValue()).toBe("Rain starts.");
+  await page.keyboard.press("Control+ArrowDown");
+  expect(await composer(page).inputValue()).toBe("half typed");
+
+  await composer(page).fill("");
+  await page.keyboard.press("ArrowUp");
+  expect(await composer(page).inputValue()).toBe("Rain starts.");
+}, 90_000);
+
+test("case 8: while this story writes the box stays editable, a send is refused and the draft stays", async () => {
+  const project = await scratchProject();
+  const web = await spawnComposeWeb(project, 60);
+  const seeded = await seedThreeParts(web, "Lock Story");
+  const page = await openSeededPage(web, seeded.storyId, "Lock Story");
+  await part(page, "C:").click();
+
+  await page.keyboard.press("Enter");
+  await page.keyboard.press("Enter");
+  await waitForCount(stopButton(page), 1);
+  await page.keyboard.press("i");
+  await composer(page).fill("a draft while it writes");
+  await page.keyboard.press("Enter");
+
+  await page.getByText("Draft kept.").first().waitFor();
+  expect(await composer(page).inputValue()).toBe("a draft while it writes");
+  expect(await stopButton(page).count()).toBe(1);
 }, 60_000);

@@ -66,7 +66,9 @@ export function useKeymap(keymap: Keymap): void {
         event.preventDefault();
         return;
       }
-      if (currentScreenHandler === null || fieldHasFocus()) return;
+      // A key a field already handled (the composer's Enter, which hands the
+      // keyboard back before this listener runs) is not a screen key.
+      if (currentScreenHandler === null || event.defaultPrevented || fieldHasFocus()) return;
       const binding = resolveManuscriptBinding(event);
       if (binding === null) return;
       if (currentScreenHandler(binding, event)) event.preventDefault();
