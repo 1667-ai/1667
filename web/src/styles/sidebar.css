@@ -168,33 +168,42 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .story-item.active .story-item-title {
   font-weight: 600;
 }
 
-/* One line, so every row has the same height: the line count and the age
-   keep their width, and only the part and word count truncates. */
-.story-item-meta {
-  align-items: center;
+/* The title line: the title truncates (its full text is the row's tooltip)
+   and the age sits at the right. */
+.story-item-head {
+  align-items: baseline;
   display: flex;
-  height: var(--s-4);
   gap: var(--s-2);
-  font: var(--font-meta);
-  color: var(--dim);
   min-width: 0;
 }
 
-.story-item-meta > span:first-child {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
+.story-item-age {
+  flex-shrink: 0;
+  margin-left: auto;
   white-space: nowrap;
 }
 
-.story-item-meta > .mono-meta {
-  flex-shrink: 0;
+/* The counts line is never cut off: the part and word count and the line
+   count keep their full text. At the sidebar width they fit on one line,
+   so every row has the same height; a very large count wraps instead. */
+.story-item-meta {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-1) var(--s-2);
+  min-height: var(--s-4);
+  font: var(--font-meta);
+  color: var(--dim);
+}
+
+.story-item-meta > span:first-child {
   white-space: nowrap;
 }
 
@@ -215,16 +224,33 @@
   height: var(--icon-xs);
 }
 
+/* The row menu sits over the right end of the row, so the title and the
+   counts get the row's full width. It shows on hover and focus, on a fill
+   that matches the row under it. */
 .story-item-menu {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  top: calc(50% - var(--hit) / 2);
+  right: var(--s-1);
+  z-index: 1;
 }
 
 .story-item-menu-trigger {
-  margin-right: var(--s-1);
+  background: linear-gradient(var(--row-hover), var(--row-hover)), var(--sb);
   opacity: 0;
   visibility: hidden;
   transition: opacity 150ms ease, visibility 150ms ease;
+}
+
+.story-item.active .story-item-menu-trigger {
+  background: var(--surface);
+}
+
+.story-item .story-item-menu-trigger:hover:not(:disabled) {
+  background: linear-gradient(var(--chip), var(--chip)), var(--sb);
+}
+
+.story-item.active .story-item-menu-trigger:hover:not(:disabled) {
+  background: linear-gradient(var(--chip), var(--chip)), var(--surface);
 }
 
 .story-item:hover .story-item-menu-trigger,
@@ -232,6 +258,12 @@
 .story-item-menu-trigger[aria-expanded="true"] {
   opacity: 1;
   visibility: visible;
+}
+
+/* The shown trigger covers the age, so the age steps aside. */
+.story-item:hover .story-item-age,
+.story-item:focus-within .story-item-age {
+  visibility: hidden;
 }
 
 .story-item-menu-popover {

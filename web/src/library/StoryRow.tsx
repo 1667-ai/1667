@@ -17,7 +17,10 @@ export function StoryRow(
   return (
     <div className={`story-item${active ? " active" : ""}`}>
       <button type="button" className="story-item-main" title={summary.title} onClick={onOpen}>
-        <span className="story-item-title">{summary.title}</span>
+        <span className="story-item-head">
+          <span className="story-item-title">{summary.title}</span>
+          <span className="mono-meta story-item-age">{formatAge(summary.updatedAt).toLowerCase()}</span>
+        </span>
         <span className="story-item-meta">
           <span>
             {summary.partCount} {summary.partCount === 1 ? "part" : "parts"} ·{" "}
@@ -29,7 +32,6 @@ export function StoryRow(
               {summary.lineCount}
             </span>
           )}
-          <span className="mono-meta">{formatAge(summary.updatedAt).toLowerCase()}</span>
         </span>
       </button>
       <RowMenu onRename={onRename} onDelete={onDelete} title={summary.title} />
