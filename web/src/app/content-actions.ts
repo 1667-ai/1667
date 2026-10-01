@@ -3,6 +3,7 @@ import type { FlushScheduler } from "../generation/stream-buffer.js";
 import { generationLocks } from "../generation/state.js";
 import { createLibraryActions, type LibraryActions } from "../library/actions.js";
 import { createStoryActions, type StoryActions } from "../story/actions.js";
+import { createPartActions, type PartActions } from "../story/part-actions.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
 
@@ -10,6 +11,7 @@ export interface ContentActions {
   readonly library: LibraryActions;
   readonly story: StoryActions;
   readonly generation: GenerationActions;
+  readonly part: PartActions;
 }
 
 /**
@@ -44,6 +46,11 @@ export function createContentActions(
     adoptPayload: story.adoptPayload,
     ...(deps.createScheduler === undefined ? {} : { createScheduler: deps.createScheduler })
   });
-  return { library, story, generation };
+  const part = createPartActions(store, {
+    story,
+    generation,
+    isLocked: (storyId) => generationLocks(store.get().generation, storyId)
+  });
+  return { library, story, generation, part };
 }
 

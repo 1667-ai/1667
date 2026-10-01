@@ -15,6 +15,7 @@ import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
+import { belowPendingSwitch } from "./part-guard.js";
 import { chapterJumpPartId, firstPartId, lastPartId, nextPartId } from "./focus-model.js";
 import { effectiveFocusedPartId, loadedStoryState, type StoryState } from "./state.js";
 
@@ -439,19 +440,3 @@ export function createStoryActions(
     }
   };
 }
-
-/** A part below a pending switch belongs to the line that switch replaces;
- * switching it would queue a take on a branch that is about to disappear
- * (and, once the ancestor lands, restore it). The mouse controls are
- * disabled there; keys get the same rule. */
-function belowPendingSwitch(
-  story: Extract<StoryState, { kind: "loaded" }>,
-  partId: string
-): boolean {
-  if (story.switching === null || story.switching.partId === partId) return false;
-  const path = story.payload.path;
-  const anchor = path.findIndex((node) => node.id === story.switching!.partId);
-  const target = path.findIndex((node) => node.id === partId);
-  return anchor >= 0 && target > anchor;
-}
-

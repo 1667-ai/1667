@@ -10,6 +10,7 @@ import { useFollowStream } from "../generation/useFollowStream.js";
 import { focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { StoryHeader } from "./StoryHeader.js";
+import { handleWritingKey } from "./writing-keys.js";
 import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
 
 /** The `role="status"` region's text: a running/settling generation's own
@@ -122,7 +123,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
       case "scroll-up": return scrollBy(container, -pageScrollDistance(container));
       case "scroll-down": return scrollBy(container, pageScrollDistance(container));
       case "open-library": navigate({ kind: "library" }); return true;
-      default: return false;
+      default: return handleWritingKey(binding, event, current.story, actions);
     }
   }), [actions, store, storyId]);
 

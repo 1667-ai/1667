@@ -3,6 +3,9 @@ import test from "node:test";
 import type { StoryPayload } from "../shared/types.js";
 import { RETAKE_GONE_TOAST, type DraftHandle } from "../web/src/generation/actions.js";
 import { manuscriptGenerationView } from "../web/src/generation/state.js";
+import { STORY_LOCKED_TOAST } from "../web/src/story/actions.js";
+import { PART_SWITCHING_TOAST } from "../web/src/story/part-guard.js";
+import { SUMMARY_RETAKE_TOAST } from "../web/src/story/part-actions.js";
 import {
   STORY_ID,
   connectedState,
@@ -320,4 +323,53 @@ test("retake refuses a summary and a part that left the line, and gives the draf
   assert.deepEqual(goneDraft.calls, ["restore"]);
   assert.equal(fake.continueCalls.length, 0);
   assert.deepEqual(toasts(store), [RETAKE_GONE_TOAST, RETAKE_GONE_TOAST]);
+});
+
+// ---------------------------------------------------------------------------
+// `r`: the instant retake.
+// ---------------------------------------------------------------------------
+
+test("r retakes the part with its own direction and moves focus onto it first", async () => {
+  const payload = linearPayload(["a1", "b1", "c1"], { nodeOverrides: { b1: { instruction: "Go left." } } });
+  const { actions, fake, store } = open(payload, "c1", { continueStory: () => new Promise(() => {}) });
+
+  actions.part.retake("b1");
+  await waitFor(() => fake.continueCalls.length === 1);
+
+  assert.equal(fake.continueCalls[0]!.instruction, "Go left.");
+  assert.deepEqual(fake.continueCalls[0]!.target, { parentId: "a1" });
+  const story = store.get().story;
+  assert.equal(story.kind === "loaded" ? story.focusedPartId : null, "b1");
+});
+
+test("r refuses a summary", async () => {
+  const payload = linearPayload(["a1", "s1"], { nodeOverrides: { s1: { role: "summary" } } });
+  const { actions, fake, store } = open(payload, "s1");
+
+  actions.part.retake("s1");
+
+  assert.deepEqual(toasts(store), [SUMMARY_RETAKE_TOAST]);
+  assert.equal(fake.continueCalls.length, 0);
+});
+
+test("r is refused while this story writes, and while a take switch is in flight", async () => {
+  const gate = deferred<{ payload: StoryPayload } | null>();
+  const { actions, fake, store } = open(linearPayload(["a1", "b1", "c1"]), "b1", { continueStory: () => gate.promise });
+  const run = actions.generation.continue();
+  await waitFor(() => fake.continueCalls.length === 1);
+
+  actions.part.retake("b1");
+
+  assert.deepEqual(toasts(store), [STORY_LOCKED_TOAST]);
+  assert.equal(fake.continueCalls.length, 1);
+  gate.resolve({ payload: linearPayload(["a1", "b1", "c1"]) });
+  await run;
+
+  store.set((state) => state.story.kind === "loaded"
+    ? { ...state, toasts: [], story: { ...state.story, switching: { partId: "a1", targetId: "a2" } } }
+    : state);
+  actions.part.retake("b1");
+
+  assert.deepEqual(toasts(store), [PART_SWITCHING_TOAST]);
+  assert.equal(fake.continueCalls.length, 1);
 });
