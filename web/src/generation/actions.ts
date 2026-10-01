@@ -1,6 +1,6 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { ContinueTarget, StoryApi } from "../../../client/api.js";
-import type { StoryPayload } from "../../../shared/types.js";
+import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { stoppedTextDisposition, type GenerationTarget } from "../../../shared/stopped-generation.js";
 import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
@@ -10,7 +10,7 @@ import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../story/actions.js";
-import { planContinue } from "./plan.js";
+import { planContinue, type GenerationPlan } from "./plan.js";
 import type { GenerationState } from "./state.js";
 import {
   appendBufferReasoning,
@@ -22,14 +22,34 @@ import {
 } from "./stream-buffer.js";
 import { saveStopped, type StopSaveOutcome, type StopSaveRequest } from "./settle.js";
 
-/** Step-6 seam: `instruction` and `draft` are both accepted here so the
- * composer (step 6) can add a typed direction and a restorable draft
- * without changing this signature again. Step 5 never passes either — every
- * caller here (`GenerationBar`'s Continue button, the Space key) calls
- * `continue()` with no argument at all. */
+/** What a composer submit hands back to the writer's draft once a run ends.
+ * `restore` puts the submitted text back where it was typed (only if the
+ * writer has not typed something newer there); `clear` drops it after the
+ * take landed. `generation/actions.ts` calls each through `settleDraft`, so a
+ * handle is never called twice for one meaning and never throws into a run.
+ * Built by `compose/draft-handle.ts`. */
+export interface DraftHandle {
+  restore(): void;
+  clear(): void;
+}
+
+/** The typed direction, the retake target, and the draft to settle. A plain
+ * Continue (Space, the Continue button, an empty composer) passes none of
+ * them. A non-empty `instruction` never appends: it always opens a new take.
+ * `retakeOf` names the part a retake replaces — the new take becomes its
+ * sibling. */
 export interface GenerationContinueRequest {
   readonly instruction?: string;
-  readonly draft?: { restore(): void; clear(): void };
+  readonly retakeOf?: string;
+  readonly draft?: DraftHandle;
+}
+
+/** `phase` moves `pending` -> `restored` (a failed run) and then at most to
+ * `cleared` (a later `retrySave` that lands); `pending` -> `cleared` is a
+ * normal landing. */
+interface DraftSlot {
+  readonly handle: DraftHandle | null;
+  phase: "pending" | "restored" | "cleared";
 }
 
 export interface GenerationActions {
@@ -94,6 +114,7 @@ interface ActiveRun {
   readonly seamPathIndex: number;
   readonly instruction: string;
   readonly focusAtStart: string | null;
+  readonly draft: DraftSlot;
   readonly controller: AbortController;
   /** The connection this run started on — `api` is a fixed reference into
    * it. A later reconnect replaces `state.connection` with a new object, so
@@ -109,10 +130,32 @@ interface ActiveRun {
   message: string;
 }
 
+/** Shown when a retake's part left the line (or became a summary) between
+ * the writer opening the retake and sending it. Exported for the composer. */
+export const RETAKE_GONE_TOAST = "That part is no longer available to retake. Draft kept.";
+
 function continueTargetOf(target: GenerationTarget): ContinueTarget {
   return target.mode === "append"
     ? { appendTo: target.appendTo, expectedTextHash: target.expectedTextHash }
     : { parentId: target.parentId };
+}
+
+/** The one place a draft handle is called. A handle is a UI callback; if it
+ * throws, the run must still finish, so the failure stops here. */
+function settleDraft(slot: DraftSlot, action: "restore" | "clear"): void {
+  if (slot.handle === null) return;
+  if (action === "restore") {
+    if (slot.phase !== "pending") return;
+    slot.phase = "restored";
+  } else {
+    if (slot.phase === "cleared") return;
+    slot.phase = "cleared";
+  }
+  try {
+    slot.handle[action]();
+  } catch {
+    // A broken draft callback never breaks the run.
+  }
 }
 
 export function createGenerationActions(
@@ -218,6 +261,7 @@ export function createGenerationActions(
         announcement: `Stopped. Part ${n} kept.`
       });
       setIdle();
+      settleDraft(run.draft, "clear");
       if (failureMessage !== null) {
         pushToast(store, `${failureMessage} · generation stopped · text kept in ${run.storyTitle}.`);
       } else if (!applied) {
@@ -228,6 +272,7 @@ export function createGenerationActions(
     if (outcome.kind === "not-substantive") {
       deps.adoptPayload(run.storyId, outcome.payload, { focusNewLeafIf: null, announcement: "Stopped. Nothing was written." });
       setIdle();
+      settleDraft(run.draft, "restore");
       if (failureMessage !== null) pushToast(store, failureMessage);
       return;
     }
@@ -239,6 +284,7 @@ export function createGenerationActions(
     run.phase = "unsaved";
     run.message = errorMessage(outcome.error);
     publish(run);
+    settleDraft(run.draft, "restore");
     pushToast(store, `Not saved: ${run.message}`);
   }
 
@@ -275,6 +321,7 @@ export function createGenerationActions(
         announcement: `Part ${n} written.`
       });
       setIdle();
+      settleDraft(run.draft, "clear");
       if (!applied) pushToast(store, `Part ${n} written in ${run.storyTitle}.`);
       return;
     }
@@ -291,6 +338,7 @@ export function createGenerationActions(
     const code = apiErrorCode(error);
     if (code === "resource_busy") {
       setIdle();
+      settleDraft(run.draft, "restore");
       pushToast(store, "Another window is writing in this story.");
       return;
     }
@@ -303,6 +351,7 @@ export function createGenerationActions(
       // only the stale cache needs fixing before the writer's next attempt
       // can land.
       setIdle();
+      settleDraft(run.draft, "restore");
       await reloadBestEffort(run);
       pushToast(store, STORY_RELOADED_TOAST);
       return;
@@ -323,6 +372,7 @@ export function createGenerationActions(
       run.phase = "unsaved";
       run.message = errorMessage(error);
       publish(run);
+      settleDraft(run.draft, "restore");
       pushToast(store, `Not saved: ${run.message}`);
       return;
     }
@@ -331,6 +381,7 @@ export function createGenerationActions(
     // nothing substantive to keep): committing this prose would durably save
     // output the server refused, so it is discarded.
     setIdle();
+    settleDraft(run.draft, "restore");
     // Always reload: a provider call that failed after it started still
     // records its attempt on the story, which moves the story's version. With
     // the old version held, the next Continue would be refused as a conflict
@@ -342,19 +393,36 @@ export function createGenerationActions(
 
   return {
     continue: async (request = {}) => {
+      const draft: DraftSlot = { handle: request.draft ?? null, phase: "pending" };
+      // Every early return below puts the writer's submitted text back: a
+      // refusal is not a send.
+      const refuse = (): void => settleDraft(draft, "restore");
       if (activeRun !== null) {
+        refuse();
         refuseAlreadyWriting(store.get());
         return;
       }
       const state = store.get();
-      if (state.connection.kind !== "connected") return;
-      if (state.route.kind !== "story") return;
+      if (state.connection.kind !== "connected") return refuse();
+      if (state.route.kind !== "story") return refuse();
       const story = state.story;
-      if (story.kind !== "loaded" || story.payload.id !== state.route.id) return;
+      if (story.kind !== "loaded" || story.payload.id !== state.route.id) return refuse();
       const connection = state.connection;
       const storyId = story.payload.id;
       const storyTitle = story.payload.title;
       const focusedPartId = effectiveFocusedPartId(story);
+
+      // A retake replaces a part that must still be on the line, and must
+      // not be a summary (summaries are rewritten, not retaken).
+      let retakeNode: StoryNode | null = null;
+      if (request.retakeOf !== undefined) {
+        retakeNode = story.payload.path.find((node) => node.id === request.retakeOf) ?? null;
+        if (retakeNode === null || retakeNode.role === "summary") {
+          refuse();
+          pushToast(store, RETAKE_GONE_TOAST);
+          return;
+        }
+      }
 
       const requestedInstruction = request.instruction ?? "";
       // The saved instruction of a stopped new take must be the direction the
@@ -367,19 +435,29 @@ export function createGenerationActions(
       } catch {
         defaultContinueDirection = undefined;
       }
-      const plan = await planContinue(
-        story.payload,
-        focusedPartId,
-        requestedInstruction,
-        defaultContinueDirection
-      );
-      // Re-validated after the await (`textHash` yields): a reconnect or a
-      // second admission racing this one must not both proceed.
+      let plan: GenerationPlan;
+      try {
+        plan = await planContinue(
+          story.payload,
+          focusedPartId,
+          requestedInstruction,
+          defaultContinueDirection,
+          retakeNode
+        );
+      } catch (error) {
+        refuse();
+        pushToast(store, errorMessage(error));
+        return;
+      }
+      // Re-validated after the awaits (`getSettings`, `textHash`): a
+      // reconnect or a second admission racing this one must not both
+      // proceed.
       if (activeRun !== null) {
+        refuse();
         refuseAlreadyWriting(store.get());
         return;
       }
-      if (store.get().connection !== connection) return;
+      if (store.get().connection !== connection) return refuse();
 
       const genId = crypto.randomUUID();
       const controller = new AbortController();
@@ -391,6 +469,7 @@ export function createGenerationActions(
         seamPathIndex: plan.seamPathIndex,
         instruction: plan.instruction,
         focusAtStart: focusedPartId,
+        draft,
         controller,
         connection,
         api: connection.api,

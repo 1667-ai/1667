@@ -1,8 +1,6 @@
-import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
-import { generationLocks } from "../generation/state.js";
-import { createLibraryActions, type LibraryActions } from "../library/actions.js";
-import { createStoryActions, type StoryActions } from "../story/actions.js";
+import type { FlushScheduler } from "../generation/stream-buffer.js";
 import { createThemeActions, type ThemeActions } from "../theme/actions.js";
+import { createContentActions, type ContentActions } from "./content-actions.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
 
@@ -11,40 +9,23 @@ export interface AppActionDependencies {
    * whichever attempt is current), so it supplies this rather than
    * `app/actions.ts` reaching into `app/connection.ts` itself. */
   readonly reconnect: () => void;
+  /** Test seam: replaces the animation-frame flush scheduler a generation
+   * run uses. Production code omits it. */
+  readonly createScheduler?: () => FlushScheduler;
 }
 
-export interface AppActions {
-  readonly library: LibraryActions;
-  readonly story: StoryActions;
-  readonly generation: GenerationActions;
+export interface AppActions extends ContentActions {
   readonly theme: ThemeActions;
   readonly reconnect: () => void;
 }
 
-/**
- * Composes the four feature action modules over one store (review fix A1):
- * `library`, `story`, `generation`, and `theme` each follow `app/store.ts`'s
- * "plain functions closing over `store`" pattern on their own; this is only
- * the wiring between them. `library` and `story` share one hook
- * (`story.titleChanged`) so a rename updates whichever story is open without
- * either module writing into the other's state directly; `story` and
- * `generation` share a similar pair — `story.adoptPayload` for a landed
- * generation, and `generationLocks` (a pure read of `state.generation`, not
- * an action reference) for `story`'s own take-switch lock.
- */
+/** Composes the content actions with the theme and the reconnect hook
+ * (review fix A1): each module follows `app/store.ts`'s "plain functions
+ * closing over `store`" pattern on its own; this is only the wiring. */
 export function createAppActions(store: Store<AppState>, deps: AppActionDependencies): AppActions {
-  // `story` needs `library.refresh` (a landed take switch can change the
-  // Library row it shows) and `library` needs `story.titleChanged` (a rename
-  // updates the open story) — each reads the other only through a callback
-  // invoked later, never at construction time, so declaring `story` first
-  // and having its callback close over the not-yet-assigned `library` is
-  // safe (the same trick `app/bootstrap.ts` uses for `onConnected`/`actions`).
-  const story = createStoryActions(store, {
-    storyChanged: () => { void library.refresh(); },
-    isLocked: (storyId) => generationLocks(store.get().generation, storyId)
-  });
-  const library = createLibraryActions(store, { titleChanged: story.titleChanged });
-  const generation = createGenerationActions(store, { adoptPayload: story.adoptPayload });
-  const theme = createThemeActions(store);
-  return { library, story, generation, theme, reconnect: deps.reconnect };
+  return {
+    ...createContentActions(store, deps),
+    theme: createThemeActions(store),
+    reconnect: deps.reconnect
+  };
 }
