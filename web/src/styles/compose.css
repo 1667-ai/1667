@@ -5,17 +5,17 @@
  */
 
 .generation-bar-compose { align-items: stretch; }
-.composer { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; }
-.composer-head { align-items: baseline; display: flex; gap: 14px; justify-content: space-between; min-height: 18px; }
+.composer { display: flex; flex: 1; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.composer-head { align-items: baseline; display: flex; gap: var(--s-3); justify-content: space-between; min-height: var(--s-4); }
 .composer-target { color: var(--dim); font: var(--font-meta); }
-.composer-row { align-items: flex-end; display: flex; gap: 14px; }
+.composer-row { align-items: flex-end; display: flex; gap: var(--s-3); }
 .composer-field {
-  background: var(--surface); border: 1px solid var(--line); border-radius: 9px; field-sizing: content;
+  background: var(--surface); border: var(--border); border-radius: var(--r-md); field-sizing: content;
   flex: 1; font-family: var(--ui); font-size: var(--fs-body); line-height: 1.4; max-height: 40vh; min-height: var(--btn-lg);
   min-width: 0; outline: none; overflow-y: auto; resize: none;
   /* One line of text sits centred in a `--btn-lg` box, level with the Continue button. */
   padding: calc((var(--btn-lg) - 2px - 1.4em) / 2) var(--s-3);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
-.composer-field:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.composer-field:focus { border-color: var(--accent); box-shadow: var(--focus); }
 .composer-field::placeholder { color: var(--faint); }

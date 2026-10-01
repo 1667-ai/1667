@@ -11,23 +11,23 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 13px;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-3);
   background: var(--sb);
-  border-right: 1px solid var(--line);
+  border-right: var(--border);
 }
 
 .brand {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px 12px;
+  padding: 0 0 var(--s-2) var(--s-3);
 }
 
 .brand-identity {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--s-1);
   min-width: 0;
 }
 
@@ -51,7 +51,7 @@
   position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-1);
 }
 
 /* `theme/ThemeControls.tsx` wraps its palette trigger and popover in this
@@ -122,7 +122,7 @@
 .theme-dot {
   width: 14px;
   height: 14px;
-  border-radius: 50%;
+  border-radius: var(--r-round);
   border: 1px solid var(--surface);
 }
 
@@ -154,10 +154,6 @@
   color: var(--dim);
 }
 
-.sidebar-search {
-  padding: 0 2px;
-}
-
 .sidebar-search input {
   width: 100%;
 }
@@ -167,40 +163,41 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
 }
 
 .story-list-empty {
   color: var(--dim);
   font-style: italic;
   font-size: var(--fs-small);
-  padding: 8px 10px;
+  padding: var(--s-2) var(--s-3);
 }
 
 .story-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  border-radius: 9px;
+  gap: var(--s-1);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
   position: relative;
 }
 
 .story-item.active {
   background: var(--surface);
-  outline: 1px solid var(--line);
+  border-color: var(--line);
 }
 
 .story-item-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--s-1);
   text-align: left;
-  padding: 9px 10px;
+  padding: var(--s-2) var(--s-3);
   background: none;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   min-width: 0;
 }
@@ -231,8 +228,7 @@
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  row-gap: 2px;
-  gap: 6px;
+  gap: var(--s-2);
   font: var(--font-meta);
   color: var(--dim);
   min-width: 0;
@@ -247,7 +243,7 @@
   align-items: center;
   gap: 3px;
   padding: 2px 6px;
-  border-radius: 20px;
+  border-radius: var(--r-pill);
   background: var(--chip);
   color: var(--dim);
   line-height: 1;
@@ -265,7 +261,7 @@
 }
 
 .story-item-menu-trigger {
-  margin-right: 4px;
+  margin-right: var(--s-1);
   opacity: 0;
   visibility: hidden;
   transition: opacity 150ms ease, visibility 150ms ease;
@@ -341,7 +337,7 @@
 @media (max-width: 800px) {
   .sidebar-toggle {
     display: inline-flex;
-    margin: 12px 0 4px 12px;
+    margin: var(--s-3) 0 var(--s-1) var(--s-3);
   }
 
   .sidebar-close {

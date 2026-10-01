@@ -3,20 +3,20 @@
  * at the reading measure. The design pass comes later.
  */
 
-.part-editor { display: flex; flex-direction: column; gap: 12px; }
+.part-editor { display: flex; flex-direction: column; gap: var(--s-3); }
 .part-editor-title { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
 .part-editor-prose, .part-editor-direction {
-  background: var(--surface); border: 1px solid var(--line); border-radius: 9px; color: var(--ink);
-  outline: none; padding: 12px 14px; resize: none; transition: border-color 120ms ease, box-shadow 120ms ease;
+  background: var(--surface); border: var(--border); border-radius: var(--r-md); color: var(--ink);
+  outline: none; padding: var(--s-3); resize: none; transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .part-editor-prose {
   field-sizing: content; font-family: var(--prose); font-size: var(--prose-size); line-height: 1.78;
   min-height: 8lh; width: 100%;
 }
 .part-editor-direction { field-sizing: content; font-family: var(--ui); font-size: var(--fs-ui); line-height: 1.4; width: 100%; }
-.part-editor-prose:focus, .part-editor-direction:focus { border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft); }
+.part-editor-prose:focus, .part-editor-direction:focus { border-color: var(--accent); box-shadow: var(--focus); }
 .part-editor-note { color: var(--dim); font-family: var(--ui); font-size: var(--fs-small); margin: 0; }
-.part-editor-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.part-editor-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
 
 /* ---------- the part menu (`···`) and the delete confirm ---------- */
 .part-menu { flex: 0 0 auto; position: relative; }

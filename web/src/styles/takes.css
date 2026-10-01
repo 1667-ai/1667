@@ -10,8 +10,8 @@
 
 .take-stepper { align-items: center; display: inline-flex; gap: 0; position: relative; }
 .take-count {
-  background: transparent; border: 0; border-radius: 20px; color: var(--dim); cursor: pointer;
-  font: var(--font-meta); height: var(--dot-hit); min-width: 40px; padding: 0 8px;
+  background: transparent; border: 0; border-radius: var(--r-pill); color: var(--dim); cursor: pointer;
+  font: var(--font-meta); height: var(--dot-hit); min-width: 40px; padding: 0 var(--s-2);
 }
 .take-count:hover:not(:disabled) { background: var(--row-hover); color: var(--accent); }
 .take-count[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -21,14 +21,14 @@
 /* Each dot is a `--dot` circle centred in a `--dot-hit` target: filled for
    the take being read, a ring with a centre for a take that branches, a
    plain ring for a childless take. */
-.take-dots { align-items: center; display: inline-flex; margin-left: 2px; }
+.take-dots { align-items: center; display: inline-flex; margin-left: var(--s-1); }
 .take-dot {
-  align-items: center; background: transparent; border: 0; border-radius: 50%; color: var(--dim); cursor: pointer;
+  align-items: center; background: transparent; border: 0; border-radius: var(--r-round); color: var(--dim); cursor: pointer;
   display: inline-flex; height: var(--dot-hit); justify-content: center; padding: 0; transition: color 120ms ease;
   width: var(--dot-hit);
 }
 .take-dot::before {
-  border: 1.5px solid currentColor; border-radius: 50%; box-sizing: border-box; content: "";
+  border: 1.5px solid currentColor; border-radius: var(--r-round); box-sizing: border-box; content: "";
   height: var(--dot); width: var(--dot);
 }
 .take-dot.branch::before { background: radial-gradient(currentColor 0 1.5px, transparent 1.5px); }
@@ -41,10 +41,10 @@
    shows a single-dot position gauge instead — jumping to an arbitrary take
    that far out is `TakePeek`'s job (its virtualized list), not a click here. */
 .take-gauge { display: inline-flex; margin: 0 var(--s-2); width: 64px; }
-.take-gauge-track { background: var(--line); border-radius: 2px; display: block; height: 3px; position: relative; width: 100%; }
+.take-gauge-track { background: var(--line); border-radius: var(--r-pill); display: block; height: 3px; position: relative; width: 100%; }
 .take-gauge-dot {
-  background: var(--accent); border-radius: 50%; height: 8px; position: absolute;
-  top: 50%; transform: translate(-50%, -50%); width: 8px;
+  background: var(--accent); border-radius: var(--r-round); height: var(--dot); position: absolute;
+  top: 50%; transform: translate(-50%, -50%); width: var(--dot);
 }
 
 /* ---------- take peek ---------- */
@@ -79,9 +79,9 @@
 
 /* ---------- label + canon chips ---------- */
 .label-chip {
-  align-items: center; background: var(--chip); border: 0; border-radius: 20px; color: var(--dim);
+  align-items: center; background: var(--chip); border: 0; border-radius: var(--r-pill); color: var(--dim);
   display: inline-flex; font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
-  gap: 4px; padding: 4px 7px;
+  gap: var(--s-1); padding: 3px var(--s-2);
 }
 .label-canon { background: var(--canon-soft); color: var(--stale-amber); }
 .label-alt { background: var(--accent-soft); color: var(--accent); }

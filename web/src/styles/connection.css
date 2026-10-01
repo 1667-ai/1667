@@ -8,33 +8,34 @@
  */
 
 .connection-screen {
-  align-items: center; display: flex; flex: 1; justify-content: center; padding: 40px;
+  align-items: center; display: flex; flex: 1; justify-content: center; padding: var(--s-12);
 }
 .connection-card {
-  background: var(--surface); border: 1px solid var(--line); border-radius: 14px;
-  box-shadow: var(--shadow-modal); display: flex; flex-direction: column; gap: 14px;
-  max-width: 40ch; padding: 28px 30px; text-align: center;
+  background: var(--surface); border: var(--border); border-radius: var(--r-lg);
+  box-shadow: var(--shadow-modal); display: flex; flex-direction: column; gap: var(--s-4);
+  max-width: 40ch; padding: var(--s-6); text-align: center;
 }
 .connection-card p { color: var(--ink); font-size: var(--fs-body); line-height: 1.5; }
 /* Two classes, so this wins over `.connection-card p` above. */
 .connection-card .connection-detail { color: var(--dim); font: var(--font-meta); }
 .connection-overlay {
   align-items: center; background: var(--scrim); display: flex; inset: 0;
-  justify-content: center; padding: 24px; position: fixed; z-index: 90;
+  justify-content: center; padding: var(--s-6); position: fixed; z-index: 90;
 }
 .connection-overlay .connection-card { animation: rise 200ms ease both; }
 
 .recovery-banner {
-  background: var(--warn-soft); border-bottom: 1px solid var(--line);
-  padding: 10px 24px; display: flex; flex-direction: column; gap: 6px;
+  background: var(--warn-soft); border-bottom: var(--border);
+  padding: var(--s-3) var(--s-6); display: flex; flex-direction: column; gap: var(--s-2);
 }
 .recovery-banner-heading { color: var(--meter-warn); font-size: var(--fs-small); font-weight: 600; }
-.recovery-banner ul { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
-.recovery-banner li { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
+.recovery-banner ul { display: flex; flex-direction: column; gap: var(--s-1); list-style: none; padding: 0; }
+.recovery-banner li { align-items: center; display: flex; gap: var(--s-3); justify-content: space-between; }
 .recovery-banner li span { color: var(--dim); font-size: var(--fs-small); }
 
 /* Unsaved work listed on a connection screen (`ui/UnsavedWork.tsx`). */
-.unsaved-work { background: var(--bg); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 14px 24px; }
-.unsaved-work-item { align-items: center; display: flex; gap: 12px; }
+.unsaved-work { background: var(--bg); border-top: var(--border); display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3) var(--s-6); }
+.unsaved-work-item { align-items: center; display: flex; gap: var(--s-3); }
 .unsaved-work-label { color: var(--dim); flex: 0 0 160px; font-family: var(--ui); font-size: var(--fs-ui); }
-.unsaved-work-text { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; flex: 1; font-family: var(--ui); font-size: var(--fs-ui); padding: 8px 10px; resize: none; }
+.unsaved-work-text { background: var(--surface); border: var(--border); border-radius: var(--r-md); flex: 1; font-family: var(--ui); font-size: var(--fs-ui); padding: var(--s-2) var(--s-3); resize: none; }
+.unsaved-work-text:focus { border-color: var(--accent); box-shadow: var(--focus); }

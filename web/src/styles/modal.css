@@ -18,14 +18,14 @@ dialog.modal::backdrop {
 .modal {
   background: var(--surface);
   border: 0;
-  border-radius: 16px;
-  padding: 26px 28px;
+  border-radius: var(--r-lg);
+  padding: var(--s-6);
   width: min(560px, 100%);
-  max-width: calc(100vw - 40px);
-  margin: 56px auto auto;
+  max-width: calc(100vw - 2 * var(--s-6));
+  margin: var(--s-12) auto auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: var(--s-4);
   box-shadow: var(--shadow-modal);
   animation: rise 250ms ease both;
   color: var(--ink);
@@ -46,6 +46,6 @@ dialog.modal::backdrop {
 
 .modal-actions {
   display: flex;
-  gap: 9px;
+  gap: var(--s-2);
   justify-content: flex-end;
 }

@@ -8,7 +8,7 @@
   bottom: 24px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--s-2);
   left: 50%;
   position: fixed;
   transform: translateX(-50%);
@@ -17,9 +17,9 @@
 
 .toast {
   align-items: center; animation: rise 180ms ease both; background: var(--toast-bg); border: 1px solid var(--toast-line);
-  border-radius: 10px; box-shadow: var(--shadow-modal); color: var(--toast-ink);
-  display: flex; font-size: var(--fs-small); gap: 12px; max-width: min(720px, calc(100vw - 32px));
-  padding: 10px 12px 10px 15px;
+  border-radius: var(--r-md); box-shadow: var(--shadow-modal); color: var(--toast-ink);
+  display: flex; font-size: var(--fs-small); gap: var(--s-3); max-width: min(720px, calc(100vw - 2 * var(--s-4)));
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4);
 }
 .toast > span { flex: 1; }
 .toast-close { color: var(--toast-dim); }

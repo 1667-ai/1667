@@ -11,6 +11,12 @@ button, input, select, textarea { color: inherit; font-family: inherit; font-siz
 ::selection { background: var(--accent-soft); }
 * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
 
+/* One focus treatment for every button, row, dot, and menu item. Fields show
+   focus with an accent border and the `--focus` ring instead, and the
+   current part with its accent bar (`manuscript.css`). */
+:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-offset); }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
+
 .app { display: flex; height: 100%; }
 
 /** Visually hidden but still reachable by assistive tech — the manuscript's
@@ -32,16 +38,16 @@ svg.icon {
 }
 svg.icon-filled { fill: currentColor; stroke: none; }
 
-.field { display: flex; flex-direction: column; gap: 6px; }
+.field { display: flex; flex-direction: column; gap: var(--s-2); }
 .field > label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
 .field input, .field select { height: var(--btn-md); }
 .field input, .field select, .field textarea {
-  background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
+  background: var(--bg); border: var(--border); border-radius: var(--r-md);
   font-size: var(--fs-ui); outline: none; padding: 0 var(--s-3);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .field input:focus, .field select:focus, .field textarea:focus {
-  border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft);
+  border-color: var(--accent); box-shadow: var(--focus);
 }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
