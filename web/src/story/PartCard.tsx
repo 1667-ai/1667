@@ -6,6 +6,7 @@ import { resolveTakeTarget } from "../../../shared/story-model.js";
 import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { PartEditor } from "../editor/PartEditor.js";
+import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
 import { PartActionsMenu } from "./PartActionsMenu.js";
@@ -178,11 +179,6 @@ function PartCardImpl({
           </span>
           {hasTakes && (
             <>
-              {/* The TUI's own gutter mark for a forked part (×k,
-               *  screens/story/gutter.ts) — a glance-visible sibling count
-               *  distinct from the stepper's own "j/k", which only shows
-               *  once a reader is already looking at the take switcher. */}
-              <span className="label-chip" title={`${part.siblingCount} takes`}>×{part.siblingCount}</span>
               <TakeStrip
                 siblingCount={part.siblingCount}
                 currentTakeIndex={displayTakeIndex}
@@ -197,7 +193,7 @@ function PartCardImpl({
                   aria-label={`Previous take (${part.number})`}
                   disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, -1)}
-                >‹</button>
+                ><Icon path={ICONS.chevronLeft} /></button>
                 <button
                   type="button"
                   ref={counterRef}
@@ -214,7 +210,7 @@ function PartCardImpl({
                   aria-label={`Next take (${part.number})`}
                   disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, 1)}
-                >›</button>
+                ><Icon path={ICONS.chevronRight} /></button>
                 {peek.open && peekRect !== null && createPortal(
                   <TakePeek
                     partId={part.id}

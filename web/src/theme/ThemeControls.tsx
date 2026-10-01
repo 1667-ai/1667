@@ -25,7 +25,7 @@ export function ThemeControls(
     <>
       <div className="theme-pick-wrap" ref={containerRef}>
         <button
-          className="theme-toggle theme-pick"
+          className="icon-btn theme-pick"
           type="button"
           title="Choose theme"
           aria-haspopup="menu"
@@ -45,7 +45,7 @@ export function ThemeControls(
           />
         )}
       </div>
-      <button className="theme-toggle" type="button" title="Toggle light / dark" onClick={onToggleTheme}>
+      <button className="icon-btn theme-toggle" type="button" title="Toggle light / dark" onClick={onToggleTheme}>
         <Icon path={resolved === "dark" ? ICONS.sun : ICONS.moon} />
       </button>
     </>

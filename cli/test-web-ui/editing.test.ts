@@ -116,7 +116,7 @@ test("case 1: e then Save in place keeps the take count and marks the part as a 
   await waitForCount(page.getByRole("textbox", { name: "Text of part 2" }), 0);
   await waitForCount(part(page, "B: the middle part, rewritten."), 1);
   expect(await part(page, "rewritten").locator(".part-badge").allTextContents()).toContain("human edit");
-  expect(await part(page, "rewritten").locator(".label-chip").count()).toBe(0);
+  expect(await part(page, "rewritten").getByRole("button", { name: /show every take/ }).count()).toBe(0);
   expect(await poll(() => isFocused(part(page, "rewritten")))).toBeTrue();
 
   const saved = await seeded.api.loadStory(seeded.storyId);
@@ -139,7 +139,7 @@ test("case 2: Ctrl/Cmd+S saves as a new take and keeps the original", async () =
   await page.keyboard.press("ControlOrMeta+s");
 
   await waitForCount(part(page, "B: another way to put it."), 1);
-  expect(await part(page, "another way").locator(".label-chip").textContent()).toContain("×2");
+  expect(await part(page, "another way").getByRole("button", { name: /^Take \d+ of 2, show every take$/ }).count()).toBe(1);
 
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: another way to put it.");
@@ -196,7 +196,7 @@ test("case 4: Escape closes a clean editor, a changed one needs a second Escape,
   expect(await part(page, "A: the opening part.").count()).toBe(1);
 }, 60_000);
 
-test("case 5: w then Ctrl/Cmd+S writes your own take: your words, ×2", async () => {
+test("case 5: w then Ctrl/Cmd+S writes your own take: your words, 2 takes", async () => {
   const web = await spawnEditWeb();
   const seeded = await seedThreeParts(web, "Write Own Take");
   const page = await openStory(web, seeded.storyId, "Write Own Take");
@@ -213,7 +213,7 @@ test("case 5: w then Ctrl/Cmd+S writes your own take: your words, ×2", async ()
   await waitForCount(part(page, "B: written by hand."), 1);
   const landed = part(page, "written by hand");
   expect(await landed.locator(".part-badge").allTextContents()).toContain("your words");
-  expect(await landed.locator(".label-chip").textContent()).toContain("×2");
+  expect(await landed.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }).count()).toBe(1);
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: written by hand.");
   expect(saved.path[1]!.parentId).toBe(seeded.a);

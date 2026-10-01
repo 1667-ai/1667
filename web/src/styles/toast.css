@@ -22,5 +22,5 @@
   padding: 10px 12px 10px 15px;
 }
 .toast > span { flex: 1; }
-.toast-close { color: var(--toast-dim); height: 26px; padding: 4px; width: 26px; }
-.toast-close svg { height: 15px; width: 15px; }
+.toast-close { color: var(--toast-dim); }
+.toast-close:hover:not(:disabled) { color: var(--toast-ink); }

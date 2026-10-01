@@ -25,7 +25,8 @@ export function StoryRow(
           </span>
           {summary.lineCount > 1 && (
             <span className="story-line-count" title={`${summary.lineCount} lines`}>
-              ⑂ {summary.lineCount}
+              <Icon path={ICONS.branch} />
+              {summary.lineCount}
             </span>
           )}
           <span className="mono-meta">{formatAge(summary.updatedAt).toLowerCase()}</span>

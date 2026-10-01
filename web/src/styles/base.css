@@ -24,16 +24,20 @@ button, input, select, textarea { color: inherit; font-family: inherit; font-siz
    `text-transform: uppercase` in their own rules. */
 .mono-meta { color: var(--dim); font: var(--font-meta); }
 
+/* Every icon gets a size here, so no context can leave one unsized. A
+   context that needs the small size sets `--icon-sm`. */
 svg.icon {
-  fill: none; stroke: currentColor; stroke-linecap: round;
-  stroke-linejoin: round; stroke-width: 1.6;
+  fill: none; flex-shrink: 0; height: var(--icon); stroke: currentColor; stroke-linecap: round;
+  stroke-linejoin: round; stroke-width: var(--icon-stroke); width: var(--icon);
 }
+svg.icon-filled { fill: currentColor; stroke: none; }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
 .field > label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.field input, .field select { height: var(--btn-md); }
 .field input, .field select, .field textarea {
   background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
-  font-size: var(--fs-ui); outline: none; padding: 9px 12px;
+  font-size: var(--fs-ui); outline: none; padding: 0 var(--s-3);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .field input:focus, .field select:focus, .field textarea:focus {

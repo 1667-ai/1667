@@ -15,7 +15,8 @@ export interface TakeStripProps {
 
 /**
  * The same glyph ladder as the TUI's own take strip, sharing its pure
- * computation (`shared/take-strip.ts`'s `takeStripCells`) — Decision 18: ● the
+ * computation (`shared/take-strip.ts`'s `takeStripCells`), drawn as CSS dots
+ * (`styles/takes.css`) — Decision 18: ● the
  * take being read (whether or not it branches — its own subtakes are the
  * parts below it already), ◎ a sibling that branches into subtakes of its
  * own, ○ a childless sibling. Past 12, individual dots stop being legible, so
@@ -51,14 +52,12 @@ export function TakeStrip({ siblingCount, currentTakeIndex, takeSubtakes, disabl
           <button
             key={position}
             type="button"
-            className="take-dot"
+            className={glyph === "◎" ? "take-dot branch" : "take-dot"}
             aria-current={isCurrent ? "true" : undefined}
             aria-label={`Take ${position} of ${siblingCount}`}
             disabled={disabled}
             onClick={() => onSwitchToPosition(position)}
-          >
-            {glyph}
-          </button>
+          />
         );
       })}
     </span>

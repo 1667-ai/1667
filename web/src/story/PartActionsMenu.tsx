@@ -13,6 +13,7 @@ interface MenuItem {
   readonly label: string;
   /** The key that does the same thing, shown in the hover text. */
   readonly key: string;
+  readonly icon: string;
   readonly danger?: boolean;
 }
 
@@ -20,13 +21,13 @@ interface MenuItem {
  * in the TUI's order. Which of them one part offers comes from
  * `partActions` itself. */
 const ITEMS: readonly MenuItem[] = [
-  { id: "continue", label: "Continue", key: "Space" },
-  { id: "direct", label: "Direct", key: "i" },
-  { id: "retake", label: "Retake", key: "r" },
-  { id: "retake-with-prompt", label: "Retake with direction", key: "R" },
-  { id: "write", label: "Write", key: "w" },
-  { id: "edit", label: "Edit", key: "e" },
-  { id: "prune", label: "Delete", key: "D", danger: true }
+  { id: "continue", label: "Continue", key: "Space", icon: ICONS.arrowRight },
+  { id: "direct", label: "Direct", key: "i", icon: ICONS.signpost },
+  { id: "retake", label: "Retake", key: "r", icon: ICONS.rotate },
+  { id: "retake-with-prompt", label: "Retake with direction", key: "R", icon: ICONS.message },
+  { id: "write", label: "Write", key: "w", icon: ICONS.penLine },
+  { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
+  { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash }
 ];
 
 /**
@@ -119,7 +120,8 @@ export function PartActionsMenu(
               disabled={refusal !== null}
               onClick={() => run(item.id)}
             >
-              {item.label}
+              <Icon path={item.icon} />
+              <span className="part-menu-label">{item.label}</span>
               <span className="part-menu-key" aria-hidden="true">{item.key}</span>
             </button>
             );

@@ -210,7 +210,7 @@ test("case 1: Space at the leaf appends — text grows, the part count stays "
 
 test("case 2: Space on an earlier part opens a new take of the next part — "
   + "the old take is hidden while writing, focus lands on the new take, and "
-  + "it shows ×2 once landed", async () => {
+  + "it shows 2 takes once landed", async () => {
   const project = await scratchProject();
   const web = await spawnGenWeb(project, WORD_DELAY_MS);
   const api = await openInspectionApi(web);
@@ -236,8 +236,7 @@ test("case 2: Space on an earlier part opens a new take of the next part — "
   await waitForCount(page.locator(".part"), 3); // A1, B1, the new (landed) take
   const newLeaf = page.locator(".part").nth(2);
   await waitForAttribute(newLeaf, "aria-current", "true");
-  await waitForCount(newLeaf.locator(".label-chip"), 1);
-  expect(await newLeaf.locator(".label-chip").textContent()).toContain("×2");
+  await waitForCount(newLeaf.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
 }, 30_000);
 
 test("case 3: the Continue button behaves exactly like Space — Stop while "
