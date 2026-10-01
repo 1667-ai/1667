@@ -1,5 +1,6 @@
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
+import { useBarClearance } from "../ui/bar-clearance.js";
 import { manuscriptGenerationView, type GenerationState } from "./state.js";
 
 /**
@@ -102,9 +103,10 @@ export function generationStatusText(generation: GenerationState, viewingStoryId
 export function GenerationBar() {
   const { store } = useAppContext();
   const generation = useStore(store, (state) => state.generation);
+  const barRef = useBarClearance();
   if (generation.kind === "idle") return null;
   return (
-    <div className={`generation-bar${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
+    <div ref={barRef} className={`generation-bar${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
       <span className="generation-status">{generationStatusText(generation, null)}</span>
       <div className="generation-bar-actions">
         <GenerationButtons onContinue={() => {}} />

@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { partActions, type PartActionId } from "../../../shared/part-actions.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { useAppContext } from "../app/context.js";
@@ -58,6 +58,16 @@ export function PartActionsMenu(
 
   useRequestSignal(menuSerial, () => setOpen(true));
 
+  // Open upward when the trigger sits in the lower half of the manuscript.
+  const [up, setUp] = useState(false);
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current;
+    if (!open || trigger === null) return;
+    const rect = trigger.getBoundingClientRect();
+    const area = trigger.closest(".story-scroll")?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
+    setUp(rect.top + rect.height / 2 > (area.top + area.bottom) / 2);
+  }, [open]);
+
   useEffect(() => {
     if (open) {
       closedByItem.current = false;
@@ -107,7 +117,7 @@ export function PartActionsMenu(
         <Icon path={ICONS.dots} />
       </button>
       {open && (
-        <div className="menu part-menu-popover" role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
+        <div className={`menu part-menu-popover${up ? " menu-up" : ""}`} role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
           {items.map((item) => {
             const refusal = state === null ? null : partActionRefusal(state, part.id, item.id);
             return (

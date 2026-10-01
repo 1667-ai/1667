@@ -21,6 +21,7 @@ export function RenameDialog(
   return (
     <Modal onCancel={onCancel} ariaLabel="Rename story">
       <form
+        className="modal-form"
         method="dialog"
         onSubmit={(event) => {
           event.preventDefault();

@@ -46,6 +46,27 @@ function clampedPeekLeft(idealCenter: number): number {
   return Math.min(Math.max(idealCenter - TAKE_PEEK_WIDTH / 2, min), Math.max(min, max));
 }
 
+const TAKE_PEEK_GAP = 4;
+/** Below this much room under the counter, the peek opens above it when
+ * there is more room there. */
+const TAKE_PEEK_MIN_HEIGHT = 240;
+
+/**
+ * Where the peek goes, given the counter's rect: below the counter, capped
+ * at the top edge of the bottom bar so it never covers the composer, or
+ * above the counter when the room below is too small.
+ */
+function peekPlacement(trigger: DOMRect): React.CSSProperties {
+  const left = clampedPeekLeft(trigger.left + trigger.width / 2);
+  const barTop = document.querySelector(".generation-bar")?.getBoundingClientRect().top ?? window.innerHeight;
+  const below = barTop - TAKE_PEEK_VIEWPORT_MARGIN - (trigger.bottom + TAKE_PEEK_GAP);
+  const above = trigger.top - TAKE_PEEK_GAP - TAKE_PEEK_VIEWPORT_MARGIN;
+  if (below >= TAKE_PEEK_MIN_HEIGHT || below >= above) {
+    return { position: "fixed", left, top: trigger.bottom + TAKE_PEEK_GAP, maxHeight: below };
+  }
+  return { position: "fixed", left, bottom: window.innerHeight - trigger.top + TAKE_PEEK_GAP, maxHeight: above };
+}
+
 export interface PartCardProps {
   readonly part: StoryPart;
   readonly payload: StoryPayload;
@@ -220,11 +241,7 @@ function PartCardImpl({
                     onSwitchTo={onSwitchTo}
                     onClose={() => peek.setOpen(false)}
                     containerRef={peek.popoverRef}
-                    style={{
-                      position: "fixed",
-                      top: peekRect.bottom + 5,
-                      left: clampedPeekLeft(peekRect.left + peekRect.width / 2)
-                    }}
+                    style={peekPlacement(peekRect)}
                   />,
                   document.body
                 )}

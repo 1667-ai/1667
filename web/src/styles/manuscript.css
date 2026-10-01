@@ -43,7 +43,6 @@
   border: var(--border-dashed); border-radius: var(--r-sm); color: var(--dim);
   font-family: var(--ui); font-size: var(--fs-ui); font-style: italic; line-height: 1.5;
   margin-bottom: var(--s-3); padding: var(--s-2) var(--s-3);
-  position: sticky; top: 8px; background: var(--bg); z-index: 1;
 }
 
 .prose p {

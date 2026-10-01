@@ -7,8 +7,9 @@
  * the story view itself.
  */
 
+/* Fills the viewport and centres its card, like the closed overlay. */
 .connection-screen {
-  align-items: center; display: flex; flex: 1; justify-content: center; padding: var(--s-12);
+  align-items: center; display: flex; justify-content: center; min-height: 100%; padding: var(--s-12);
 }
 .connection-card {
   background: var(--surface); border: var(--border); border-radius: var(--r-lg);

@@ -31,6 +31,14 @@ dialog.modal::backdrop {
   color: var(--ink);
 }
 
+/* A dialog whose content sits in a `<form>` (Rename): the same column and
+   gap as `.modal` itself. */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
 .modal h2 {
   font-family: var(--serif);
   font-size: var(--fs-title);

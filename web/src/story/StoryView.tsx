@@ -11,6 +11,8 @@ import { editorIsOffLine, editorPartId } from "../editor/state.js";
 import { GenerationButtons, generationStatusText } from "../generation/GenerationBar.js";
 import { manuscriptGenerationView, type ManuscriptGeneration } from "../generation/state.js";
 import { useFollowStream } from "../generation/useFollowStream.js";
+import { useBarClearance } from "../ui/bar-clearance.js";
+import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { PruneDialog } from "./PruneDialog.js";
@@ -50,7 +52,9 @@ const LINE_SCROLL_PX = 60;
  * "Loading…" forever, because `state.story`'s `missing` variant is what
  * renders instead.
  */
-export function StoryView({ storyId }: { readonly storyId: string }) {
+export function StoryView(
+  { storyId, onOpenSidebar }: { readonly storyId: string; readonly onOpenSidebar: () => void }
+) {
   const { store, actions } = useAppContext();
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
@@ -70,6 +74,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   ));
   const deleting = useStore(store, (state) => state.partUi.deleting);
   const scrollRef = useRef<HTMLDivElement>(null);
+  const barRef = useBarClearance();
   const focusedPartId = story !== null && story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
   const generationView = manuscriptGenerationView(generation, storyId);
 
@@ -152,16 +157,24 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   }), [actions, store, storyId]);
 
   if (story === null || story.kind === "idle" || story.kind === "loading") {
-    return <p className="story-empty">Loading…</p>;
+    return (
+      <>
+        <div className="main-toolbar"><SidebarToggle onOpen={onOpenSidebar} /></div>
+        <p className="story-empty">Loading…</p>
+      </>
+    );
   }
 
   if (story.kind === "missing") {
     return (
-      <div className="welcome">
-        <h1>This story no longer exists</h1>
-        <p>It may have been deleted in another tab, or its link was old.</p>
-        <a className="btn btn-primary" href="#/">Back to the Library</a>
-      </div>
+      <>
+        <div className="main-toolbar"><SidebarToggle onOpen={onOpenSidebar} /></div>
+        <div className="welcome">
+          <h1>This story no longer exists</h1>
+          <p>It may have been deleted in another tab, or its link was old.</p>
+          <a className="btn btn-primary" href="#/">Back to the Library</a>
+        </div>
+      </>
     );
   }
 
@@ -173,6 +186,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         payload={payload}
         showDirections={showDirections}
         onToggleDirections={actions.story.toggleDirections}
+        onOpenSidebar={onOpenSidebar}
       />
       <div className="story-main">
         <div className="story-scroll" ref={scrollRef}>
@@ -203,7 +217,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
               )}
           </div>
         </div>
-        <div className={`generation-bar generation-bar-compose${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
+        <div ref={barRef} className={`generation-bar generation-bar-compose${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
           <Composer storyId={storyId} status={generationStatusText(generation, storyId)}>
             <GenerationButtons onContinue={() => { if (actions.compose.submit(storyId)) focusCurrentPart(); }} />
           </Composer>

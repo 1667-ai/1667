@@ -61,6 +61,7 @@
   border-bottom: var(--border); color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label);
   padding: var(--s-3); text-transform: uppercase;
 }
+.take-peek > header, .take-peek > footer { flex: none; }
 .take-peek-list { flex: 1 1 auto; max-height: 390px; min-height: 0; overflow-y: auto; padding: var(--s-1); }
 .take-peek-list.virtual { padding: 0; }
 .take-peek-window { position: relative; }

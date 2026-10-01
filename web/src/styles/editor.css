@@ -21,3 +21,6 @@
 /* ---------- the part menu (`···`) and the delete confirm ---------- */
 .part-menu { flex: 0 0 auto; position: relative; }
 .part-menu-popover { right: 0; top: calc(100% + var(--s-1)); }
+/* In the lower half of the manuscript the menu opens upward, so the
+   scroll edge never cuts it off. */
+.part-menu-popover.menu-up { bottom: calc(100% + var(--s-1)); top: auto; }

@@ -174,14 +174,12 @@
   font-weight: 600;
 }
 
-/* Visual polish (owner-facing screenshot review): this used to be a single
-   `nowrap` row, so the word count truncated ("8 parts · 709 w…") once the
-   branch badge and age both had to fit alongside it. `flex-wrap` lets the
-   count wrap onto its own line instead of being cut. */
+/* One line, so every row has the same height: the line count and the age
+   keep their width, and only the part and word count truncates. */
 .story-item-meta {
   align-items: center;
   display: flex;
-  flex-wrap: wrap;
+  height: var(--s-4);
   gap: var(--s-2);
   font: var(--font-meta);
   color: var(--dim);
@@ -190,13 +188,21 @@
 
 .story-item-meta > span:first-child {
   min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.story-item-meta > .mono-meta {
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 
 .story-line-count {
   display: inline-flex;
   align-items: center;
   gap: 3px;
-  padding: 2px 6px;
+  padding: 2px var(--s-2);
   border-radius: var(--r-pill);
   background: var(--chip);
   color: var(--dim);
@@ -235,7 +241,8 @@
 
 /* ---------- drawer breakpoint (owner decision: below ~800px) ---------- */
 
-.sidebar-toggle {
+.sidebar-toggle,
+.main-toolbar {
   display: none;
 }
 
@@ -250,7 +257,17 @@
 @media (max-width: 800px) {
   .sidebar-toggle {
     display: inline-flex;
-    margin: var(--s-3) 0 var(--s-1) var(--s-3);
+  }
+
+  /* The ☰ row on screens without a story header. */
+  .main-toolbar {
+    display: flex;
+    padding: var(--s-3) var(--s-6) 0;
+  }
+
+  /* In the story header the icon lines up with the 24 px gutter. */
+  .story-header .sidebar-toggle {
+    margin-left: calc((var(--icon) - var(--hit)) / 2);
   }
 
   .sidebar-close {
