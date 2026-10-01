@@ -1,12 +1,16 @@
 import type { GenerationActions } from "../generation/actions.js";
-import { RETAKE_GONE_TOAST } from "../generation/actions.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
-import { EDITOR_OPEN_TOAST, editorBlocksChange } from "../editor/state.js";
-import { STORY_LOCKED_TOAST, type StoryActions } from "../story/actions.js";
-import { openPart, SUMMARY_RETAKE_TOAST } from "../story/part-actions.js";
-import { PART_SWITCHING_TOAST, partSwitchPending } from "../story/part-guard.js";
+import {
+  NOT_CONNECTED_TOAST,
+  RETAKE_GONE_TOAST,
+  generationBusyToast,
+  partActionRefusal
+} from "../story/part-policy.js";
+import { openPart } from "../story/state.js";
+import type { StoryActions } from "../story/actions.js";
+import { focusComposer } from "./dom.js";
 import { createDirectDraft, createRetakeDraft, type DraftHost } from "./draft-handle.js";
 import {
   composeDraftOf,
@@ -22,8 +26,6 @@ export interface ComposeActionDependencies {
 }
 
 export interface ComposeActions {
-  /** Asks the composer to take keyboard focus (Enter or `i`). */
-  requestFocus(): void;
   /** The writer typed: replaces the text the box shows. */
   setText(storyId: string, text: string): void;
   /** `R`: opens retake mode for this part, filled with its direction. */
@@ -38,16 +40,11 @@ export interface ComposeActions {
 }
 
 /** Why a send is refused right now, or `null`. Every wording keeps the
- * promise "draft kept". */
+ * promise "draft kept". The generation wording is the policy's own. */
 function submitRefusal(state: AppState, storyId: string): string | null {
-  if (state.connection.kind !== "connected") return "Not connected. Draft kept.";
-  const generation = state.generation;
-  if (generation.kind === "idle") return null;
-  if (generation.storyId !== storyId) {
-    return `Already writing in ${generation.storyTitle}. Esc stops it. Draft kept.`;
-  }
-  if (generation.kind === "unsaved") return "The last text is not saved yet. Retry or discard it first. Draft kept.";
-  return `${STORY_LOCKED_TOAST} Draft kept.`;
+  if (state.connection.kind !== "connected") return `${NOT_CONNECTED_TOAST} Draft kept.`;
+  const busy = generationBusyToast(state, storyId);
+  return busy === null ? null : `${busy} Draft kept.`;
 }
 
 export function createComposeActions(store: Store<AppState>, deps: ComposeActionDependencies): ComposeActions {
@@ -85,14 +82,12 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
   const archiveRetake = (storyId: string): void => {
     const retake = composeDraftOf(store.get().compose, storyId).retake;
     if (retake === null) return;
-    const node = openPart(store, retake.nodeId)?.node;
+    const node = openPart(store.get(), retake.nodeId)?.node;
     if (retake.text.trim().length > 0 && retake.text !== node?.instruction) pushHistory(storyId, retake.text);
     writeDraft(storyId, (draft) => ({ ...draft, retake: null }));
   };
 
   return {
-    requestFocus: () => writeCompose((compose) => ({ ...compose, focusRequest: compose.focusRequest + 1 })),
-
     setText: (storyId, text) => writeDraft(storyId, (draft) => (
       draft.retake === null
         ? (draft.direct === text ? draft : { ...draft, direct: text })
@@ -100,21 +95,9 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
     )),
 
     startRetake: (partId) => {
-      const target = openPart(store, partId);
+      const target = openPart(store.get(), partId);
       if (target === null) return;
-      if (target.node.role === "summary") {
-        pushToast(store, SUMMARY_RETAKE_TOAST);
-        return;
-      }
-      if (partSwitchPending(target.story, partId)) {
-        pushToast(store, PART_SWITCHING_TOAST);
-        return;
-      }
       const { storyId, node } = target;
-      if (editorBlocksChange(store.get().editor, storyId, target.story.payload.path, partId)) {
-        pushToast(store, EDITOR_OPEN_TOAST);
-        return;
-      }
       // A retake already open for this part keeps what the writer typed; one
       // open for another part is archived before this one replaces it.
       if (composeDraftOf(store.get().compose, storyId).retake?.nodeId !== node.id) archiveRetake(storyId);
@@ -122,7 +105,7 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         draft.retake?.nodeId === node.id ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
       ));
       deps.story.focusPart(partId);
-      writeCompose((compose) => ({ ...compose, focusRequest: compose.focusRequest + 1 }));
+      focusComposer();
     },
 
     cancelRetake: archiveRetake,
@@ -137,9 +120,14 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
       const host = hostFor(storyId);
 
       if (draft.retake !== null) {
-        const target = openPart(store, draft.retake.nodeId);
+        const target = openPart(store.get(), draft.retake.nodeId);
         if (target === null || target.node.role === "summary") {
           pushToast(store, RETAKE_GONE_TOAST);
+          return false;
+        }
+        const retakeRefusal = partActionRefusal(store.get(), target.node.id, "retake");
+        if (retakeRefusal !== null) {
+          pushToast(store, `${retakeRefusal} Draft kept.`);
           return false;
         }
         const text = draft.retake.text;

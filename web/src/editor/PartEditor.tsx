@@ -1,13 +1,12 @@
 import { useEffect, useRef, type KeyboardEvent } from "react";
+import { IS_MAC } from "../app/platform.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { focusCurrentPart } from "../story/focus-dom.js";
 import { editorDirty, editorTitle } from "./state.js";
 
-/** ⌘ on a Mac, Ctrl elsewhere — only the hover texts and the key check read it. */
-const MAC = typeof navigator !== "undefined" && /Mac|iPhone|iPad/.test(navigator.platform);
-const MOD = MAC ? "⌘" : "Ctrl+";
-const SHIFT = MAC ? "⇧" : "Shift+";
+const MOD = IS_MAC ? "⌘" : "Ctrl+";
+const SHIFT = IS_MAC ? "⇧" : "Shift+";
 
 /**
  * The inline editor (#409 step 6) that replaces one part's body at the
@@ -37,7 +36,7 @@ export function PartEditor(
   }, [store]);
 
   if (editor === null) return null;
-  const summary = editor.base?.role === "summary";
+  const summary = editor.mode !== "first" && editor.base.role === "summary";
   const editing = editor.mode === "edit";
   const dirty = editorDirty(editor);
 

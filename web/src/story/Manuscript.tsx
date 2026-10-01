@@ -86,7 +86,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
               editing={row.id === editingPartId}
               menuSerial={menuRequest?.partId === row.id ? menuRequest.serial : 0}
               displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
-              continuation={generation !== null && generation.mode === "append" && generation.appendTo === row.id
+              continuation={generation !== null && generation.appendTo === row.id
                 ? { text: generation.text, thinking: generation.thinking, live: generation.live }
                 : null}
               onFocus={onFocusPart}

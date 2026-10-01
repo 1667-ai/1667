@@ -5,10 +5,13 @@ import { registerScreenKeys } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { PartEditor } from "../editor/PartEditor.js";
-import { GenerationBar } from "../generation/GenerationBar.js";
+import { Composer } from "../compose/Composer.js";
+import { EditorRecovery } from "../editor/EditorRecovery.js";
+import { editorIsOffLine, editorPartId } from "../editor/state.js";
+import { GenerationButtons, generationStatusText } from "../generation/GenerationBar.js";
 import { manuscriptGenerationView, type ManuscriptGeneration } from "../generation/state.js";
 import { useFollowStream } from "../generation/useFollowStream.js";
-import { focusPartElement } from "./focus-dom.js";
+import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { PruneDialog } from "./PruneDialog.js";
 import { StoryHeader } from "./StoryHeader.js";
@@ -52,9 +55,20 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
   const generation = useStore(store, (state) => state.generation);
-  const partUi = useStore(store, (state) => state.partUi);
-  const editor = useStore(store, (state) => state.editor);
-  const editingPartId = editor !== null && editor.storyId === storyId ? editor.partId : null;
+  // Primitives and stable references only: this view must not redraw on every
+  // change to the editor's text or the menu's state.
+  const editingPartId = useStore(store, (state) => (
+    state.editor !== null && state.editor.storyId === storyId ? editorPartId(state.editor) : null
+  ));
+  const editorIsFirst = useStore(store, (state) => (
+    state.editor !== null && state.editor.storyId === storyId && state.editor.mode === "first"
+  ));
+  const editorOffLine = useStore(store, (state) => editorIsOffLine(state, storyId));
+  const menuRequest = useStore(store, (state) => state.partUi.menuRequest);
+  const deletePlan = useStore(store, (state) => (
+    state.partUi.deletePlan !== null && state.partUi.deletePlan.storyId === storyId ? state.partUi.deletePlan : null
+  ));
+  const deleting = useStore(store, (state) => state.partUi.deleting);
   const scrollRef = useRef<HTMLDivElement>(null);
   const focusedPartId = story !== null && story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
   const generationView = manuscriptGenerationView(generation, storyId);
@@ -67,6 +81,9 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
   useEffect(() => {
     void actions.story.load(storyId);
   }, [storyId, actions]);
+
+  // Leaving the story with the delete dialog open must not bring it back.
+  useEffect(() => () => actions.part.cancelDelete(), [storyId, actions]);
 
   // Moves DOM focus (not just the store's notion of it) whenever the
   // effective focused part changes — landing a switch, a keyboard move, or
@@ -120,7 +137,9 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
         // screen only filters the key and calls it, so step 6's composer
         // submit can reuse the exact same call without repeating that logic.
         if (event.shiftKey || event.repeat || activatesOnEnterOrSpace()) return false;
-        void actions.generation.continue();
+        const from = effectiveFocusedPartId(current.story);
+        if (from === null) void actions.generation.continue();
+        else actions.part.run("continue", from);
         return true;
       }
       case "scroll-line-up": return scrollBy(container, -LINE_SCROLL_PX);
@@ -158,8 +177,9 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
       <div className="story-main">
         <div className="story-scroll" ref={scrollRef}>
           <div className="story-body">
+            {editorOffLine && <EditorRecovery />}
             {payload.path.length === 0 && generationView === null
-              ? (editor !== null && editor.storyId === storyId && editor.mode === "first"
+              ? (editorIsFirst
                 ? (
                   <article className="part" aria-label="Part 1">
                     <div className="part-header"><span className="part-number">PART 1</span></div>
@@ -174,7 +194,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
                   switching={story.switching}
                   showDirections={showDirections}
                   editingPartId={editingPartId}
-                  menuRequest={partUi.menuRequest}
+                  menuRequest={menuRequest}
                   generation={generationView}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
@@ -183,12 +203,16 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
               )}
           </div>
         </div>
-        <GenerationBar viewingStoryId={storyId} />
+        <div className={`generation-bar generation-bar-compose${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
+          <Composer storyId={storyId} status={generationStatusText(generation, storyId)}>
+            <GenerationButtons onContinue={() => { if (actions.compose.submit(storyId)) focusCurrentPart(); }} />
+          </Composer>
+        </div>
       </div>
-      {partUi.deletePlan !== null && partUi.deletePlan.storyId === storyId && (
+      {deletePlan !== null && (
         <PruneDialog
-          plan={partUi.deletePlan}
-          deleting={partUi.deleting}
+          plan={deletePlan}
+          deleting={deleting}
           onCancel={actions.part.cancelDelete}
           onDelete={() => void actions.part.confirmDelete()}
         />

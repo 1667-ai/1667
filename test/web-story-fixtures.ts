@@ -100,7 +100,7 @@ export function linearPayload(
   };
 }
 
-export function connectedState(api: Partial<StoryApi>): ConnectionState {
+export function connectedState(api: StoryApi): ConnectionState {
   const readingPositions: ReadingPositionSync = {
     positionFor: () => Promise.resolve(null),
     record: () => {},
@@ -109,7 +109,7 @@ export function connectedState(api: Partial<StoryApi>): ConnectionState {
   return {
     kind: "connected",
     status: { project: "test", version: "0.0.0" },
-    api: api as unknown as StoryApi,
+    api,
     transport: {} as unknown as WebBridgeTransport,
     readingPositions
   };
@@ -160,11 +160,14 @@ export interface FakeApiOptions {
   readonly deleteNode?: StoryApi["deleteNode"];
   readonly loadStory?: StoryApi["loadStory"];
   readonly getTakeLine?: StoryApi["getTakeLine"];
+  readonly getSettings?: StoryApi["getSettings"];
   readonly defaultContinueDirection?: string;
 }
 
 export interface FakeApi {
-  readonly api: Partial<StoryApi>;
+  /** A complete `StoryApi`: a method the test did not configure throws
+   * `unexpected call: <name>` — and is still recorded. */
+  readonly api: StoryApi;
   readonly continueCalls: ContinueCall[];
   readonly createNodeCalls: { readonly storyId: string; readonly body: CreateNodeRequest }[];
   readonly editNodeCalls: {
@@ -174,54 +177,88 @@ export interface FakeApi {
   }[];
   readonly deleteNodeCalls: { readonly storyId: string; readonly nodeId: string; readonly count: number }[];
   readonly loadStoryCalls: string[];
+  /** Every call to any method, by name, in order. */
+  readonly calls: string[];
+  /** Replaces what `continueStory` does from now on. */
+  setContinueStory(run: FakeContinueStory): void;
 }
 
-/** Records every call. Anything not overridden succeeds trivially. */
+/**
+ * Records every call. Only `listStories` (the Library refresh a landing
+ * triggers) answers by itself; every other method must be configured by the
+ * test or it throws — so a test never passes because of a quiet default.
+ */
 export function fakeApi(overrides: FakeApiOptions = {}): FakeApi {
   const continueCalls: ContinueCall[] = [];
   const createNodeCalls: FakeApi["createNodeCalls"] = [];
   const editNodeCalls: FakeApi["editNodeCalls"] = [];
   const deleteNodeCalls: FakeApi["deleteNodeCalls"] = [];
   const loadStoryCalls: string[] = [];
-  const api: Partial<StoryApi> = {
-    continueStory: async (storyId, instruction, genId, target, onDelta, signal, callbacks = {}) => {
-      continueCalls.push({ storyId, instruction, genId, target, onDelta, signal, callbacks });
-      const run = overrides.continueStory
-        ?? (() => Promise.resolve({ payload: linearPayload(["a1", "a2"]) }));
-      const result = await run(storyId, instruction, genId, target, onDelta, signal, callbacks);
-      return result === null ? null : { payload: result.payload, droppedFacts: [] };
-    },
-    createNode: async (storyId, body) => {
-      createNodeCalls.push({ storyId, body });
-      if (overrides.createNode !== undefined) return overrides.createNode(storyId, body);
-      return linearPayload(["a1", "a2"]);
-    },
-    editNode: async (storyId, node, patch) => {
-      editNodeCalls.push({ storyId, node, patch });
-      if (overrides.editNode !== undefined) return overrides.editNode(storyId, node, patch);
-      return linearPayload(["a1", "a2"]);
-    },
-    deleteNode: async (storyId, nodeId, count) => {
-      deleteNodeCalls.push({ storyId, nodeId, count });
-      if (overrides.deleteNode !== undefined) return overrides.deleteNode(storyId, nodeId, count);
-      return linearPayload(["a1"]);
-    },
+  const calls: string[] = [];
+  let continueRun = overrides.continueStory;
+
+  const implemented: Record<string, (...args: never[]) => unknown> = {
     listStories: async () => [],
-    getTakeLine: async (storyId, nodeId) => {
-      if (overrides.getTakeLine !== undefined) return overrides.getTakeLine(storyId, nodeId);
-      throw new Error("no take line in this fake");
-    },
     getSettings: async () => {
+      if (overrides.getSettings !== undefined) return overrides.getSettings();
       if (overrides.defaultContinueDirection === undefined) throw new Error("no settings in this fake");
       return { activeWriting: { defaultContinueDirection: overrides.defaultContinueDirection } } as never;
     },
-    loadStory: async (id) => {
+    continueStory: async (
+      storyId: string, instruction: string, genId: string, target: ContinueTarget,
+      onDelta: (text: string) => void, signal: AbortSignal, callbacks: StreamCallbacks = {}
+    ) => {
+      continueCalls.push({ storyId, instruction, genId, target, onDelta, signal, callbacks });
+      if (continueRun === undefined) throw new Error("unexpected call: continueStory");
+      const result = await continueRun(storyId, instruction, genId, target, onDelta, signal, callbacks);
+      return result === null ? null : { payload: result.payload, droppedFacts: [] };
+    },
+    createNode: async (storyId: string, body: CreateNodeRequest) => {
+      createNodeCalls.push({ storyId, body });
+      if (overrides.createNode === undefined) throw new Error("unexpected call: createNode");
+      return overrides.createNode(storyId, body);
+    },
+    editNode: async (storyId: string, node: StoryNode, patch: { instruction?: string; text?: string }) => {
+      editNodeCalls.push({ storyId, node, patch });
+      if (overrides.editNode === undefined) throw new Error("unexpected call: editNode");
+      return overrides.editNode(storyId, node, patch);
+    },
+    deleteNode: async (storyId: string, nodeId: string, count: number) => {
+      deleteNodeCalls.push({ storyId, nodeId, count });
+      if (overrides.deleteNode === undefined) throw new Error("unexpected call: deleteNode");
+      return overrides.deleteNode(storyId, nodeId, count);
+    },
+    loadStory: async (id: string) => {
       loadStoryCalls.push(id);
-      if (overrides.loadStory !== undefined) return overrides.loadStory(id);
-      return linearPayload(["a1"]);
+      if (overrides.loadStory === undefined) throw new Error("unexpected call: loadStory");
+      return overrides.loadStory(id);
+    },
+    getTakeLine: async (storyId: string, nodeId: string) => {
+      if (overrides.getTakeLine === undefined) throw new Error("unexpected call: getTakeLine");
+      return overrides.getTakeLine(storyId, nodeId);
     }
   };
-  return { api, continueCalls, createNodeCalls, editNodeCalls, deleteNodeCalls, loadStoryCalls };
+
+  // The one cast in the file: a `StoryApi` has about a hundred methods, and a
+  // test must not have to name them. A Proxy answers every name, so the type
+  // is complete in fact, not only in appearance.
+  const api = new Proxy({}, {
+    get: (_target, name) => {
+      // Never `then`: an awaited api must not look like a promise.
+      if (typeof name !== "string" || name === "then") return undefined;
+      return (...args: never[]) => {
+        calls.push(name);
+        const method = implemented[name];
+        if (method === undefined) return Promise.reject(new Error(`unexpected call: ${name}`));
+        return method(...args);
+      };
+    }
+  }) as StoryApi;
+
+  return {
+    api, continueCalls, createNodeCalls, editNodeCalls, deleteNodeCalls, loadStoryCalls, calls,
+    setContinueStory: (run) => { continueRun = run; }
+  };
 }
 
 /** The real app actions over `store`, with a manual flush scheduler so a

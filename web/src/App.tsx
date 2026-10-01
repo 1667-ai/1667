@@ -58,7 +58,7 @@ function Shell() {
   // below replace the whole UI, so they must keep its Copy/Retry/Discard bar,
   // or a failed reconnect would leave the text unreachable.
   const recovery = unsaved
-    ? <div className="connection-recovery"><GenerationBar viewingStoryId={null} /></div>
+    ? <div className="connection-recovery"><GenerationBar /></div>
     : null;
   if (connection.kind === "connecting") return <><ConnectingScreen />{recovery}</>;
   if (connection.kind === "locked") return <><LockedScreen />{recovery}</>;
@@ -98,7 +98,7 @@ function Shell() {
               {/* Only ever shows a bar here while a generation is running
                * somewhere in the background (owner decision 2) — `GenerationBar`
                * itself renders nothing on this route while idle. */}
-              <GenerationBar viewingStoryId={null} />
+              <GenerationBar />
             </>
           )}
       </main>

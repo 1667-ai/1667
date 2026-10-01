@@ -310,3 +310,38 @@ test("case 8: D asks first; Cancel keeps everything; confirming deletes the part
   expect(saved.path).toHaveLength(1);
   expect(saved.nodes).toHaveLength(1);
 }, 60_000);
+
+test("case 9: when another window deletes the part being edited, the text stays reachable with Copy and Discard", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Edit Recovery");
+  const page = await openStory(web, seeded.storyId, "Edit Recovery");
+  await part(page, "B:").click();
+
+  await page.keyboard.press("e");
+  await editorProse(page, 2).fill("B: my words, kept.");
+  await seeded.api.deleteNode(seeded.storyId, seeded.b, 2);
+
+  await page.getByRole("button", { name: "Save in place" }).click();
+  const recovery = page.getByRole("region", { name: "Editor without a part" });
+  await recovery.waitFor();
+  expect(await recovery.getByRole("textbox", { name: "Your unsaved text" }).inputValue()).toBe("B: my words, kept.");
+  await recovery.getByRole("button", { name: "Copy" }).waitFor();
+  await recovery.getByRole("button", { name: "Discard" }).click();
+  await waitForCount(recovery, 0);
+}, 60_000);
+
+test("case 10: with a changed editor on part 2, Space on part 1 is refused and the draft stays", async () => {
+  const web = await spawnEditWeb();
+  const seeded = await seedThreeParts(web, "Edit Lock");
+  const page = await openStory(web, seeded.storyId, "Edit Lock");
+  await part(page, "B:").click();
+  await page.keyboard.press("e");
+  await editorProse(page, 2).fill("B: changed, not saved.");
+  await part(page, "A:").click();
+  await waitForAttribute(part(page, "A:"), "aria-current", "true");
+  await page.keyboard.press("Space");
+
+  await page.getByText("Finish or cancel the open editor first.").first().waitFor();
+  expect(await editorProse(page, 2).inputValue()).toBe("B: changed, not saved.");
+  expect(await page.getByRole("button", { name: "Stop" }).count()).toBe(0);
+}, 60_000);

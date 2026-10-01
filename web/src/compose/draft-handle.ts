@@ -19,17 +19,14 @@ export interface DraftHost {
  *   text, so a text the writer changed since is never wiped.
  */
 export function createDirectDraft(host: DraftHost, text: string): DraftHandle {
-  let restored = false;
   return {
     restore: () => {
       const current = host.read().direct;
-      if (current.length > 0 && current !== text) return;
-      if (restored && current.length === 0) return;
-      restored = true;
+      if (current.length > 0 && current !== text) return false;
       if (current.length === 0) host.write((draft) => ({ ...draft, direct: text }));
+      return true;
     },
     clear: () => {
-      if (!restored) return;
       const current = host.read();
       // A clear must not wipe text that came from the history.
       if (current.direct !== text || current.walk !== null) return;
@@ -50,16 +47,14 @@ export function createRetakeDraft(
   retake: { readonly nodeId: string; readonly text: string },
   directAtSend: string
 ): DraftHandle {
-  let restored = false;
   return {
     restore: () => {
       const current = host.read();
-      if (current.retake !== null || current.direct !== directAtSend) return;
-      restored = true;
+      if (current.retake !== null || current.direct !== directAtSend) return false;
       host.write((draft) => ({ ...draft, retake: { nodeId: retake.nodeId, text: retake.text } }));
+      return true;
     },
     clear: () => {
-      if (!restored) return;
       const current = host.read().retake;
       if (current === null || current.nodeId !== retake.nodeId || current.text !== retake.text) return;
       host.write((draft) => ({ ...draft, retake: null }));

@@ -15,8 +15,7 @@ import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
-import { EDITOR_OPEN_TOAST, editorBlocksChange } from "../editor/state.js";
-import { belowPendingSwitch } from "./part-guard.js";
+import { EDITOR_OPEN_TOAST, STORY_LOCKED_TOAST, belowPendingSwitch, editorBlocksChange } from "./part-policy.js";
 import { chapterJumpPartId, firstPartId, lastPartId, nextPartId } from "./focus-model.js";
 import { effectiveFocusedPartId, loadedStoryState, type StoryState } from "./state.js";
 
@@ -38,14 +37,10 @@ export interface StoryActionDependencies {
   readonly isLocked: (storyId: string) => boolean;
 }
 
-/** Shown when an action is refused because a generation is writing into (or
- * trying to save into) this exact story — reused by the take-switch keyboard
- * path (`StoryView.tsx`'s `take-previous`/`take-next`), the take-switch
- * mouse path (`PartCard`'s arrows, counter, and take strip, all routed
- * through `switchTake`/`switchTakeTo`), and `generation/actions.ts`'s own
- * `continue()` (review fix #9: it now owns this refusal itself, rather than
- * `StoryView` building the toast inline). */
-export const STORY_LOCKED_TOAST = "Writing… Esc stops it first.";
+/** Re-exported: the toast lives with the rest of the writing loop's refusals
+ * in `story/part-policy.ts`. */
+export { STORY_LOCKED_TOAST };
+
 
 /** Shown wherever a `revision_conflict` (a save, or a fresh Continue
  * admission, built against a payload that has since moved elsewhere) is
@@ -53,6 +48,11 @@ export const STORY_LOCKED_TOAST = "Writing… Esc stops it first.";
  * `runSwitchLoop` below and `generation/actions.ts`'s `finishRun` both use
  * this exact wording. */
 export const STORY_RELOADED_TOAST = "The story changed in another window. It was reloaded.";
+
+/** Where focus goes when `adoptPayload` lands a payload. */
+export type AdoptFocus =
+  | { readonly kind: "new-leaf-if"; readonly partId: string | null }
+  | { readonly kind: "part"; readonly partId: string };
 
 export interface StoryActions {
   load(id: string): Promise<void>;
@@ -75,10 +75,12 @@ export interface StoryActions {
    * landed generation changes that row's preview/updated time the same way
    * a take switch does.
    *
-   * `focusNewLeafIf`, given, moves focus onto the new leaf only if the
-   * reader's focus still equals it — set to the focused part id captured
-   * when the generation started, this is what keeps a landing from moving
-   * focus out from under a reader who moved on while it was still writing.
+   * `focus` says where focus goes on landing: `new-leaf-if` moves it onto
+   * the new leaf only if the reader's focus still equals `partId` (the part
+   * focused when a generation started, so a landing never moves focus out
+   * from under a reader who moved on); `part` moves it onto that part when
+   * it is on the adopted line (a saved edit or a new take lands the writer
+   * on it). `null` or absent leaves focus alone.
    * `announcement`, given, replaces the story's live-region text — only
    * takes effect together with an applied adoption, so it never fires for a
    * story the reader has left.
@@ -92,19 +94,7 @@ export interface StoryActions {
   adoptPayload(
     storyId: string,
     payload: StoryPayload,
-    // `focusNewLeafIf` is required (not `?:`) whenever `options` itself is
-    // given (review fix #11): a caller with nothing to focus says so with
-    // `null`, the one spelling of "empty" this reads, rather than either
-    // that same explicit `null` or simply omitting the field meaning the
-    // exact same thing two different ways.
-    options?: {
-      readonly focusNewLeafIf: string | null;
-      readonly announcement?: string;
-      /** Moves focus onto this part when it is on the adopted line — a
-       * saved edit or a new take lands the writer on it. Wins over
-       * `focusNewLeafIf`. */
-      readonly focusPartId?: string;
-    }
+    options?: { readonly focus?: AdoptFocus | null; readonly announcement?: string }
   ): boolean;
   focusPart(partId: string): void;
   moveFocus(direction: -1 | 1): void;
@@ -365,12 +355,15 @@ export function createStoryActions(
         if (state.story.kind !== "loaded" || state.story.payload.id !== storyId) return state;
         if (!isAtLeastVersion(payload, state.story.payload)) return state;
         applied = true;
-        const focusNewLeafIf = options?.focusNewLeafIf ?? null;
+        const focus = options?.focus ?? null;
         const newLeafId = payload.path.at(-1)?.id ?? null;
-        if (focusNewLeafIf !== null
+        if (focus?.kind === "new-leaf-if"
+          && focus.partId !== null
           && newLeafId !== null
-          && state.story.focusedPartId === focusNewLeafIf) {
+          && state.story.focusedPartId === focus.partId) {
           moveFocusTo = newLeafId;
+        } else if (focus?.kind === "part" && payload.path.some((node) => node.id === focus.partId)) {
+          moveFocusTo = focus.partId;
         }
         return {
           ...state,
@@ -385,10 +378,6 @@ export function createStoryActions(
       // move into the `store.set` above: it already knows how to update
       // `focusedPartId` and record the reading position together, and reuses
       // it verbatim instead of duplicating that pairing here.
-      const requested = options?.focusPartId;
-      if (applied && requested !== undefined && payload.path.some((node) => node.id === requested)) {
-        moveFocusTo = requested;
-      }
       if (moveFocusTo !== null) setFocusedPart(store, storyId, moveFocusTo);
       return applied;
     },
@@ -423,7 +412,7 @@ export function createStoryActions(
         return;
       }
       if (belowPendingSwitch(story, partId)) return;
-      if (editorBlocksChange(store.get().editor, storyId, story.payload.path, partId)) {
+      if (editorBlocksChange(store.get(), partId)) {
         pushToast(store, EDITOR_OPEN_TOAST);
         return;
       }
@@ -441,7 +430,7 @@ export function createStoryActions(
         return;
       }
       if (belowPendingSwitch(story, partId)) return;
-      if (editorBlocksChange(store.get().editor, storyId, story.payload.path, partId)) {
+      if (editorBlocksChange(store.get(), partId)) {
         pushToast(store, EDITOR_OPEN_TOAST);
         return;
       }

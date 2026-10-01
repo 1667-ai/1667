@@ -4,7 +4,8 @@ import {
   rowIndexForNode,
   rowPart
 } from "../../../shared/manuscript-model.js";
-import type { StoryPayload } from "../../../shared/types.js";
+import type { StoryNode, StoryPayload } from "../../../shared/types.js";
+import type { AppState } from "../app/state.js";
 
 /**
  * Split out of `app/state.ts`'s old top-level `openStory: StoryPayload | null`
@@ -69,4 +70,18 @@ export function effectiveFocusedPartId(
     return state.focusedPartId;
   }
   return rowPart(model, lastPartRowIndex(model))?.id ?? null;
+}
+
+/** The part a keyboard, menu, or editor action targets, with the open story —
+ * or `null` when the story is not open, not loaded, or the part left the
+ * line. */
+export function openPart(
+  state: AppState,
+  partId: string
+): { readonly storyId: string; readonly story: Extract<StoryState, { kind: "loaded" }>; readonly node: StoryNode } | null {
+  if (state.route.kind !== "story" || state.story.kind !== "loaded") return null;
+  const story = state.story;
+  if (story.payload.id !== state.route.id) return null;
+  const node = story.payload.path.find((candidate) => candidate.id === partId);
+  return node === undefined ? null : { storyId: story.payload.id, story, node };
 }

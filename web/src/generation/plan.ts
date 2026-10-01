@@ -31,14 +31,19 @@ export interface GenerationPlan {
   readonly instruction: string;
 }
 
-export async function planContinue(
-  payload: StoryPayload,
-  focusedPartId: string | null,
-  requestedInstruction = "",
-  defaultContinueDirection?: string,
-  regenerateNode: StoryNode | null = null
-): Promise<GenerationPlan> {
-  const intent = continuationIntent(payload, focusedPartId, requestedInstruction, regenerateNode, defaultContinueDirection);
+export interface PlanRequest {
+  readonly focusedPartId: string | null;
+  /** What the writer typed; empty for a plain Continue. */
+  readonly instruction?: string;
+  readonly defaultContinueDirection?: string;
+  /** The part a retake replaces. */
+  readonly retakeNode?: StoryNode | null;
+}
+
+export async function planContinue(payload: StoryPayload, request: PlanRequest): Promise<GenerationPlan> {
+  const requestedInstruction = request.instruction ?? "";
+  const regenerateNode = request.retakeNode ?? null;
+  const intent = continuationIntent(payload, request.focusedPartId, requestedInstruction, regenerateNode, request.defaultContinueDirection);
   // A retake hides the part it replaces and everything below it, so the
   // streaming take takes that part's own number (the TUI's `virtualNumber`).
   // A Continue from the middle hides what follows the focused part.

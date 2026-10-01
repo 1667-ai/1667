@@ -1,4 +1,4 @@
-import { useEffect, useRef, type KeyboardEvent, type ReactNode } from "react";
+import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useAppContext } from "../app/context.js";
 import { resolveComposeBinding } from "../app/keymap-dom.js";
 import { useStore } from "../app/store.js";
@@ -27,21 +27,8 @@ export function Composer(
   const { store, actions } = useAppContext();
   const draft = useStore(store, (state) => composeDraftOf(state.compose, storyId));
   const story = useStore(store, (state) => (state.story.kind === "loaded" && state.story.payload.id === storyId ? state.story : null));
-  const focusRequest = useStore(store, (state) => state.compose.focusRequest);
   const browsing = isBrowsingHistory(draft);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
-  const seenFocusRequest = useRef(focusRequest);
-
-  // A request to focus the box (Enter or `i` in the manuscript, or `R`).
-  // The first value a mount sees is not a request.
-  useEffect(() => {
-    if (focusRequest === seenFocusRequest.current) return;
-    seenFocusRequest.current = focusRequest;
-    const field = fieldRef.current;
-    if (field === null) return;
-    field.focus();
-    field.setSelectionRange(field.value.length, field.value.length);
-  }, [focusRequest]);
 
   const text = visibleComposeText(draft);
   const retakeNumber = story !== null && draft.retake !== null
@@ -113,12 +100,4 @@ export function Composer(
       </div>
     </div>
   );
-}
-
-/** Used by the Continue button: sends the box, then hands the keyboard back. */
-export function useSendFromButton(storyId: string): () => void {
-  const { actions } = useAppContext();
-  return () => {
-    if (actions.compose.submit(storyId)) focusCurrentPart();
-  };
 }

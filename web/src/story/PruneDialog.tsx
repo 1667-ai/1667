@@ -1,5 +1,5 @@
 import { Modal } from "../ui/Modal.js";
-import { deleteQuestion, type DeletePlan } from "./part-ui-state.js";
+import { deleteQuestion, type DeletePlan } from "./delete-plan.js";
 
 /** The confirm for `D` and the menu's Delete: a native `<dialog>` through
  * `ui/Modal.tsx`, worded like the Library's `DeleteDialog`. Cancel has the

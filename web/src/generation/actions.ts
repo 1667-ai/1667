@@ -9,7 +9,8 @@ import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import { effectiveFocusedPartId } from "../story/state.js";
-import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../story/actions.js";
+import { STORY_RELOADED_TOAST, type AdoptFocus } from "../story/actions.js";
+import { RETAKE_GONE_TOAST, STORY_LOCKED_TOAST, generationBusyToast, generationEditorRefusal } from "../story/part-policy.js";
 import { planContinue, type GenerationPlan } from "./plan.js";
 import type { GenerationState } from "./state.js";
 import {
@@ -29,7 +30,11 @@ import { saveStopped, type StopSaveOutcome, type StopSaveRequest } from "./settl
  * handle is never called twice for one meaning and never throws into a run.
  * Built by `compose/draft-handle.ts`. */
 export interface DraftHandle {
-  restore(): void;
+  /** Puts the text back. Returns whether it did: a newer text in the box, or
+   * a box that was already restored, means it did not. */
+  restore(): boolean;
+  /** Empties what `restore` put back, if the writer has not changed it. Only
+   * called after a `restore` that returned `true`. */
   clear(): void;
 }
 
@@ -44,12 +49,13 @@ export interface GenerationContinueRequest {
   readonly draft?: DraftHandle;
 }
 
-/** `phase` moves `pending` -> `restored` (a failed run) and then at most to
- * `cleared` (a later `retrySave` that lands); `pending` -> `cleared` is a
- * normal landing. */
+/** What a run remembers about the writer's draft: whether it was handed
+ * back, and whether that took effect. The handle itself is stateless. */
 interface DraftSlot {
   readonly handle: DraftHandle | null;
-  phase: "pending" | "restored" | "cleared";
+  restored: boolean;
+  applied: boolean;
+  cleared: boolean;
 }
 
 export interface GenerationActions {
@@ -87,11 +93,7 @@ export interface GenerationActionDependencies {
 type StoryAdoptPayload = (
   storyId: string,
   payload: StoryPayload,
-  options?: {
-    readonly focusNewLeafIf: string | null;
-    readonly announcement?: string;
-    readonly focusPartId?: string;
-  }
+  options?: { readonly focus?: AdoptFocus | null; readonly announcement?: string }
 ) => boolean;
 
 type Connected = Extract<ConnectionState, { kind: "connected" }>;
@@ -134,9 +136,14 @@ interface ActiveRun {
   message: string;
 }
 
-/** Shown when a retake's part left the line (or became a summary) between
- * the writer opening the retake and sending it. Exported for the composer. */
-export const RETAKE_GONE_TOAST = "That part is no longer available to retake. Draft kept.";
+/** What a started run needs, once every check has passed. */
+interface Admission {
+  readonly connection: Connected;
+  readonly storyId: string;
+  readonly storyTitle: string;
+  readonly focusedPartId: string | null;
+  readonly plan: GenerationPlan;
+}
 
 function continueTargetOf(target: GenerationTarget): ContinueTarget {
   return target.mode === "append"
@@ -145,18 +152,22 @@ function continueTargetOf(target: GenerationTarget): ContinueTarget {
 }
 
 /** The one place a draft handle is called. A handle is a UI callback; if it
- * throws, the run must still finish, so the failure stops here. */
+ * throws, the run must still finish, so the failure stops here. A restore
+ * happens at most once. A clear happens at most once, and only after a
+ * restore that took effect: a landing with no restore has nothing to clear,
+ * because the box was emptied when the send began. */
 function settleDraft(slot: DraftSlot, action: "restore" | "clear"): void {
   if (slot.handle === null) return;
-  if (action === "restore") {
-    if (slot.phase !== "pending") return;
-    slot.phase = "restored";
-  } else {
-    if (slot.phase === "cleared") return;
-    slot.phase = "cleared";
-  }
   try {
-    slot.handle[action]();
+    if (action === "restore") {
+      if (slot.restored) return;
+      slot.restored = true;
+      slot.applied = slot.handle.restore();
+    } else {
+      if (slot.cleared) return;
+      slot.cleared = true;
+      if (slot.applied) slot.handle.clear();
+    }
   } catch {
     // A broken draft callback never breaks the run.
   }
@@ -174,6 +185,22 @@ export function createGenerationActions(
   function setIdle(): void {
     activeRun = null;
     store.set((state) => (state.generation.kind === "idle" ? state : { ...state, generation: { kind: "idle" } }));
+  }
+
+  /** The one way a run ends, and what happens to the writer's draft with it:
+   * `landed` clears it (the take is saved, or the stopped text was); `not-landed`
+   * gives it back; `unsaved` keeps the text on screen as "Not saved" and also
+   * gives the draft back, since the text is not safe yet. */
+  function endRun(run: ActiveRun, disposition: "landed" | "not-landed" | "unsaved", message = ""): void {
+    if (disposition === "unsaved") {
+      run.phase = "unsaved";
+      run.message = message;
+      publish(run);
+      settleDraft(run.draft, "restore");
+      return;
+    }
+    setIdle();
+    settleDraft(run.draft, disposition === "landed" ? "clear" : "restore");
   }
 
   /** The one place a run's `phase` (and its buffered text) becomes a
@@ -261,11 +288,10 @@ export function createGenerationActions(
     if (outcome.kind === "saved") {
       const n = partNumberOf(outcome.payload);
       const applied = deps.adoptPayload(run.storyId, outcome.payload, {
-        focusNewLeafIf: run.focusAtStart,
+        focus: { kind: "new-leaf-if", partId: run.focusAtStart },
         announcement: `Stopped. Part ${n} kept.`
       });
-      setIdle();
-      settleDraft(run.draft, "clear");
+      endRun(run, "landed");
       if (failureMessage !== null) {
         pushToast(store, `${failureMessage} · generation stopped · text kept in ${run.storyTitle}.`);
       } else if (!applied) {
@@ -274,9 +300,8 @@ export function createGenerationActions(
       return;
     }
     if (outcome.kind === "not-substantive") {
-      deps.adoptPayload(run.storyId, outcome.payload, { focusNewLeafIf: null, announcement: "Stopped. Nothing was written." });
-      setIdle();
-      settleDraft(run.draft, "restore");
+      deps.adoptPayload(run.storyId, outcome.payload, { announcement: "Stopped. Nothing was written." });
+      endRun(run, "not-landed");
       if (failureMessage !== null) pushToast(store, failureMessage);
       return;
     }
@@ -285,10 +310,7 @@ export function createGenerationActions(
     // reachable (Copy/Discard) rather than lose it — decision 3, generalized
     // from "connection lost" to any commit failure, timeout-class or not.
     if (outcome.payload !== null) deps.adoptPayload(run.storyId, outcome.payload);
-    run.phase = "unsaved";
-    run.message = errorMessage(outcome.error);
-    publish(run);
-    settleDraft(run.draft, "restore");
+    endRun(run, "unsaved", errorMessage(outcome.error));
     pushToast(store, `Not saved: ${run.message}`);
   }
 
@@ -297,13 +319,6 @@ export function createGenerationActions(
     publish(run);
     const outcome = await saveStopped(run.api, saveRequestOf(run));
     applyOutcome(run, outcome, failureMessage);
-  }
-
-  function refuseAlreadyWriting(state: AppState): void {
-    const generation = state.generation;
-    if (generation.kind === "idle") return;
-    const inThisStory = state.route.kind === "story" && state.route.id === generation.storyId;
-    pushToast(store, inThisStory ? STORY_LOCKED_TOAST : `Already writing in ${generation.storyTitle}. Esc stops it.`);
   }
 
   async function finishRun(
@@ -321,11 +336,10 @@ export function createGenerationActions(
       // save (that would risk a duplicate part under a second, different id).
       const n = partNumberOf(result.payload);
       const applied = deps.adoptPayload(run.storyId, result.payload, {
-        focusNewLeafIf: run.focusAtStart,
+        focus: { kind: "new-leaf-if", partId: run.focusAtStart },
         announcement: `Part ${n} written.`
       });
-      setIdle();
-      settleDraft(run.draft, "clear");
+      endRun(run, "landed");
       if (!applied) pushToast(store, `Part ${n} written in ${run.storyTitle}.`);
       return;
     }
@@ -341,8 +355,7 @@ export function createGenerationActions(
 
     const code = apiErrorCode(error);
     if (code === "resource_busy") {
-      setIdle();
-      settleDraft(run.draft, "restore");
+      endRun(run, "not-landed");
       pushToast(store, "Another window is writing in this story.");
       return;
     }
@@ -354,8 +367,7 @@ export function createGenerationActions(
       // before any provider work starts), so there is nothing to protect;
       // only the stale cache needs fixing before the writer's next attempt
       // can land.
-      setIdle();
-      settleDraft(run.draft, "restore");
+      endRun(run, "not-landed");
       await reloadBestEffort(run);
       pushToast(store, STORY_RELOADED_TOAST);
       return;
@@ -373,10 +385,7 @@ export function createGenerationActions(
       // `stoppedTextDisposition`'s own doc). Show the same "Not saved" card
       // a failed save leaves behind, rather than attempting a commit that
       // cannot succeed or silently losing real prose.
-      run.phase = "unsaved";
-      run.message = errorMessage(error);
-      publish(run);
-      settleDraft(run.draft, "restore");
+      endRun(run, "unsaved", errorMessage(error));
       pushToast(store, `Not saved: ${run.message}`);
       return;
     }
@@ -384,8 +393,7 @@ export function createGenerationActions(
     // A genuine provider/validation rejection (or a connection loss with
     // nothing substantive to keep): committing this prose would durably save
     // output the server refused, so it is discarded.
-    setIdle();
-    settleDraft(run.draft, "restore");
+    endRun(run, "not-landed");
     // Always reload: a provider call that failed after it started still
     // records its attempt on the story, which moves the story's version. With
     // the old version held, the next Continue would be refused as a conflict
@@ -395,73 +403,95 @@ export function createGenerationActions(
     pushToast(store, errorMessage(error));
   }
 
+
+  /**
+   * Every check before a run exists, in one place: it either returns what the
+   * run needs, or refuses once — the writer's draft is handed back exactly
+   * one time, with the toast, and nothing starts. The checks run before the
+   * async preparation (settings, the append hash) and again after it, so a
+   * connection that changed, a second start, or an editor opened in between is
+   * still respected.
+   */
+  async function admit(request: GenerationContinueRequest, draft: DraftSlot): Promise<Admission | null> {
+    const instruction = request.instruction ?? "";
+    const refuse = (toast?: string, keptNote = true): null => {
+      settleDraft(draft, "restore");
+      if (toast !== undefined) pushToast(store, draft.handle !== null && keptNote ? `${toast} Draft kept.` : toast);
+      return null;
+    };
+    /** `refused` is a toast to show; `silent` means there is nothing to say
+     * (not connected, no open story) and the draft just comes back. */
+    const check = (): { readonly refused: string | null; readonly silent: boolean } => {
+      const state = store.get();
+      if (activeRun !== null) {
+        const routeStory = state.route.kind === "story" ? state.route.id : "";
+        return { refused: generationBusyToast(state, routeStory) ?? STORY_LOCKED_TOAST, silent: false };
+      }
+      if (state.connection.kind !== "connected" || state.route.kind !== "story") return { refused: null, silent: true };
+      const story = state.story;
+      if (story.kind !== "loaded" || story.payload.id !== state.route.id) return { refused: null, silent: true };
+      return {
+        refused: generationEditorRefusal(state, {
+          focusedPartId: effectiveFocusedPartId(story),
+          instruction,
+          ...(request.retakeOf === undefined ? {} : { retakeOf: request.retakeOf })
+        }),
+        silent: false
+      };
+    };
+
+    const first = check();
+    if (first.silent) return refuse();
+    if (first.refused !== null) return refuse(first.refused);
+
+    const state = store.get();
+    if (state.connection.kind !== "connected" || state.story.kind !== "loaded") return refuse();
+    const connection = state.connection;
+    const story = state.story;
+    const focusedPartId = effectiveFocusedPartId(story);
+
+    // A retake replaces a part that must still be on the line, and must not
+    // be a summary (summaries are rewritten, not retaken).
+    let retakeNode: StoryNode | null = null;
+    if (request.retakeOf !== undefined) {
+      retakeNode = story.payload.path.find((node) => node.id === request.retakeOf) ?? null;
+      if (retakeNode === null || retakeNode.role === "summary") return refuse(RETAKE_GONE_TOAST, false);
+    }
+
+    // The saved instruction of a stopped new take must be the direction the
+    // server actually used: the configured default, as the TUI passes
+    // `activeWriting.defaultContinueDirection`. A settings read that fails
+    // falls back to the built-in default.
+    let defaultContinueDirection: string | undefined;
+    try {
+      defaultContinueDirection = (await connection.api.getSettings()).activeWriting.defaultContinueDirection;
+    } catch {
+      defaultContinueDirection = undefined;
+    }
+    let plan: GenerationPlan;
+    try {
+      plan = await planContinue(story.payload, {
+        focusedPartId,
+        instruction,
+        ...(defaultContinueDirection === undefined ? {} : { defaultContinueDirection }),
+        retakeNode
+      });
+    } catch (error) {
+      return refuse(errorMessage(error));
+    }
+
+    const second = check();
+    if (second.refused !== null) return refuse(second.refused);
+    if (second.silent || store.get().connection !== connection) return refuse();
+    return { connection, storyId: story.payload.id, storyTitle: story.payload.title, focusedPartId, plan };
+  }
   return {
     continue: async (request = {}) => {
-      const draft: DraftSlot = { handle: request.draft ?? null, phase: "pending" };
-      // Every early return below puts the writer's submitted text back: a
-      // refusal is not a send.
-      const refuse = (): void => settleDraft(draft, "restore");
-      if (activeRun !== null) {
-        refuse();
-        refuseAlreadyWriting(store.get());
-        return;
-      }
-      const state = store.get();
-      if (state.connection.kind !== "connected") return refuse();
-      if (state.route.kind !== "story") return refuse();
-      const story = state.story;
-      if (story.kind !== "loaded" || story.payload.id !== state.route.id) return refuse();
-      const connection = state.connection;
-      const storyId = story.payload.id;
-      const storyTitle = story.payload.title;
-      const focusedPartId = effectiveFocusedPartId(story);
-
-      // A retake replaces a part that must still be on the line, and must
-      // not be a summary (summaries are rewritten, not retaken).
-      let retakeNode: StoryNode | null = null;
-      if (request.retakeOf !== undefined) {
-        retakeNode = story.payload.path.find((node) => node.id === request.retakeOf) ?? null;
-        if (retakeNode === null || retakeNode.role === "summary") {
-          refuse();
-          pushToast(store, RETAKE_GONE_TOAST);
-          return;
-        }
-      }
-
+      const draft: DraftSlot = { handle: request.draft ?? null, restored: false, applied: false, cleared: false };
+      const admission = await admit(request, draft);
+      if (admission === null) return;
+      const { connection, storyId, storyTitle, focusedPartId, plan } = admission;
       const requestedInstruction = request.instruction ?? "";
-      // The saved instruction of a stopped new take must be the direction the
-      // server actually used: the configured default, as the TUI passes
-      // `activeWriting.defaultContinueDirection`. A settings read that fails
-      // falls back to the built-in default.
-      let defaultContinueDirection: string | undefined;
-      try {
-        defaultContinueDirection = (await connection.api.getSettings()).activeWriting.defaultContinueDirection;
-      } catch {
-        defaultContinueDirection = undefined;
-      }
-      let plan: GenerationPlan;
-      try {
-        plan = await planContinue(
-          story.payload,
-          focusedPartId,
-          requestedInstruction,
-          defaultContinueDirection,
-          retakeNode
-        );
-      } catch (error) {
-        refuse();
-        pushToast(store, errorMessage(error));
-        return;
-      }
-      // Re-validated after the awaits (`getSettings`, `textHash`): a
-      // reconnect or a second admission racing this one must not both
-      // proceed.
-      if (activeRun !== null) {
-        refuse();
-        refuseAlreadyWriting(store.get());
-        return;
-      }
-      if (store.get().connection !== connection) return refuse();
 
       const genId = crypto.randomUUID();
       const controller = new AbortController();

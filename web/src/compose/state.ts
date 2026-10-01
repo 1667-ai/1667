@@ -33,13 +33,10 @@ export interface ComposeState {
   /** Sent directions of this browser session, oldest first. Shared by every
    * story, like the TUI's. Never saved. */
   readonly history: readonly string[];
-  /** Raised by one each time something asks the composer to take keyboard
-   * focus (Enter or `i` in the manuscript, starting a retake). */
-  readonly focusRequest: number;
 }
 
 export function initialComposeState(): ComposeState {
-  return { drafts: {}, history: [], focusRequest: 0 };
+  return { drafts: {}, history: [] };
 }
 
 const EMPTY_DRAFT: StoryComposeDraft = { direct: "", retake: null, walk: null };

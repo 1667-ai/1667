@@ -1,6 +1,5 @@
-import { createStoryIndex } from "../../shared/story-model.js";
-import { subtreeIds, takeIndex, unusedTakePruneSelection } from "../../shared/story-tree.js";
-import { canonicalFactStates } from "../../shared/fact-state.js";
+import { subtreePruneCore } from "../../shared/prune-plan.js";
+import { unusedTakePruneSelection } from "../../shared/story-tree.js";
 import type { Tag, StoryPayload } from "../../shared/types.js";
 import { factName } from "./facts-model.js";
 import { tagGlyph } from "./tag-presentation.js";
@@ -44,45 +43,26 @@ export interface UnusedTakesPrunePlan {
 export type PrunePlan = SubtreePrunePlan | UnusedTakesPrunePlan;
 
 export function createPrunePlan(payload: StoryPayload, nodeId: string): SubtreePrunePlan | null {
-  const index = createStoryIndex(payload);
-  const node = index.tree.nodesById.get(nodeId);
-  if (node === undefined) return null;
-  const ids = new Set(subtreeIds(index.tree, nodeId));
-  const position = takeIndex(index.tree, nodeId);
-  const affected = payload.facts.flatMap((fact) => canonicalFactStates(fact)
-    .filter((state) => state.anchorPartId !== undefined && ids.has(state.anchorPartId))
-    .map((state): PrunedFactState => {
-      const states = canonicalFactStates(fact);
-      return {
-        factName: factName(fact),
-        stateOrdinal: states.findIndex(({ id }) => id === state.id) + 1,
-        stateCount: states.length
-      };
-    }));
-  const factsLosingLastState = new Set(
-    payload.facts
-      .filter((fact) => canonicalFactStates(fact).every(
-        (state) => state.anchorPartId !== undefined && ids.has(state.anchorPartId)
-      ))
-      .map((fact) => fact.id)
-  );
+  const core = subtreePruneCore(payload, nodeId);
+  if (core === null) return null;
+  const dyingStates = core.dyingStates.map((dying): PrunedFactState => ({
+    factName: factName(dying.fact),
+    stateOrdinal: dying.stateOrdinal,
+    stateCount: dying.stateCount
+  }));
   return {
     kind: "subtree",
     nodeId,
-    part: index.depthByNodeId.get(nodeId) ?? 1,
-    take: position.index,
-    takeCount: position.count,
-    parts: index.subtreeCountByNodeId.get(nodeId) ?? ids.size,
-    lines: node.leafCount,
-    tags: payload.tags
-      .filter((tag) => ids.has(tag.nodeId))
-      .map(({ name, status }) => ({ name, status })),
-    states: affected.length,
-    factsLosingLastState: factsLosingLastState.size,
-    dyingStates: affected,
-    factsLosingLastStateNames: payload.facts
-      .filter((fact) => factsLosingLastState.has(fact.id))
-      .map((fact) => factName(fact))
+    part: core.part,
+    take: core.take,
+    takeCount: core.takeCount,
+    parts: core.parts,
+    lines: core.lines,
+    tags: [...core.tags],
+    states: dyingStates.length,
+    factsLosingLastState: core.factsLosingLastState.length,
+    dyingStates,
+    factsLosingLastStateNames: core.factsLosingLastState.map((fact) => factName(fact))
   };
 }
 

@@ -114,6 +114,12 @@ export function generationThinking(state: GenerationRunFields): boolean {
   return state.reasoning !== null && state.text.length === 0;
 }
 
+/** The leaf an append is growing in `storyId` (running, settling, or an
+ * unsaved leftover), or `null` when nothing appends there. */
+export function appendingTo(state: GenerationState, storyId: string): string | null {
+  return state.kind !== "idle" && state.storyId === storyId ? state.appendTo : null;
+}
+
 /** The story id a running/settling/unsaved generation targets, or `null`
  *  while idle — the one field every route needs to decide whether "a
  *  generation is happening, and where" without switching on `kind` itself. */
