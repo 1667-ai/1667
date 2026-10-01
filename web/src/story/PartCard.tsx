@@ -162,7 +162,7 @@ function PartCardImpl({
         onFocus={() => onFocus(part.id)}
       >
         <div className="part-header">
-          <span className="part-number">PART {part.number}</span>
+          <span className="part-number">Part {part.number}</span>
           <span className="part-meta">
             {(isLegacySummary || node.human === true || humanEditIsMeaningful(humanEdit)) && (
               <span className="part-badges">

@@ -182,7 +182,7 @@ export function StoryView({ storyId }: { readonly storyId: string }) {
               ? (editorIsFirst
                 ? (
                   <article className="part" aria-label="Part 1">
-                    <div className="part-header"><span className="part-number">PART 1</span></div>
+                    <div className="part-header"><span className="part-number">Part 1</span></div>
                     <PartEditor partNumber={1} showDirections={false} />
                   </article>
                 )

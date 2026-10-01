@@ -6,7 +6,7 @@
  */
 * { box-sizing: border-box; margin: 0; }
 html, body, #app { height: 100%; }
-body { background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 15px; line-height: 1.5; }
+body { background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: var(--fs-body); line-height: 1.5; }
 button, input, select, textarea { color: inherit; font-family: inherit; font-size: inherit; }
 ::selection { background: var(--accent-soft); }
 * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
@@ -20,10 +20,9 @@ button, input, select, textarea { color: inherit; font-family: inherit; font-siz
   padding: 0; position: absolute; white-space: nowrap; width: 1px;
 }
 
-.mono-meta {
-  color: var(--faint); font-family: var(--mono); font-size: 9px;
-  letter-spacing: .09em; line-height: 1.2; text-transform: uppercase;
-}
+/* A mono value (an age, a folder name). Mono labels add `--ls-label` and
+   `text-transform: uppercase` in their own rules. */
+.mono-meta { color: var(--dim); font: var(--font-meta); }
 
 svg.icon {
   fill: none; stroke: currentColor; stroke-linecap: round;
@@ -31,13 +30,10 @@ svg.icon {
 }
 
 .field { display: flex; flex-direction: column; gap: 6px; }
-.field > label {
-  color: var(--dim); font-family: var(--mono); font-size: 11px; font-weight: 500;
-  letter-spacing: .06em; text-transform: uppercase;
-}
+.field > label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
 .field input, .field select, .field textarea {
   background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
-  font-size: 14px; outline: none; padding: 9px 12px;
+  font-size: var(--fs-ui); outline: none; padding: 9px 12px;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .field input:focus, .field select:focus, .field textarea:focus {

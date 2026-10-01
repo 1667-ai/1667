@@ -18,7 +18,7 @@
 .toast {
   align-items: center; animation: rise 180ms ease both; background: var(--toast-bg); border: 1px solid var(--toast-line);
   border-radius: 10px; box-shadow: var(--shadow-modal); color: var(--toast-ink);
-  display: flex; font-size: 12.5px; gap: 12px; max-width: min(720px, calc(100vw - 32px));
+  display: flex; font-size: var(--fs-small); gap: 12px; max-width: min(720px, calc(100vw - 32px));
   padding: 10px 12px 10px 15px;
 }
 .toast > span { flex: 1; }

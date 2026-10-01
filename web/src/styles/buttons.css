@@ -12,7 +12,7 @@
   background: var(--surface);
   color: var(--dim);
   font-family: var(--ui);
-  font-size: 14px;
+  font-size: var(--fs-ui);
   font-weight: 500;
   line-height: 1;
   transition: color 120ms ease, border-color 120ms ease, filter 120ms ease;
@@ -38,7 +38,6 @@
   background: var(--accent);
   border-color: var(--accent);
   color: var(--accent-ink);
-  font-size: 15px;
   font-weight: 600;
   padding: 10px 18px;
 }
@@ -75,7 +74,6 @@
 
 .btn-small {
   padding: 7px 12px;
-  font-size: 13px;
 }
 
 /* GenerationBar's CTA: the design's larger-radius primary/danger button
@@ -83,7 +81,6 @@
 .btn-cta {
   border-radius: 11px;
   padding: 13px 26px;
-  font-size: 15px;
 }
 
 a.btn {
@@ -102,7 +99,6 @@ a.btn {
   color: var(--dim);
   cursor: pointer;
   padding: 0;
-  font-size: 14px;
   line-height: 1;
   transition: color 120ms ease, background 120ms ease;
 }

@@ -89,7 +89,7 @@ export function TakePeek({ partId, payload, currentTakeIndex, disabled, onSwitch
         }}
       >
         <span className="take-peek-heading">
-          <span>TAKE {position}/{takes.length}{active ? " — READING" : ""}</span>
+          <span>Take {position}/{takes.length}{active ? " — reading" : ""}</span>
           {tag?.status === "Canon" && <span className="canon-mark" title="Canon">★</span>}
           {tag !== null && (
             <span className={`label-chip${tag.status.length > 0 ? ` label-${tag.status.toLowerCase()}` : ""}`}>
@@ -100,9 +100,9 @@ export function TakePeek({ partId, payload, currentTakeIndex, disabled, onSwitch
         <span className="take-peek-snippet">{take.preview || "No prose yet."}</span>
         <span className={`take-peek-meta${continuation.parts === 0 ? " ends" : ""}`}>
           {continuation.parts === 0
-            ? "ENDS HERE"
-            : `${continuation.parts} ${continuation.parts === 1 ? "PART" : "PARTS"} · ${continuation.words.toLocaleString()} WORDS BELOW`}
-          <span>{formatAge(take.lastTouched)}</span>
+            ? "Ends here"
+            : `${continuation.parts} ${continuation.parts === 1 ? "part" : "parts"} · ${continuation.words.toLocaleString()} words below`}
+          <span>{formatAge(take.lastTouched).toLowerCase()}</span>
         </span>
       </button>
     );

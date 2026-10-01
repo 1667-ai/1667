@@ -34,23 +34,18 @@
 .part-header {
   align-items: center; display: flex; gap: 10px; justify-content: space-between; margin-bottom: 8px; min-height: 26px;
 }
-.part-number {
-  color: var(--faint); flex: 0 0 auto; font-family: var(--mono); font-size: 9px;
-  font-weight: 600; letter-spacing: .13em; line-height: 1; white-space: nowrap;
-}
+.part-number { color: var(--dim); flex: 0 0 auto; font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; white-space: nowrap; }
 .part-meta { align-items: center; display: flex; flex: 1 1 auto; gap: 8px; min-width: 0; }
 .part-badges { display: flex; flex-wrap: wrap; gap: 6px; min-width: 0; }
 .part-badge {
   align-items: center; background: var(--accent-soft); border-radius: 20px; color: var(--accent);
-  display: inline-flex; font-family: var(--mono); font-size: 9.5px; font-style: normal;
-  font-weight: 500; gap: 5px; letter-spacing: .06em; line-height: 1.4; padding: 3px 9px;
-  text-transform: lowercase; white-space: nowrap;
+  display: inline-flex; font: var(--font-meta); gap: 5px; padding: 3px 9px; white-space: nowrap;
 }
 .part-badge-summary { background: var(--summary-soft); color: var(--summary); }
 
 .part-instruction {
   border: 1px dashed var(--line); border-radius: 8px; color: var(--dim);
-  font-size: 14px; font-style: italic; line-height: 1.5;
+  font-family: var(--ui); font-size: var(--fs-ui); font-style: italic; line-height: 1.5;
   margin-bottom: 13px; padding: 8px 12px;
   position: sticky; top: 8px; background: var(--bg); z-index: 1;
 }
@@ -68,13 +63,13 @@
 }
 .summary-card-label {
   background: var(--summary-soft); border-radius: 20px; color: var(--summary); display: inline-flex;
-  font-family: var(--mono); font-size: 8.5px; font-weight: 600; letter-spacing: .1em;
+  font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
   margin-bottom: 9px; padding: 4px 8px;
 }
-.part-summary-body .prose p { color: var(--dim); font-size: 15px; line-height: 1.7; margin-bottom: .8em; }
+.part-summary-body .prose p { color: var(--dim); font-size: var(--fs-body); line-height: 1.7; margin-bottom: .8em; }
 .part-summary-note {
   color: color-mix(in srgb, var(--summary) 70%, var(--dim)); display: block;
-  font-family: var(--mono); font-size: 10px; line-height: 1.5; margin-top: 7px;
+  font: var(--font-meta); margin-top: 7px;
 }
 
 /* No `content-visibility: auto` on parts: its estimated heights moved parts
@@ -87,23 +82,14 @@
   margin: -8px 0 24px; padding: 8px;
 }
 .chapter-one-heading > span { background: var(--line); height: 1px; width: 34px; }
-.chapter-one-heading strong {
-  color: var(--dim); font-family: var(--mono); font-size: 9px; font-weight: 600;
-  letter-spacing: .2em; line-height: 1;
-}
+.chapter-one-heading strong { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
 
 .chapter-divider { border-radius: 10px; margin: 2px 0 6px; padding: 20px 0 6px; position: relative; text-align: center; }
 .chapter-divider-kicker { align-items: center; display: flex; gap: 14px; justify-content: center; margin-bottom: 6px; }
 .chapter-divider-kicker > span { background: var(--line); height: 1px; width: 44px; }
-.chapter-divider-kicker strong {
-  color: var(--dim); font-family: var(--mono); font-size: 9.5px; font-weight: 600;
-  letter-spacing: .2em; line-height: 1;
-}
+.chapter-divider-kicker strong { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
 .chapter-title {
-  color: var(--ink); font-family: var(--serif); font-size: 21px; font-weight: 500; line-height: 1.25; padding: 2px 6px;
+  color: var(--ink); font-family: var(--serif); font-size: var(--fs-title); font-weight: 500; line-height: 1.25; padding: 2px 6px;
 }
-.chapter-title.untitled { color: var(--faint); font-size: 15px; font-style: italic; font-weight: 400; }
-.chapter-divider-meta {
-  color: var(--faint); font-family: var(--mono); font-size: 8.5px; font-weight: 500;
-  letter-spacing: .08em; line-height: 1; margin-top: 5px;
-}
+.chapter-title.untitled { color: var(--dim); font-size: var(--fs-body); font-style: italic; font-weight: 400; }
+.chapter-divider-meta { color: var(--dim); font: var(--font-meta); margin-top: 5px; }

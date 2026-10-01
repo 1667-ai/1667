@@ -33,7 +33,7 @@ dialog.modal::backdrop {
 
 .modal h2 {
   font-family: var(--serif);
-  font-size: 22px;
+  font-size: var(--fs-title);
   font-weight: 600;
   line-height: 1;
   color: var(--ink);
@@ -41,7 +41,7 @@ dialog.modal::backdrop {
 
 .modal-status {
   color: var(--dim);
-  font-size: 14px;
+  font-size: var(--fs-ui);
 }
 
 .modal-actions {

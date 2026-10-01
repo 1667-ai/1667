@@ -539,7 +539,7 @@ test("case 12: continuing an empty story writes part 1", async () => {
 
   await continueButton(page).click();
   await waitForCount(streamingPart(page), 1);
-  await page.getByText("PART 1").waitFor();
+  await page.getByText("Part 1", { exact: true }).waitFor();
   await waitForStreamingProse(page);
 
   await page.keyboard.press("Escape");

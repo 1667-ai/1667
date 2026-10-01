@@ -127,7 +127,7 @@ test("case 1: r on a middle part streams a new take in its place, hides the old 
   await waitForCount(page.locator(".part-streaming"), 1);
   await waitForCount(part(page, "C:"), 0);
   await waitForCount(part(page, "B:"), 0);
-  expect(await page.locator(".part-streaming .part-number").textContent()).toBe("PART 2");
+  expect(await page.locator(".part-streaming .part-number").textContent()).toBe("Part 2");
 
   await waitForCount(page.locator(".part-streaming"), 0, 10_000);
   await waitForCount(page.locator(".part"), 2);

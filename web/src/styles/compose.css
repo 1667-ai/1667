@@ -7,11 +7,11 @@
 .generation-bar-compose { align-items: stretch; }
 .composer { display: flex; flex: 1; flex-direction: column; gap: 8px; min-width: 0; }
 .composer-head { align-items: baseline; display: flex; gap: 14px; justify-content: space-between; min-height: 18px; }
-.composer-target { color: var(--faint); font-family: var(--mono); font-size: 11px; letter-spacing: .04em; }
+.composer-target { color: var(--dim); font: var(--font-meta); }
 .composer-row { align-items: flex-end; display: flex; gap: 14px; }
 .composer-field {
   background: var(--surface); border: 1px solid var(--line); border-radius: 9px; field-sizing: content;
-  flex: 1; font-family: var(--ui); font-size: 15px; line-height: 1.4; max-height: 40vh; min-height: 44px;
+  flex: 1; font-family: var(--ui); font-size: var(--fs-body); line-height: 1.4; max-height: 40vh; min-height: 44px;
   min-width: 0; outline: none; overflow-y: auto; padding: 11px 14px; resize: none;
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }

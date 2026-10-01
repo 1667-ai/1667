@@ -15,8 +15,9 @@
   box-shadow: var(--shadow-modal); display: flex; flex-direction: column; gap: 14px;
   max-width: 40ch; padding: 28px 30px; text-align: center;
 }
-.connection-card p { color: var(--ink); font-size: 15px; line-height: 1.6; }
-.connection-detail { color: var(--dim); font-family: var(--mono); font-size: 12.5px; }
+.connection-card p { color: var(--ink); font-size: var(--fs-body); line-height: 1.5; }
+/* Two classes, so this wins over `.connection-card p` above. */
+.connection-card .connection-detail { color: var(--dim); font: var(--font-meta); }
 .connection-overlay {
   align-items: center; background: var(--scrim); display: flex; inset: 0;
   justify-content: center; padding: 24px; position: fixed; z-index: 90;
@@ -27,13 +28,13 @@
   background: var(--warn-soft); border-bottom: 1px solid var(--line);
   padding: 10px 24px; display: flex; flex-direction: column; gap: 6px;
 }
-.recovery-banner-heading { color: var(--meter-warn); font-size: 13px; font-weight: 600; }
+.recovery-banner-heading { color: var(--meter-warn); font-size: var(--fs-small); font-weight: 600; }
 .recovery-banner ul { display: flex; flex-direction: column; gap: 6px; list-style: none; padding: 0; }
 .recovery-banner li { align-items: center; display: flex; gap: 12px; justify-content: space-between; }
-.recovery-banner li span { color: var(--dim); font-size: 13px; }
+.recovery-banner li span { color: var(--dim); font-size: var(--fs-small); }
 
 /* Unsaved work listed on a connection screen (`ui/UnsavedWork.tsx`). */
 .unsaved-work { background: var(--bg); border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 10px; padding: 14px 24px; }
 .unsaved-work-item { align-items: center; display: flex; gap: 12px; }
-.unsaved-work-label { color: var(--dim); flex: 0 0 160px; font-family: var(--ui); font-size: 14px; }
-.unsaved-work-text { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; flex: 1; font-family: var(--ui); font-size: 14px; padding: 8px 10px; resize: none; }
+.unsaved-work-label { color: var(--dim); flex: 0 0 160px; font-family: var(--ui); font-size: var(--fs-ui); }
+.unsaved-work-text { background: var(--surface); border: 1px solid var(--line); border-radius: 9px; flex: 1; font-family: var(--ui); font-size: var(--fs-ui); padding: 8px 10px; resize: none; }

@@ -11,7 +11,7 @@
 .take-stepper { align-items: center; display: inline-flex; gap: 2px; position: relative; }
 .take-count {
   background: transparent; border: 0; border-radius: 20px; color: var(--dim); cursor: pointer;
-  font-family: var(--mono); font-size: 10.5px; min-width: 40px; padding: 4px 8px;
+  font: var(--font-meta); min-width: 40px; padding: 4px 8px;
 }
 .take-count:hover, .take-count:focus-visible { background: var(--row-hover); color: var(--accent); outline: 0; }
 .take-count[aria-expanded="true"] { background: var(--accent-soft); color: var(--accent); }
@@ -47,8 +47,8 @@
   width: 320px; z-index: 62;
 }
 .take-peek > header {
-  border-bottom: 1px solid var(--line); color: var(--dim); font-family: var(--mono);
-  font-size: 9px; font-weight: 600; letter-spacing: .1em; padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--line); color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
+  padding: 12px 14px 10px;
 }
 .take-peek-list { max-height: 390px; overflow-y: auto; padding: 5px; }
 .take-peek-list.virtual { padding: 0; }
@@ -57,20 +57,20 @@
 .take-peek-row.virtual-row { left: 5px; position: absolute; right: 5px; width: auto; }
 .take-peek-row:hover:not(:disabled) { background: var(--row-hover); }
 .take-peek-row.active { background: var(--accent-soft); box-shadow: inset 2px 0 0 var(--accent); opacity: 1; }
-.take-peek-heading { align-items: center; color: var(--dim); display: flex; font-family: var(--mono); font-size: 8.5px; gap: 6px; letter-spacing: .06em; width: 100%; }
+.take-peek-heading { align-items: center; color: var(--dim); display: flex; font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; gap: 6px; width: 100%; }
 .take-peek-snippet {
-  color: var(--dim); display: -webkit-box; font-family: var(--serif); font-size: 12.5px;
+  color: var(--dim); display: -webkit-box; font-family: var(--serif); font-size: var(--fs-small);
   font-style: italic; line-height: 1.35; overflow: hidden; -webkit-box-orient: vertical; -webkit-line-clamp: 2;
 }
-.take-peek-meta { color: var(--faint); display: flex; font-family: var(--mono); font-size: 8px; justify-content: space-between; letter-spacing: .06em; }
+.take-peek-meta { color: var(--dim); display: flex; font: var(--font-meta); justify-content: space-between; }
 .take-peek-meta.ends { color: var(--meter-warn); }
-.take-peek > footer { border-top: 1px solid var(--line); color: var(--faint); font-family: var(--mono); font-size: 7.5px; letter-spacing: .08em; padding: 8px 12px 10px; }
+.take-peek > footer { border-top: 1px solid var(--line); color: var(--dim); font: var(--font-meta); padding: 8px 12px 10px; }
 
 /* ---------- label + canon chips ---------- */
 .label-chip {
   align-items: center; background: var(--chip); border: 0; border-radius: 20px; color: var(--dim);
-  display: inline-flex; font-family: var(--mono); font-size: 8.5px; font-weight: 600;
-  gap: 4px; letter-spacing: .07em; line-height: 1; padding: 4px 7px; text-transform: uppercase;
+  display: inline-flex; font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
+  gap: 4px; padding: 4px 7px;
 }
 .label-canon { background: var(--canon-soft); color: var(--stale-amber); }
 .label-alt { background: var(--accent-soft); color: var(--accent); }
