@@ -1,11 +1,21 @@
-import { useEffect, useRef, type KeyboardEvent } from "react";
+import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { partActions, type PartActionId } from "../../../shared/part-actions.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
-import { partActionRefusal } from "./part-policy.js";
+import {
+  EDITOR_OPEN_TOAST,
+  NOT_CONNECTED_TOAST,
+  PART_SWITCHING_TOAST,
+  PART_UNAVAILABLE_TOAST,
+  PART_WRITING_TOAST,
+  partActionRefusal,
+  STORY_LOCKED_TOAST,
+  SUMMARY_RETAKE_TOAST,
+  UNSAVED_TOAST
+} from "./part-policy.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";
 
 interface MenuItem {
@@ -13,6 +23,7 @@ interface MenuItem {
   readonly label: string;
   /** The key that does the same thing, shown in the hover text. */
   readonly key: string;
+  readonly icon: string;
   readonly danger?: boolean;
 }
 
@@ -20,20 +31,38 @@ interface MenuItem {
  * in the TUI's order. Which of them one part offers comes from
  * `partActions` itself. */
 const ITEMS: readonly MenuItem[] = [
-  { id: "continue", label: "Continue", key: "Space" },
-  { id: "direct", label: "Direct", key: "i" },
-  { id: "retake", label: "Retake", key: "r" },
-  { id: "retake-with-prompt", label: "Retake with direction", key: "R" },
-  { id: "write", label: "Write", key: "w" },
-  { id: "edit", label: "Edit", key: "e" },
-  { id: "prune", label: "Delete", key: "D", danger: true }
+  { id: "continue", label: "Continue", key: "Space", icon: ICONS.arrowRight },
+  { id: "direct", label: "Direct", key: "i", icon: ICONS.signpost },
+  { id: "retake", label: "Retake", key: "r", icon: ICONS.rotate },
+  { id: "retake-with-prompt", label: "Retake with direction", key: "R", icon: ICONS.message },
+  { id: "write", label: "Write", key: "w", icon: ICONS.penLine },
+  { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
+  { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash }
 ];
+
+/** A disabled item's hover text: a few words, where the toast for the same
+ * refusal is a full sentence. */
+const SHORT_REFUSAL: ReadonlyMap<string, string> = new Map([
+  [STORY_LOCKED_TOAST, "Busy writing (Esc)"],
+  [UNSAVED_TOAST, "Unsaved text"],
+  [PART_UNAVAILABLE_TOAST, "Not on this line"],
+  [PART_SWITCHING_TOAST, "Take switching"],
+  [PART_WRITING_TOAST, "Still writing"],
+  [SUMMARY_RETAKE_TOAST, "Not for summaries"],
+  [EDITOR_OPEN_TOAST, "Editor open"],
+  [NOT_CONNECTED_TOAST, "Not connected"]
+]);
+
+function shortRefusal(refusal: string): string {
+  // `generationBusyToast` names the other story: "Already writing in ….".
+  return SHORT_REFUSAL.get(refusal) ?? (refusal.startsWith("Already writing in ") ? "Busy writing (Esc)" : refusal);
+}
 
 /**
  * The `···` menu in a part's header (the TUI's `x`): every action a part
  * offers, for the writer who does not know the keys. Each item asks the one
  * policy (`partActionRefusal`) while the menu is open — a refused item is
- * disabled and its hover text is the reason — and a click goes through the
+ * disabled and its hover text is the short reason — and a click goes through the
  * same dispatcher the keys use. `menuSerial` is raised by the `x` key.
  */
 export function PartActionsMenu(
@@ -56,6 +85,16 @@ export function PartActionsMenu(
   const state = useStore(store, (current) => (open ? current : null));
 
   useRequestSignal(menuSerial, () => setOpen(true));
+
+  // Open upward when the trigger sits in the lower half of the manuscript.
+  const [up, setUp] = useState(false);
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current;
+    if (!open || trigger === null) return;
+    const rect = trigger.getBoundingClientRect();
+    const area = trigger.closest(".story-scroll")?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
+    setUp(rect.top + rect.height / 2 > (area.top + area.bottom) / 2);
+  }, [open]);
 
   useEffect(() => {
     if (open) {
@@ -106,7 +145,7 @@ export function PartActionsMenu(
         <Icon path={ICONS.dots} />
       </button>
       {open && (
-        <div className="part-menu-popover" role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
+        <div className={`menu part-menu-popover${up ? " menu-up" : ""}`} role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
           {items.map((item) => {
             const refusal = state === null ? null : partActionRefusal(state, part.id, item.id);
             return (
@@ -114,13 +153,14 @@ export function PartActionsMenu(
               key={item.id}
               type="button"
               role="menuitem"
-              className={`part-menu-item${item.danger === true ? " part-menu-danger" : ""}`}
-              title={refusal ?? `${item.label} (${item.key})`}
+              className={`menu-item${item.danger === true ? " menu-item-danger" : ""}`}
+              title={refusal === null ? `${item.label} (${item.key})` : shortRefusal(refusal)}
               disabled={refusal !== null}
               onClick={() => run(item.id)}
             >
-              {item.label}
-              <span className="part-menu-key" aria-hidden="true">{item.key}</span>
+              <Icon path={item.icon} />
+              <span className="menu-item-text">{item.label}</span>
+              <span className="menu-key" aria-hidden="true">{item.key}</span>
             </button>
             );
           })}

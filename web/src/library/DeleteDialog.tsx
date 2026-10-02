@@ -14,7 +14,7 @@ export function DeleteDialog(
       <h2>Delete story</h2>
       <p className="modal-status">Delete {title}? This cannot be undone.</p>
       <div className="modal-actions">
-        <button type="button" className="btn btn-ghost" onClick={onCancel}>Cancel</button>
+        <button type="button" className="btn btn-ghost" title="Cancel (Esc)" onClick={onCancel}>Cancel</button>
         <button type="button" className="btn btn-danger" onClick={onDelete}>Delete</button>
       </div>
     </Modal>

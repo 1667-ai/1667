@@ -127,13 +127,13 @@ test("case 1: r on a middle part streams a new take in its place, hides the old 
   await waitForCount(page.locator(".part-streaming"), 1);
   await waitForCount(part(page, "C:"), 0);
   await waitForCount(part(page, "B:"), 0);
-  expect(await page.locator(".part-streaming .part-number").textContent()).toBe("PART 2");
+  expect(await page.locator(".part-streaming .part-number").textContent()).toBe("Part 2");
 
   await waitForCount(page.locator(".part-streaming"), 0, 10_000);
   await waitForCount(page.locator(".part"), 2);
   const landed = page.locator(".part").nth(1);
   await waitForAttribute(landed, "aria-current", "true");
-  expect(await landed.locator(".label-chip").textContent()).toContain("×2");
+  await waitForCount(landed.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
 
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path.map((node) => node.parentId)).toEqual([null, seeded.a]);

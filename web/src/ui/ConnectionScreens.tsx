@@ -42,7 +42,7 @@ export function ClosedOverlay(
       <div className="connection-card">
         <p>The connection to 1667 closed.</p>
         <p className="connection-detail">{message}</p>
-        <button type="button" className="btn btn-primary" onClick={onReconnect}>Reconnect</button>
+        <button type="button" className="btn btn-primary" title="Reconnect" onClick={onReconnect}>Reconnect</button>
       </div>
     </div>
   );

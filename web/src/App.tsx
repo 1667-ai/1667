@@ -17,7 +17,8 @@ import {
 } from "./ui/ConnectionScreens.js";
 import { RecoveryBanner } from "./ui/RecoveryBanner.js";
 import { ToastStack } from "./ui/Toasts.js";
-import { Icon, ICONS } from "./ui/icons.js";
+import { SidebarToggle } from "./ui/SidebarToggle.js";
+import { useBarClearance } from "./ui/bar-clearance.js";
 
 /**
  * Review fix A1: the store, every action module, and the connection
@@ -47,6 +48,7 @@ function Shell() {
   // `styles/sidebar.css`) only take effect there, so this state does
   // nothing at desktop width.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const openSidebar = (): void => setSidebarOpen(true);
   // Esc-stops-a-background-generation (owner decision 2: "from anywhere")
   // now lives in `app/keymap.ts`'s `useKeymap` (`Sidebar.tsx`, always
   // mounted) as a sibling of its own Escape/`/` handling — review fix #3.
@@ -59,9 +61,10 @@ function Shell() {
   // below replace the whole UI, so they must keep its Copy/Retry/Discard bar,
   // or a failed reconnect would leave the text unreachable.
   const hasUnsavedWork = useHasUnsavedWork();
+  const recoveryRef = useBarClearance();
   const recovery = unsaved || hasUnsavedWork
     ? (
-      <div className="connection-recovery">
+      <div ref={recoveryRef} className="connection-recovery">
         {unsaved && <GenerationBar />}
         <UnsavedWork />
       </div>
@@ -79,14 +82,6 @@ function Shell() {
     <div className="app">
       <Sidebar open={sidebarOpen} onClose={() => setSidebarOpen(false)} />
       <main className="main">
-        <button
-          type="button"
-          className="icon-btn sidebar-toggle"
-          aria-label="Open menu"
-          onClick={() => setSidebarOpen(true)}
-        >
-          <Icon path={ICONS.menu} />
-        </button>
         {recoveryWarnings.length > 0 && (
           <RecoveryBanner
             warnings={recoveryWarnings}
@@ -98,9 +93,10 @@ function Shell() {
           />
         )}
         {route.kind === "story"
-          ? <StoryView storyId={route.id} />
+          ? <StoryView storyId={route.id} onOpenSidebar={openSidebar} />
           : (
             <>
+              <div className="main-toolbar"><SidebarToggle onOpen={openSidebar} /></div>
               <LibraryHome />
               {/* Only ever shows a bar here while a generation is running
                * somewhere in the background (owner decision 2) — `GenerationBar`
@@ -112,7 +108,7 @@ function Shell() {
       <LibraryDialogs />
       <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(store, id)} />
       {closed !== null && <ClosedOverlay message={closed} onReconnect={actions.reconnect} />}
-      {closed !== null && hasUnsavedWork && <div className="connection-recovery"><UnsavedWork /></div>}
+      {closed !== null && hasUnsavedWork && <div ref={recoveryRef} className="connection-recovery"><UnsavedWork /></div>}
     </div>
   );
 }

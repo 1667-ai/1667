@@ -6,6 +6,7 @@ import { resolveTakeTarget } from "../../../shared/story-model.js";
 import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { PartEditor } from "../editor/PartEditor.js";
+import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
 import { PartActionsMenu } from "./PartActionsMenu.js";
@@ -43,6 +44,27 @@ function clampedPeekLeft(idealCenter: number): number {
   const min = TAKE_PEEK_VIEWPORT_MARGIN;
   const max = window.innerWidth - TAKE_PEEK_WIDTH - TAKE_PEEK_VIEWPORT_MARGIN;
   return Math.min(Math.max(idealCenter - TAKE_PEEK_WIDTH / 2, min), Math.max(min, max));
+}
+
+const TAKE_PEEK_GAP = 4;
+/** Below this much room under the counter, the peek opens above it when
+ * there is more room there. */
+const TAKE_PEEK_MIN_HEIGHT = 240;
+
+/**
+ * Where the peek goes, given the counter's rect: below the counter, capped
+ * at the top edge of the bottom bar so it never covers the composer, or
+ * above the counter when the room below is too small.
+ */
+function peekPlacement(trigger: DOMRect): React.CSSProperties {
+  const left = clampedPeekLeft(trigger.left + trigger.width / 2);
+  const barTop = document.querySelector(".generation-bar")?.getBoundingClientRect().top ?? window.innerHeight;
+  const below = barTop - TAKE_PEEK_VIEWPORT_MARGIN - (trigger.bottom + TAKE_PEEK_GAP);
+  const above = trigger.top - TAKE_PEEK_GAP - TAKE_PEEK_VIEWPORT_MARGIN;
+  if (below >= TAKE_PEEK_MIN_HEIGHT || below >= above) {
+    return { position: "fixed", left, top: trigger.bottom + TAKE_PEEK_GAP, maxHeight: below };
+  }
+  return { position: "fixed", left, bottom: window.innerHeight - trigger.top + TAKE_PEEK_GAP, maxHeight: above };
 }
 
 export interface PartCardProps {
@@ -162,27 +184,22 @@ function PartCardImpl({
         onFocus={() => onFocus(part.id)}
       >
         <div className="part-header">
-          <span className="part-number">PART {part.number}</span>
+          <span className="part-number">Part {part.number}</span>
           <span className="part-meta">
             {(isLegacySummary || node.human === true || humanEditIsMeaningful(humanEdit)) && (
               <span className="part-badges">
                 {isLegacySummary && <span className="part-badge part-badge-summary">legacy summary</span>}
                 {node.human === true && (
-                  <span className="part-badge" title="This take began when you typed">your words</span>
+                  <span className="part-badge" title="You started this take">your words</span>
                 )}
                 {humanEditIsMeaningful(humanEdit) && (
-                  <span className="part-badge" title="You edited this take's prose">human edit</span>
+                  <span className="part-badge" title="Edited by you">human edit</span>
                 )}
               </span>
             )}
           </span>
           {hasTakes && (
             <>
-              {/* The TUI's own gutter mark for a forked part (×k,
-               *  screens/story/gutter.ts) — a glance-visible sibling count
-               *  distinct from the stepper's own "j/k", which only shows
-               *  once a reader is already looking at the take switcher. */}
-              <span className="label-chip" title={`${part.siblingCount} takes`}>×{part.siblingCount}</span>
               <TakeStrip
                 siblingCount={part.siblingCount}
                 currentTakeIndex={displayTakeIndex}
@@ -194,10 +211,11 @@ function PartCardImpl({
                 <button
                   type="button"
                   className="icon-btn take-arrow"
-                  aria-label={`Previous take (${part.number})`}
+                  title="Previous take (←)"
+                  aria-label="Previous take (←)"
                   disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, -1)}
-                >‹</button>
+                ><Icon path={ICONS.chevronLeft} /></button>
                 <button
                   type="button"
                   ref={counterRef}
@@ -205,16 +223,18 @@ function PartCardImpl({
                   aria-haspopup="dialog"
                   aria-expanded={peek.open}
                   aria-label={`Take ${displayTakeIndex} of ${part.siblingCount}, show every take`}
+                  title="All takes"
                   disabled={controlsDisabled}
                   onClick={() => peek.setOpen(!peek.open)}
                 >{displayTakeIndex}/{part.siblingCount}</button>
                 <button
                   type="button"
                   className="icon-btn take-arrow"
-                  aria-label={`Next take (${part.number})`}
+                  title="Next take (→)"
+                  aria-label="Next take (→)"
                   disabled={controlsDisabled}
                   onClick={() => onSwitch(part.id, 1)}
-                >›</button>
+                ><Icon path={ICONS.chevronRight} /></button>
                 {peek.open && peekRect !== null && createPortal(
                   <TakePeek
                     partId={part.id}
@@ -224,11 +244,7 @@ function PartCardImpl({
                     onSwitchTo={onSwitchTo}
                     onClose={() => peek.setOpen(false)}
                     containerRef={peek.popoverRef}
-                    style={{
-                      position: "fixed",
-                      top: peekRect.bottom + 5,
-                      left: clampedPeekLeft(peekRect.left + peekRect.width / 2)
-                    }}
+                    style={peekPlacement(peekRect)}
                   />,
                   document.body
                 )}

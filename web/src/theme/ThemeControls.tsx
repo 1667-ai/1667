@@ -20,14 +20,17 @@ export function ThemeControls(
 ) {
   const resolved = useResolvedTheme(theme);
   const { open, setOpen, containerRef } = usePopover();
+  // The toggle names the theme it switches to.
+  const toggleLabel = resolved === "dark" ? "Light theme" : "Dark theme";
 
   return (
     <>
       <div className="theme-pick-wrap" ref={containerRef}>
         <button
-          className="theme-toggle theme-pick"
+          className="icon-btn theme-pick"
           type="button"
-          title="Choose theme"
+          title="Palette"
+          aria-label="Palette"
           aria-haspopup="menu"
           aria-expanded={open}
           onClick={() => setOpen(!open)}
@@ -45,7 +48,13 @@ export function ThemeControls(
           />
         )}
       </div>
-      <button className="theme-toggle" type="button" title="Toggle light / dark" onClick={onToggleTheme}>
+      <button
+        className="icon-btn theme-toggle"
+        type="button"
+        title={toggleLabel}
+        aria-label={toggleLabel}
+        onClick={onToggleTheme}
+      >
         <Icon path={resolved === "dark" ? ICONS.sun : ICONS.moon} />
       </button>
     </>
@@ -60,8 +69,8 @@ function ThemePicker(
   }
 ) {
   return (
-    <div className="theme-popover" role="menu" aria-label="Theme">
-      <div className="theme-popover-label">Palette</div>
+    <div className="menu theme-popover" role="menu" aria-label="Theme">
+      <div className="menu-heading">Palette</div>
       {PALETTES.map((candidate) => {
         const dots = candidate.dots[mode];
         return (
@@ -70,7 +79,7 @@ function ThemePicker(
             type="button"
             role="menuitemradio"
             aria-checked={candidate.id === palette}
-            className={`theme-row${candidate.id === palette ? " active" : ""}`}
+            className={`menu-item theme-row${candidate.id === palette ? " active" : ""}`}
             onClick={() => onSelectPalette(candidate.id)}
           >
             <span className="theme-dots">

@@ -33,23 +33,79 @@
   --warn-soft: light-dark(rgba(201, 138, 43, 0.1), rgba(201, 138, 43, 0.14));
   --row-hover: light-dark(rgba(0, 0, 0, 0.03), rgba(255, 255, 255, 0.04));
   --meter-warn: #c98a2b;
-  --meter-over: #d64541;
-  --ok: #2f9e6b;
-  --ok-soft: rgba(47, 158, 107, 0.14);
   --canon: #e0a83c;
-  --meta: light-dark(#5f626c, #b7b9c5);
-  --meta-soft: light-dark(#6f727c, #a8abb8);
-  --summary-teal: light-dark(#0b7d70, #58cdbd);
-  --summary-body: light-dark(#3f5f5b, #b5d6d1);
-  --summary-note: light-dark(#33635c, #9bcac3);
+  --canon-soft: rgba(224, 168, 60, 0.18);
   --stale-amber: light-dark(#8a6414, #e6ba67);
-  --over-red: light-dark(#c53b30, #f0938a);
-  --take-purple: light-dark(#4b45c9, #9490f5);
-  --panel-shadow: -24px 0 60px -24px rgba(15, 16, 28, 0.4);
-  --dropdown-shadow: 0 20px 50px -16px rgba(20, 22, 40, 0.4);
+  /* The toast stays dark in the light theme and lifts off the page in the
+     dark theme. */
+  --toast-bg: light-dark(#202127, #2a2b33);
+  --toast-ink: light-dark(#f1f2f5, #e7e8ee);
+  --toast-dim: light-dark(#aaaeba, #9a9cab);
+  --toast-line: light-dark(rgba(255, 255, 255, 0.12), #3a3c46);
+  /* One backdrop for the drawer, the dialogs, and the closed overlay. */
+  --scrim: rgba(15, 16, 28, 0.45);
+  --shadow-pop: 0 20px 50px -16px rgba(20, 22, 40, 0.4);
+  --shadow-modal: 0 30px 80px -20px rgba(15, 16, 28, 0.5);
+  --shadow-panel: -24px 0 60px -24px rgba(15, 16, 28, 0.4);
+  /* The 2 px bar on the left of the current part, the active take, and a
+     summary card. */
+  --bar-accent: inset 2px 0 0 var(--accent);
+  --bar-summary: inset 2px 0 0 var(--summary);
   --serif: "Newsreader Variable", "Newsreader", Georgia, serif;
   --mono: "Spline Sans Mono Variable", "Spline Sans Mono", ui-monospace, monospace;
   --ui: system-ui, -apple-system, "Segoe UI", sans-serif;
+
+  /* Type scale. `--prose-size` changes with the palette (below). */
+  --fs-display: 40px;
+  --fs-title: 21px;
+  --fs-body: 15px;
+  --fs-ui: 14px;
+  --fs-small: 13px;
+  --fs-meta: 11px;
+  /* Every mono label and value: one size, one weight. Labels add
+     `--ls-label` and `text-transform: uppercase`; values keep their case. */
+  --font-meta: 500 var(--fs-meta) / 1.2 var(--mono);
+  --ls-label: 0.08em;
+
+  /* Icons and hit areas. */
+  --icon: 18px;
+  --icon-sm: 16px;
+  --icon-xs: 12px;
+  --icon-stroke: 1.75;
+  --hit: 32px;
+  --dot: 8px;
+  --dot-hit: 24px;
+
+  /* Button heights. Variants change colour only. */
+  --btn-sm: 28px;
+  --btn-md: 36px;
+  --btn-lg: 44px;
+
+  /* Spacing, on a 4 px base. */
+  --s-1: 4px;
+  --s-2: 8px;
+  --s-3: 12px;
+  --s-4: 16px;
+  --s-6: 24px;
+  --s-8: 32px;
+  --s-12: 48px;
+
+  /* Radii. */
+  --r-xs: 2px;
+  --r-sm: 8px;
+  --r-md: 10px;
+  --r-lg: 14px;
+  --r-pill: 999px;
+  --r-round: 50%;
+
+  --border: 1px solid var(--line);
+  --border-dashed: 1px dashed var(--line);
+  /* Fields: accent border plus this ring. Everything else: `--focus-outline`
+     on `:focus-visible` (`base.css`). */
+  --focus: 0 0 0 3px var(--accent-soft);
+  --focus-outline: 2px solid var(--accent);
+  --focus-offset: 2px;
+  --disabled-opacity: 0.4;
 }
 
 /* The explicit override `main.tsx` applies from `1667.web.theme` in

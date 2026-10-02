@@ -66,11 +66,11 @@ test("case 5: renaming a story updates the row and the header, "
 
   // The row menu trigger only shows on hover (or focus-within) — the same
   // as a real pointer user would first rest over the row to find it.
-  // Anchored so this never also matches the row's own "More for Old Title"
-  // menu-trigger button, whose accessible name (its `title` attribute)
+  // Anchored so this never also matches the row's own "Story actions for Old Title"
+  // menu-trigger button, whose accessible name (its `aria-label`)
   // contains the same substring.
   await page.getByRole("button", { name: /^Old Title/ }).hover();
-  await page.getByRole("button", { name: "More for Old Title" }).click();
+  await page.getByRole("button", { name: "Story actions for Old Title" }).click();
   await page.getByRole("menuitem", { name: "Rename" }).click();
   const renameDialog = page.getByRole("dialog", { name: "Rename story" });
   const titleField = renameDialog.getByLabel("Title");
@@ -109,7 +109,7 @@ test("case 6: Cancel keeps the story; Delete removes it, confirmed through a sec
   // Anchored — see the case 5 comment above.
   const row = page.getByRole("button", { name: /^Doomed/ });
   await row.hover();
-  await page.getByRole("button", { name: "More for Doomed" }).click();
+  await page.getByRole("button", { name: "Story actions for Doomed" }).click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
   const deleteDialog = page.getByRole("dialog", { name: "Delete story" });
   await deleteDialog.getByText("Delete Doomed? This cannot be undone.").waitFor();
@@ -118,7 +118,7 @@ test("case 6: Cancel keeps the story; Delete removes it, confirmed through a sec
   expect((await api.listStories()).some((summary) => summary.id === created.id)).toBeTrue();
 
   await row.hover();
-  await page.getByRole("button", { name: "More for Doomed" }).click();
+  await page.getByRole("button", { name: "Story actions for Doomed" }).click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("dialog", { name: "Delete story" })
     .getByRole("button", { name: "Delete" })
@@ -215,7 +215,7 @@ test("deleting the open story while navigating to another story lands on the "
 
   // Anchored — see the case 5 comment above.
   await page.getByRole("button", { name: /^Story A/ }).hover();
-  await page.getByRole("button", { name: "More for Story A" }).click();
+  await page.getByRole("button", { name: "Story actions for Story A" }).click();
   await page.getByRole("menuitem", { name: "Delete" }).click();
   await page.getByRole("dialog", { name: "Delete story" })
     .getByRole("button", { name: "Delete" })

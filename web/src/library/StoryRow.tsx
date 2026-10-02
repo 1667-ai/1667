@@ -16,8 +16,11 @@ export function StoryRow(
 ) {
   return (
     <div className={`story-item${active ? " active" : ""}`}>
-      <button type="button" className="story-item-main" onClick={onOpen}>
-        <span className="story-item-title">{summary.title}</span>
+      <button type="button" className="story-item-main" title={summary.title} onClick={onOpen}>
+        <span className="story-item-head">
+          <span className="story-item-title">{summary.title}</span>
+          <span className="mono-meta story-item-age">{formatAge(summary.updatedAt).toLowerCase()}</span>
+        </span>
         <span className="story-item-meta">
           <span>
             {summary.partCount} {summary.partCount === 1 ? "part" : "parts"} ·{" "}
@@ -25,10 +28,10 @@ export function StoryRow(
           </span>
           {summary.lineCount > 1 && (
             <span className="story-line-count" title={`${summary.lineCount} lines`}>
-              ⑂ {summary.lineCount}
+              <Icon path={ICONS.branch} />
+              {summary.lineCount}
             </span>
           )}
-          <span className="mono-meta">{formatAge(summary.updatedAt).toLowerCase()}</span>
         </span>
       </button>
       <RowMenu onRename={onRename} onDelete={onDelete} title={summary.title} />
@@ -50,7 +53,8 @@ function RowMenu(
       <button
         type="button"
         className="icon-btn story-item-menu-trigger"
-        title={`More for ${title}`}
+        title="Story actions"
+        aria-label={`Story actions for ${title}`}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen(!open)}
@@ -58,30 +62,32 @@ function RowMenu(
         <Icon path={ICONS.dots} />
       </button>
       {open && (
-        <div className="story-item-menu-popover" role="menu">
+        <div className="menu story-item-menu-popover" role="menu">
           <button
             type="button"
             role="menuitem"
-            className="story-item-menu-item"
+            className="menu-item"
+            title="Rename story"
             onClick={() => {
               setOpen(false);
               onRename();
             }}
           >
             <Icon path={ICONS.pen} />
-            Rename
+            <span className="menu-item-text">Rename</span>
           </button>
           <button
             type="button"
             role="menuitem"
-            className="story-item-menu-item story-item-menu-danger"
+            className="menu-item menu-item-danger"
+            title="Delete story"
             onClick={() => {
               setOpen(false);
               onDelete();
             }}
           >
             <Icon path={ICONS.trash} />
-            Delete
+            <span className="menu-item-text">Delete</span>
           </button>
         </div>
       )}

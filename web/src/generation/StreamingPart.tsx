@@ -32,7 +32,7 @@ export function StreamingPart({ partNumber, instruction, showDirections, text, t
         aria-label={`Part ${partNumber}, ${live ? "writing" : "not saved"}`}
       >
         <div className="part-header">
-          <span className="part-number">PART {partNumber}</span>
+          <span className="part-number">Part {partNumber}</span>
         </div>
         {showDirections && instruction.length > 0 && (
           <div className="part-instruction">{instruction}</div>

@@ -116,7 +116,7 @@ test("case 1: e then Save in place keeps the take count and marks the part as a 
   await waitForCount(page.getByRole("textbox", { name: "Text of part 2" }), 0);
   await waitForCount(part(page, "B: the middle part, rewritten."), 1);
   expect(await part(page, "rewritten").locator(".part-badge").allTextContents()).toContain("human edit");
-  expect(await part(page, "rewritten").locator(".label-chip").count()).toBe(0);
+  expect(await part(page, "rewritten").getByRole("button", { name: /show every take/ }).count()).toBe(0);
   expect(await poll(() => isFocused(part(page, "rewritten")))).toBeTrue();
 
   const saved = await seeded.api.loadStory(seeded.storyId);
@@ -139,7 +139,7 @@ test("case 2: Ctrl/Cmd+S saves as a new take and keeps the original", async () =
   await page.keyboard.press("ControlOrMeta+s");
 
   await waitForCount(part(page, "B: another way to put it."), 1);
-  expect(await part(page, "another way").locator(".label-chip").textContent()).toContain("×2");
+  await waitForCount(part(page, "another way").getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
 
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: another way to put it.");
@@ -164,6 +164,8 @@ test("case 3: a change made elsewhere shows a toast, keeps the typed text, and t
   expect(await editorProse(page, 2).inputValue()).toBe("B: my version.");
 
   await page.getByRole("button", { name: "Save in place" }).click();
+  // The open editor already holds the typed text: wait for it to close.
+  await waitForCount(editorProse(page, 2), 0);
   await waitForCount(part(page, "B: my version."), 1);
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: my version.");
@@ -196,7 +198,7 @@ test("case 4: Escape closes a clean editor, a changed one needs a second Escape,
   expect(await part(page, "A: the opening part.").count()).toBe(1);
 }, 60_000);
 
-test("case 5: w then Ctrl/Cmd+S writes your own take: your words, ×2", async () => {
+test("case 5: w then Ctrl/Cmd+S writes your own take: your words, 2 takes", async () => {
   const web = await spawnEditWeb();
   const seeded = await seedThreeParts(web, "Write Own Take");
   const page = await openStory(web, seeded.storyId, "Write Own Take");
@@ -213,7 +215,7 @@ test("case 5: w then Ctrl/Cmd+S writes your own take: your words, ×2", async ()
   await waitForCount(part(page, "B: written by hand."), 1);
   const landed = part(page, "written by hand");
   expect(await landed.locator(".part-badge").allTextContents()).toContain("your words");
-  expect(await landed.locator(".label-chip").textContent()).toContain("×2");
+  await waitForCount(landed.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: written by hand.");
   expect(saved.path[1]!.parentId).toBe(seeded.a);
@@ -233,6 +235,9 @@ test("case 6: w on an empty story writes part 1", async () => {
   await box.fill("In the beginning.");
   await page.getByRole("button", { name: "Save", exact: true }).click();
 
+  // The open editor is itself a part that holds the typed text, so only its
+  // close shows that the save is done.
+  await waitForCount(box, 0);
   await waitForCount(part(page, "In the beginning."), 1);
   const saved = await api.loadStory(created.id);
   expect(saved.path).toHaveLength(1);
@@ -252,7 +257,7 @@ test("case 7: x opens the part menu; Escape closes it without stopping a backgro
   const menu = page.getByRole("menu", { name: "Actions for part 2" });
   await menu.waitFor();
   const labels = await menu.getByRole("menuitem").evaluateAll(
-    (items) => items.map((item) => item.firstChild?.textContent ?? "")
+    (items) => items.map((item) => item.querySelector("span")?.textContent ?? "")
   );
   expect(labels).toEqual(["Continue", "Direct", "Retake", "Retake with direction", "Write", "Edit", "Delete"]);
   await screenshot(page, "menu");

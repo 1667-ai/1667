@@ -41,7 +41,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
   return (
     <>
       {open && (
-        <button type="button" className="sidebar-backdrop" aria-label="Close menu" onClick={onClose} />
+        <button type="button" className="sidebar-backdrop" aria-label="Close stories" onClick={onClose} />
       )}
       <aside className={`sidebar${open ? " open" : ""}`}>
         <div className="brand">
@@ -63,7 +63,8 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
             <button
               type="button"
               className="icon-btn sidebar-close"
-              aria-label="Close menu"
+              title="Close"
+              aria-label="Close"
               onClick={onClose}
             >
               <Icon path={ICONS.x} />
@@ -74,6 +75,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
         <button
           type="button"
           className="btn btn-primary btn-block"
+          title="New story"
           onClick={() => {
             onClose();
             void actions.library.create();
@@ -89,6 +91,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
             type="search"
             placeholder="Search stories"
             aria-label="Search stories"
+            title="Search stories (/)"
             value={query}
             onChange={(event) => actions.library.setQuery(event.currentTarget.value)}
           />

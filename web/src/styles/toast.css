@@ -5,10 +5,12 @@
  * auto-dismissing toasts (`app/toasts.ts`) stack inside.
  */
 .toast-stack {
-  bottom: 24px;
+  /* Just above the bottom bar (`ui/bar-clearance.ts`), or the normal
+     margin on a screen without one. */
+  bottom: max(var(--s-6), calc(var(--bar-height, 0px) + var(--s-3)));
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--s-2);
   left: 50%;
   position: fixed;
   transform: translateX(-50%);
@@ -16,11 +18,11 @@
 }
 
 .toast {
-  align-items: center; animation: rise 180ms ease both; background: #202127; border: 1px solid rgba(255,255,255,.12);
-  border-radius: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.35); color: #f1f2f5;
-  display: flex; font-size: 12.5px; gap: 12px; max-width: min(720px, calc(100vw - 32px));
-  padding: 10px 12px 10px 15px;
+  align-items: center; animation: rise 180ms ease both; background: var(--toast-bg); border: 1px solid var(--toast-line);
+  border-radius: var(--r-md); box-shadow: var(--shadow-modal); color: var(--toast-ink);
+  display: flex; font-size: var(--fs-small); gap: var(--s-3); max-width: min(720px, calc(100vw - 2 * var(--s-4)));
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-4);
 }
 .toast > span { flex: 1; }
-.toast-close { color: #aaaeba; height: 26px; padding: 4px; width: 26px; }
-.toast-close svg { height: 15px; width: 15px; }
+.toast-close { color: var(--toast-dim); }
+.toast-close:hover:not(:disabled) { color: var(--toast-ink); }

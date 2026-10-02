@@ -12,28 +12,36 @@
  */
 
 dialog.modal::backdrop {
-  background: rgba(15, 16, 28, 0.42);
+  background: var(--scrim);
 }
 
 .modal {
   background: var(--surface);
   border: 0;
-  border-radius: 16px;
-  padding: 26px 28px;
+  border-radius: var(--r-lg);
+  padding: var(--s-6);
   width: min(560px, 100%);
-  max-width: calc(100vw - 40px);
-  margin: 56px auto auto;
+  max-width: calc(100vw - 2 * var(--s-6));
+  margin: var(--s-12) auto auto;
   display: flex;
   flex-direction: column;
-  gap: 16px;
-  box-shadow: 0 30px 80px -20px rgba(15, 16, 28, 0.5);
+  gap: var(--s-4);
+  box-shadow: var(--shadow-modal);
   animation: rise 250ms ease both;
   color: var(--ink);
 }
 
+/* A dialog whose content sits in a `<form>` (Rename): the same column and
+   gap as `.modal` itself. */
+.modal-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s-4);
+}
+
 .modal h2 {
   font-family: var(--serif);
-  font-size: 22px;
+  font-size: var(--fs-title);
   font-weight: 600;
   line-height: 1;
   color: var(--ink);
@@ -41,11 +49,11 @@ dialog.modal::backdrop {
 
 .modal-status {
   color: var(--dim);
-  font-size: 14px;
+  font-size: var(--fs-ui);
 }
 
 .modal-actions {
   display: flex;
-  gap: 9px;
+  gap: var(--s-2);
   justify-content: flex-end;
 }

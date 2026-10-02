@@ -80,7 +80,9 @@ export function Composer(
     <div className="composer">
       <div className="composer-head">
         <span className="composer-target">{head}</span>
-        {status !== null && status.length > 0 && <span className="generation-status">{status}</span>}
+        {status !== null && status.length > 0
+          ? <span className="generation-status">{status}</span>
+          : <span className="composer-hint">Enter to send · Shift+Enter new line</span>}
       </div>
       <div className="composer-row">
         <textarea
@@ -90,7 +92,6 @@ export function Composer(
           value={text}
           placeholder={draft.retake === null ? "What happens next?" : "How should this part go instead?"}
           aria-label={draft.retake === null ? "What happens next?" : "New direction for the retake"}
-          title="Enter sends. Shift+Enter adds a line."
           aria-keyshortcuts="Enter"
           spellCheck
           onChange={(event) => actions.compose.setText(storyId, event.target.value)}

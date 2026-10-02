@@ -10,29 +10,25 @@
 .main { display: flex; flex: 1; flex-direction: column; min-width: 0; }
 .welcome {
   align-items: center; animation: rise 500ms ease both; display: flex; flex-direction: column;
-  gap: 18px; margin: auto; max-width: 44ch; padding: 40px; text-align: center;
+  gap: var(--s-4); margin: auto; max-width: 44ch; padding: var(--s-12); text-align: center;
 }
-.welcome h1 { color: var(--ink); font-family: var(--serif); font-size: 40px; font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
-.welcome p { color: var(--dim); font-size: 17px; line-height: 1.6; }
+.welcome h1 { color: var(--ink); font-family: var(--serif); font-size: var(--fs-display); font-weight: 600; letter-spacing: -.02em; line-height: 1.1; }
+.welcome p { color: var(--dim); font-size: var(--fs-body); line-height: 1.5; }
 .story-view { display: flex; flex: 1; flex-direction: column; min-height: 0; min-width: 0; }
 
 .story-header {
-  align-items: center; background: var(--bg); border-bottom: 1px solid var(--line);
-  display: flex; gap: 14px; min-height: 72px; padding: 10px 24px;
+  align-items: center; background: var(--bg); border-bottom: var(--border);
+  display: flex; gap: var(--s-3); min-height: 72px; padding: var(--s-3) var(--s-6);
 }
-.story-identity { display: flex; flex: 1; flex-direction: column; min-width: 160px; }
-.story-kicker, .story-stats {
-  color: var(--faint); font-family: var(--mono); font-size: 9px; font-weight: 500;
-  letter-spacing: .12em; line-height: 1.2; text-transform: uppercase;
-}
-.story-kicker { margin-bottom: 1px; }
-.story-stats { margin-top: 2px; }
-.story-title-wrap { align-items: center; display: flex; gap: 4px; min-width: 0; }
+.story-identity { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 160px; }
+.story-kicker { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.story-stats { color: var(--dim); font: var(--font-meta); }
+.story-title-wrap { align-items: center; display: flex; gap: var(--s-1); min-width: 0; }
 /* `.story-title` styles an `<h1>` (review fix E: this used to be an
    editable field, and carried input-reset properties — background, border,
    outline, padding — an `<h1>` never needed). */
 .story-title {
-  color: var(--ink); font-family: var(--serif); font-size: 20px; font-weight: 600;
+  color: var(--ink); font-family: var(--serif); font-size: var(--fs-title); font-weight: 600;
   letter-spacing: -.01em; line-height: 1.15; min-width: 120px;
   overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
@@ -41,9 +37,9 @@
 .story-scroll { flex: 1; min-width: 0; overflow-y: auto; }
 .story-body {
   font-family: var(--prose); font-size: var(--prose-size); margin: 0 auto;
-  max-width: 100ch; padding: 32px 48px 48px;
+  max-width: 100ch; padding: var(--s-8) var(--s-12) var(--s-12);
 }
-.story-empty { color: var(--faint); font-family: var(--prose); font-size: 17px; font-style: italic; margin-top: 12vh; text-align: center; }
+.story-empty { color: var(--dim); font-family: var(--prose); font-size: var(--fs-body); font-style: italic; margin-top: 12vh; text-align: center; }
 
 .prose-plain {
   color: var(--ink); font-family: var(--prose); font-optical-sizing: auto; font-size: var(--prose-size);

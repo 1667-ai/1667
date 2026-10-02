@@ -210,7 +210,7 @@ test("case 1: Space at the leaf appends — text grows, the part count stays "
 
 test("case 2: Space on an earlier part opens a new take of the next part — "
   + "the old take is hidden while writing, focus lands on the new take, and "
-  + "it shows ×2 once landed", async () => {
+  + "it shows 2 takes once landed", async () => {
   const project = await scratchProject();
   const web = await spawnGenWeb(project, WORD_DELAY_MS);
   const api = await openInspectionApi(web);
@@ -236,8 +236,7 @@ test("case 2: Space on an earlier part opens a new take of the next part — "
   await waitForCount(page.locator(".part"), 3); // A1, B1, the new (landed) take
   const newLeaf = page.locator(".part").nth(2);
   await waitForAttribute(newLeaf, "aria-current", "true");
-  await waitForCount(newLeaf.locator(".label-chip"), 1);
-  expect(await newLeaf.locator(".label-chip").textContent()).toContain("×2");
+  await waitForCount(newLeaf.getByRole("button", { name: /^Take \d+ of 2, show every take$/ }), 1);
 }, 30_000);
 
 test("case 3: the Continue button behaves exactly like Space — Stop while "
@@ -539,7 +538,7 @@ test("case 12: continuing an empty story writes part 1", async () => {
 
   await continueButton(page).click();
   await waitForCount(streamingPart(page), 1);
-  await page.getByText("PART 1").waitFor();
+  await page.getByText("Part 1", { exact: true }).waitFor();
   await waitForStreamingProse(page);
 
   await page.keyboard.press("Escape");
@@ -688,7 +687,7 @@ test("case 16: Escape closes an open popover without stopping a background "
   // uses; `fieldHasFocus()` does not recognize either as owning the
   // keyboard, so before this fix the same Escape that closed the menu would
   // also have stopped the generation underneath it.
-  const themeButton = page.getByTitle("Choose theme");
+  const themeButton = page.getByRole("button", { name: "Palette" });
   await themeButton.click();
   const menu = page.locator('.theme-popover[role="menu"]');
   await menu.waitFor();

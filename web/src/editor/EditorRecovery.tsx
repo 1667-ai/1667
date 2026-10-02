@@ -31,8 +31,8 @@ export function EditorRecovery() {
       )}
       <textarea className="part-editor-prose" aria-label="Your unsaved text" readOnly value={text} />
       <div className="part-editor-actions">
-        <button type="button" className="btn btn-primary" title="Copy your text" onClick={copy}>Copy</button>
-        <button type="button" className="btn btn-danger" title="Throw your text away" onClick={actions.editor.discard}>Discard</button>
+        <button type="button" className="btn btn-primary" title="Copy text" onClick={copy}>Copy</button>
+        <button type="button" className="btn btn-danger" title="Discard" onClick={actions.editor.discard}>Discard</button>
       </div>
     </section>
   );

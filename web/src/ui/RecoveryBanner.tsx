@@ -18,6 +18,7 @@ export function RecoveryBanner(
             <button
               type="button"
               className="btn btn-ghost btn-small"
+              title="Dismiss warning"
               onClick={() => onDismiss(warning.mutationId)}
             >
               Dismiss

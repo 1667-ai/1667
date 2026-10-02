@@ -6,10 +6,16 @@
  */
 * { box-sizing: border-box; margin: 0; }
 html, body, #app { height: 100%; }
-body { background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: 15px; line-height: 1.5; }
+body { background: var(--bg); color: var(--ink); font-family: var(--ui); font-size: var(--fs-body); line-height: 1.5; }
 button, input, select, textarea { color: inherit; font-family: inherit; font-size: inherit; }
 ::selection { background: var(--accent-soft); }
 * { scrollbar-color: var(--line) transparent; scrollbar-width: thin; }
+
+/* One focus treatment for every button, row, dot, and menu item. Fields show
+   focus with an accent border and the `--focus` ring instead, and the
+   current part with its accent bar (`manuscript.css`). */
+:focus-visible { outline: var(--focus-outline); outline-offset: var(--focus-offset); }
+input:focus-visible, textarea:focus-visible, select:focus-visible { outline: none; }
 
 .app { display: flex; height: 100%; }
 
@@ -20,28 +26,28 @@ button, input, select, textarea { color: inherit; font-family: inherit; font-siz
   padding: 0; position: absolute; white-space: nowrap; width: 1px;
 }
 
-.mono-meta {
-  color: var(--faint); font-family: var(--mono); font-size: 9px;
-  letter-spacing: .09em; line-height: 1.2; text-transform: uppercase;
-}
+/* A mono value (an age, a folder name). Mono labels add `--ls-label` and
+   `text-transform: uppercase` in their own rules. */
+.mono-meta { color: var(--dim); font: var(--font-meta); }
 
+/* Every icon gets a size here, so no context can leave one unsized. A
+   context that needs the small size sets `--icon-sm`. */
 svg.icon {
-  fill: none; stroke: currentColor; stroke-linecap: round;
-  stroke-linejoin: round; stroke-width: 1.6;
+  fill: none; flex-shrink: 0; height: var(--icon); stroke: currentColor; stroke-linecap: round;
+  stroke-linejoin: round; stroke-width: var(--icon-stroke); width: var(--icon);
 }
+svg.icon-filled { fill: currentColor; stroke: none; }
 
-.field { display: flex; flex-direction: column; gap: 6px; }
-.field > label {
-  color: var(--dim); font-family: var(--mono); font-size: 11px; font-weight: 500;
-  letter-spacing: .06em; text-transform: uppercase;
-}
+.field { display: flex; flex-direction: column; gap: var(--s-2); }
+.field > label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.field input, .field select { height: var(--btn-md); }
 .field input, .field select, .field textarea {
-  background: var(--bg); border: 1px solid var(--line); border-radius: 9px;
-  font-size: 14px; outline: none; padding: 9px 12px;
+  background: var(--bg); border: var(--border); border-radius: var(--r-md);
+  font-size: var(--fs-ui); outline: none; padding: 0 var(--s-3);
   transition: border-color 120ms ease, box-shadow 120ms ease;
 }
 .field input:focus, .field select:focus, .field textarea:focus {
-  border-color: var(--accent); box-shadow: 0 0 0 4px var(--accent-soft);
+  border-color: var(--accent); box-shadow: var(--focus);
 }
 
 @keyframes rise { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

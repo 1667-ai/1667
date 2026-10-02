@@ -154,6 +154,41 @@ test("case 1: parts open in order, the leaf carries aria-current, directions "
   await page.reload();
   await page.getByRole("heading", { name: "Forked Story" }).waitFor();
   await waitForAttribute(page.getByRole("button", { name: "Show directions" }), "aria-pressed", "true");
+
+  // Owner requirement (design pass): every icon-only button has a hover
+  // tooltip and an accessible name, and a hit area of at least 32 px. The
+  // take dots are drawn without an icon and keep their 24 px targets.
+  await waitForCount(takeCounter(page), 1);
+  const iconButtons = await page.evaluate(() => [...document.querySelectorAll("button")]
+    .filter((button) => (button.textContent ?? "").trim() === "")
+    .map((button) => {
+      const rect = button.getBoundingClientRect();
+      return {
+        html: button.outerHTML.slice(0, 80),
+        title: button.getAttribute("title") ?? "",
+        label: button.getAttribute("aria-label") ?? "",
+        icon: button.querySelector("svg") !== null,
+        shown: rect.width > 0 && getComputedStyle(button).visibility !== "hidden",
+        width: rect.width,
+        height: rect.height
+      };
+    }));
+  expect(iconButtons.filter((button) => button.icon && button.shown).length).toBeGreaterThan(4);
+  expect(iconButtons.filter((button) => button.title.trim() === "" || button.label.trim() === "")).toEqual([]);
+  expect(iconButtons.filter((button) => button.icon && button.shown && (button.width < 32 || button.height < 32)))
+    .toEqual([]);
+
+  // The sidebar row of a story with more than one line shows its line count,
+  // and its part and word count stays in full (never cut off with "…").
+  const row = page.getByRole("button", { name: /^Forked Story/ });
+  await waitForCount(row.getByTitle(/^\d+ lines$/), 1);
+  const counts = row.getByText(/^\d+ parts? · \d+ words$/);
+  await waitForCount(counts, 1);
+  expect(await counts.evaluate((element) => {
+    const meta = element.parentElement!;
+    return element.scrollWidth <= element.clientWidth && meta.scrollWidth <= meta.clientWidth
+      && element.getBoundingClientRect().right <= meta.getBoundingClientRect().right;
+  })).toBeTrue();
 }, 30_000);
 
 test("case 2: focus moves with ↑/↓, g/G, and a click; a 40-part story scrolls "
@@ -171,6 +206,9 @@ test("case 2: focus moves with ↑/↓, g/G, and a click; a 40-part story scroll
   await waitForAttribute(part(page, "C1:"), "aria-current", "true");
   await page.keyboard.press("ArrowUp");
   await waitForAttribute(part(page, "B1:"), "aria-current", "true");
+  // The focused part shows its accent bar only — no outline ring next to it.
+  expect(await poll(() => part(page, "B1:").evaluate((element) => element === document.activeElement))).toBeTrue();
+  expect(await part(page, "B1:").evaluate((element) => getComputedStyle(element).outlineStyle)).toBe("none");
   await page.keyboard.press("ArrowUp");
   await waitForAttribute(part(page, "A1:"), "aria-current", "true");
   await page.keyboard.press("ArrowDown");

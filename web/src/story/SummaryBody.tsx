@@ -19,7 +19,7 @@ export interface SummaryBodyProps {
 export function SummaryBody({ text, humanEdit = null, className, onMouseUp }: SummaryBodyProps) {
   return (
     <div className={className === undefined ? "part-summary-body" : `${className} part-summary-body`} onMouseUp={onMouseUp}>
-      <span className="summary-card-label">SUMMARY — THE MODEL READS THIS RECAP</span>
+      <span className="summary-card-label">Summary — the model reads this recap</span>
       <Prose text={text} humanEdit={humanEdit} />
       <span className="part-summary-note">
         A summary take starts fresh context. Everything above stays in the manuscript.

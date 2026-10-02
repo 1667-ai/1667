@@ -11,29 +11,30 @@
   flex-shrink: 0;
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 16px 13px;
+  gap: var(--s-2);
+  padding: var(--s-4) var(--s-3);
   background: var(--sb);
-  border-right: 1px solid var(--line);
+  border-right: var(--border);
 }
 
 .brand {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 4px 6px 12px;
+  padding: 0 0 var(--s-2) var(--s-3);
 }
 
 .brand-identity {
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--s-1);
   min-width: 0;
 }
 
 .brand-name {
   font-family: var(--serif);
-  font-size: 20px;
+  font-size: var(--fs-title);
   font-weight: 600;
   line-height: 1;
   letter-spacing: -0.01em;
@@ -44,108 +45,30 @@
   max-width: 150px;
   overflow: hidden;
   text-overflow: ellipsis;
-  /* Visual polish (owner-facing screenshot review): `.mono-meta` uppercases
-     by default, right for an age stamp but wrong for a folder name. */
-  text-transform: none;
   white-space: nowrap;
 }
 
-.theme-toggle {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 30px;
-  height: 30px;
-  border: 1px solid var(--line);
-  border-radius: 8px;
-  background: transparent;
-  color: var(--dim);
-  cursor: pointer;
-}
-
-.theme-toggle svg {
-  width: 16px;
-  height: 16px;
-  stroke-width: 1.7;
-}
-
-.theme-toggle:hover {
-  color: var(--ink);
-  border-color: var(--accent);
-}
-
 .brand-actions {
-  position: relative;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--s-1);
 }
 
-/* `theme/ThemeControls.tsx` wraps its palette trigger and popover in this
-   element so `ui/usePopover.ts` has an explicit container around both
-   (review fix C9) — DOM containment is all that check needs, so this stays
-   an ordinary static block, deliberately NOT `position: relative`: the
-   popover's own `right: 0` (below) needs `.brand-actions` — flush with the
-   sidebar's own inner width — as its positioning ancestor, not this
-   ~30px-wide trigger button's own box. A plain `<div>` around one `<button>`
-   already sizes to that button's content as a flex item, so this needs no
-   layout rule of its own. */
-
-.theme-pick {
-  color: var(--accent);
-}
-
-.theme-pick:hover {
-  color: var(--accent);
-}
+/* `theme/ThemeControls.tsx` wraps its palette trigger and popover in
+   `.theme-pick-wrap` so `ui/usePopover.ts` has one container around both
+   (review fix C9). It sets no `position`, so the popover below is placed
+   against `.brand` and spans the sidebar's inner width. */
 
 .theme-popover {
-  position: absolute;
-  top: 36px;
-  /* Relative to `.brand-actions` — `.theme-pick-wrap` (above) deliberately
-     sets no `position`, so this stays flush with the sidebar's inner right
-     edge and full inner width, exactly as before `usePopover` needed an
-     explicit container around the trigger. */
+  top: calc(100% - var(--s-1));
   right: 0;
-  width: 236px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-  box-shadow: var(--dropdown-shadow);
-  padding: 6px;
-  z-index: 60;
-  animation: rise 150ms ease both;
+  left: 0;
+  width: auto;
+  max-width: none;
 }
 
-.theme-popover-label {
-  font-family: var(--mono);
-  font-size: 10px;
-  font-weight: 500;
-  line-height: 1;
-  letter-spacing: 0.1em;
-  text-transform: uppercase;
-  color: var(--dim);
-  padding: 8px 10px 6px;
-}
-
-.theme-row {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  width: 100%;
-  padding: 8px 9px;
-  border: 0;
-  border-radius: 8px;
-  background: transparent;
-  cursor: pointer;
-  text-align: left;
-}
-
-.theme-row:hover {
-  background: var(--row-hover);
-}
-
-.theme-row.active {
+.theme-row.active,
+.theme-row.active:hover:not(:disabled) {
   background: var(--accent-soft);
 }
 
@@ -157,26 +80,22 @@
 .theme-dot {
   width: 14px;
   height: 14px;
-  border-radius: 50%;
+  border-radius: var(--r-round);
   border: 1px solid var(--surface);
 }
 
 .theme-dot-overlap {
-  margin-left: -5px;
+  margin-left: calc(-1 * var(--s-1));
 }
 
 .theme-row-text {
-  flex: 1;
-  min-width: 0;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: 2px;
 }
 
 .theme-row-name {
-  font-size: 14px;
   font-weight: 500;
-  line-height: 1;
   color: var(--ink);
 }
 
@@ -185,14 +104,8 @@
 }
 
 .theme-row-tagline {
-  font-family: var(--mono);
-  font-size: 10px;
-  line-height: 1.3;
+  font: var(--font-meta);
   color: var(--dim);
-}
-
-.sidebar-search {
-  padding: 0 2px;
 }
 
 .sidebar-search input {
@@ -204,40 +117,41 @@
   overflow-y: auto;
   display: flex;
   flex-direction: column;
-  gap: 2px;
-  margin-top: 4px;
+  gap: var(--s-1);
+  margin-top: var(--s-1);
 }
 
 .story-list-empty {
-  color: var(--faint);
+  color: var(--dim);
   font-style: italic;
-  font-size: 13px;
-  padding: 8px 10px;
+  font-size: var(--fs-small);
+  padding: var(--s-2) var(--s-3);
 }
 
 .story-item {
   display: flex;
   align-items: center;
-  gap: 4px;
-  border-radius: 9px;
+  gap: var(--s-1);
+  border: 1px solid transparent;
+  border-radius: var(--r-sm);
   position: relative;
 }
 
 .story-item.active {
   background: var(--surface);
-  outline: 1px solid var(--line);
+  border-color: var(--line);
 }
 
 .story-item-main {
   flex: 1;
   display: flex;
   flex-direction: column;
-  gap: 3px;
+  gap: var(--s-1);
   text-align: left;
-  padding: 9px 10px;
+  padding: var(--s-2) var(--s-3);
   background: none;
   border: 0;
-  border-radius: 9px;
+  border-radius: var(--r-sm);
   cursor: pointer;
   min-width: 0;
 }
@@ -247,61 +161,96 @@
 }
 
 .story-item-title {
-  font-size: 14px;
+  font-size: var(--fs-ui);
   line-height: 1.3;
   font-weight: 500;
   color: var(--ink);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+  min-width: 0;
 }
 
 .story-item.active .story-item-title {
   font-weight: 600;
 }
 
-/* Visual polish (owner-facing screenshot review): this used to be a single
-   `nowrap` row, so the word count truncated ("8 parts · 709 w…") once the
-   branch badge and age both had to fit alongside it. `flex-wrap` lets the
-   count wrap onto its own line instead of being cut. */
+/* The title line: the title truncates (its full text is the row's tooltip)
+   and the age sits at the right. */
+.story-item-head {
+  align-items: baseline;
+  display: flex;
+  gap: var(--s-2);
+  min-width: 0;
+}
+
+.story-item-age {
+  flex-shrink: 0;
+  margin-left: auto;
+  white-space: nowrap;
+}
+
+/* The counts line is never cut off: the part and word count and the line
+   count keep their full text. At the sidebar width they fit on one line,
+   so every row has the same height; a very large count wraps instead. */
 .story-item-meta {
   align-items: center;
   display: flex;
   flex-wrap: wrap;
-  row-gap: 2px;
-  gap: 6px;
-  font-family: var(--mono);
-  font-size: 10.5px;
-  line-height: 1.3;
-  color: var(--faint);
-  min-width: 0;
+  gap: var(--s-1) var(--s-2);
+  min-height: var(--s-4);
+  font: var(--font-meta);
+  color: var(--dim);
 }
 
 .story-item-meta > span:first-child {
-  min-width: 0;
+  white-space: nowrap;
 }
 
 .story-line-count {
-  padding: 3px 6px;
-  border-radius: 20px;
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 2px var(--s-2);
+  border-radius: var(--r-pill);
   background: var(--chip);
   color: var(--dim);
   line-height: 1;
   flex-shrink: 0;
 }
 
+.story-line-count svg {
+  width: var(--icon-xs);
+  height: var(--icon-xs);
+}
+
+/* The row menu sits over the right end of the row, so the title and the
+   counts get the row's full width. It shows on hover and focus, on a fill
+   that matches the row under it. */
 .story-item-menu {
-  position: relative;
-  flex-shrink: 0;
+  position: absolute;
+  top: calc(50% - var(--hit) / 2);
+  right: var(--s-1);
+  z-index: 1;
 }
 
 .story-item-menu-trigger {
-  width: 26px;
-  height: 26px;
-  margin-right: 4px;
+  background: linear-gradient(var(--row-hover), var(--row-hover)), var(--sb);
   opacity: 0;
   visibility: hidden;
   transition: opacity 150ms ease, visibility 150ms ease;
+}
+
+.story-item.active .story-item-menu-trigger {
+  background: var(--surface);
+}
+
+.story-item .story-item-menu-trigger:hover:not(:disabled) {
+  background: linear-gradient(var(--chip), var(--chip)), var(--sb);
+}
+
+.story-item.active .story-item-menu-trigger:hover:not(:disabled) {
+  background: linear-gradient(var(--chip), var(--chip)), var(--surface);
 }
 
 .story-item:hover .story-item-menu-trigger,
@@ -311,50 +260,21 @@
   visibility: visible;
 }
 
+/* The shown trigger covers the age, so the age steps aside. */
+.story-item:hover .story-item-age,
+.story-item:focus-within .story-item-age {
+  visibility: hidden;
+}
+
 .story-item-menu-popover {
-  position: absolute;
-  top: 30px;
-  right: 4px;
-  width: 160px;
-  background: var(--surface);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: var(--dropdown-shadow);
-  padding: 5px;
-  z-index: 60;
-  animation: rise 150ms ease both;
-}
-
-.story-item-menu-item {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  width: 100%;
-  padding: 7px 9px;
-  border: 0;
-  border-radius: 7px;
-  background: transparent;
-  color: var(--ink);
-  font-size: 13px;
-  cursor: pointer;
-  text-align: left;
-}
-
-.story-item-menu-item:hover {
-  background: var(--row-hover);
-}
-
-.story-item-menu-danger {
-  color: var(--danger);
-}
-
-.story-item-menu-danger:hover {
-  background: var(--danger-soft);
+  top: calc(100% + var(--s-1));
+  right: var(--s-1);
 }
 
 /* ---------- drawer breakpoint (owner decision: below ~800px) ---------- */
 
-.sidebar-toggle {
+.sidebar-toggle,
+.main-toolbar {
   display: none;
 }
 
@@ -369,7 +289,17 @@
 @media (max-width: 800px) {
   .sidebar-toggle {
     display: inline-flex;
-    margin: 12px 0 4px 12px;
+  }
+
+  /* The ☰ row on screens without a story header. */
+  .main-toolbar {
+    display: flex;
+    padding: var(--s-3) var(--s-6) 0;
+  }
+
+  /* In the story header the icon lines up with the 24 px gutter. */
+  .story-header .sidebar-toggle {
+    margin-left: calc((var(--icon) - var(--hit)) / 2);
   }
 
   .sidebar-close {
@@ -384,7 +314,7 @@
     transform: translateX(-100%);
     transition: transform 200ms ease;
     z-index: 70;
-    box-shadow: var(--panel-shadow);
+    box-shadow: var(--shadow-panel);
   }
 
   .sidebar.open {
@@ -395,7 +325,7 @@
     display: block;
     position: fixed;
     inset: 0;
-    background: rgba(15, 16, 28, 0.4);
+    background: var(--scrim);
     border: 0;
     padding: 0;
     z-index: 65;

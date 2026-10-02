@@ -40,22 +40,22 @@
 .generation-bar {
   align-items: center;
   background: var(--bg);
-  border-top: 1px solid var(--line);
+  border-top: var(--border);
   display: flex;
   flex: 0 0 auto;
-  gap: 14px;
+  gap: var(--s-3);
   justify-content: space-between;
-  padding: 14px 24px;
+  padding: var(--s-3) var(--s-6);
 }
 
 .generation-status {
   color: var(--dim);
   font-family: var(--ui);
-  font-size: 14px;
+  font-size: var(--fs-ui);
   font-weight: 500;
 }
 
-.generation-bar-actions { display: flex; gap: 10px; }
+.generation-bar-actions { display: flex; gap: var(--s-2); }
 
 /* Copy/Discard must stay reachable even while the connection is closed —
  * decision 3 keeps this text alive with no auto-save, so Copy is often the

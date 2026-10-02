@@ -24,7 +24,7 @@ export function UnsavedWork() {
           <button
             type="button"
             className="btn"
-            title={`Copy: ${item.label.toLowerCase()}`}
+            title="Copy text"
             onClick={() => {
               navigator.clipboard.writeText(item.text).catch(() => {
                 pushToast(store, "Could not copy the text. Select it and copy it by hand.");

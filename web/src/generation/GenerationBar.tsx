@@ -1,5 +1,6 @@
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
+import { useBarClearance } from "../ui/bar-clearance.js";
 import { manuscriptGenerationView, type GenerationState } from "./state.js";
 
 /**
@@ -22,7 +23,7 @@ export function GenerationButtons({ onContinue }: { readonly onContinue: () => v
         type="button"
         className="btn btn-primary btn-cta"
         aria-keyshortcuts="Space"
-        title="Continue (Enter in the box, Space elsewhere)"
+        title="Continue (Space)"
         onClick={onContinue}
       >
         Continue
@@ -35,7 +36,7 @@ export function GenerationButtons({ onContinue }: { readonly onContinue: () => v
         <button
           type="button"
           className="btn"
-          title="Copy the unsaved text"
+          title="Copy text"
           onClick={() => { void actions.generation.copyUnsaved(); }}
         >
           Copy
@@ -43,7 +44,7 @@ export function GenerationButtons({ onContinue }: { readonly onContinue: () => v
         <button
           type="button"
           className="btn"
-          title="Try to save the text again"
+          title="Save again"
           onClick={() => { void actions.generation.retrySave(); }}
         >
           Retry
@@ -51,7 +52,7 @@ export function GenerationButtons({ onContinue }: { readonly onContinue: () => v
         <button
           type="button"
           className="btn btn-danger"
-          title="Throw the unsaved text away"
+          title="Discard"
           onClick={actions.generation.discardUnsaved}
         >
           Discard
@@ -60,7 +61,7 @@ export function GenerationButtons({ onContinue }: { readonly onContinue: () => v
     );
   }
   if (kind === "settling") {
-    return <button type="button" className="btn btn-primary btn-cta" disabled>Saving…</button>;
+    return <button type="button" className="btn btn-primary btn-cta" title="Saving" disabled>Saving…</button>;
   }
   return (
     <button
@@ -102,9 +103,10 @@ export function generationStatusText(generation: GenerationState, viewingStoryId
 export function GenerationBar() {
   const { store } = useAppContext();
   const generation = useStore(store, (state) => state.generation);
+  const barRef = useBarClearance();
   if (generation.kind === "idle") return null;
   return (
-    <div className={`generation-bar${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
+    <div ref={barRef} className={`generation-bar${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
       <span className="generation-status">{generationStatusText(generation, null)}</span>
       <div className="generation-bar-actions">
         <GenerationButtons onContinue={() => {}} />
