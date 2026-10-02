@@ -21,7 +21,7 @@ Commands:
   profile          Import or export a Generation Profile
   serve            Run the HTTP server
   auth             Manage subscription sign-in and access records
-  upgrade          Update this program
+  upgrade, update  Update this program
 Options:
   --story <id>       Open this story instead of the most recently updated
   --data <path>      Open this project root instead of discovering one
