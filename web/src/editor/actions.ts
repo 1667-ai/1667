@@ -2,9 +2,8 @@ import type { StoryActions } from "../story/actions.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
-import { generationLocks } from "../generation/state.js";
+import { lockedToast, storyRunLocked } from "../app/run-lock.js";
 import { STORY_RELOADED_TOAST } from "../story/actions.js";
-import { STORY_LOCKED_TOAST } from "../story/part-policy.js";
 import { openPart } from "../story/state.js";
 import { reconcileEditor, saveEditor, type EditorSaveOutcome, type EditorSaveRequest } from "./save.js";
 import { editorDirty, editorPartId, openEditorState, type EditorState } from "./state.js";
@@ -150,8 +149,8 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
       pushToast(store, "Not connected. Draft kept.");
       return;
     }
-    if (generationLocks(state.generation, editor.storyId)) {
-      pushToast(store, `${STORY_LOCKED_TOAST} Draft kept.`);
+    if (storyRunLocked(state, editor.storyId)) {
+      pushToast(store, `${lockedToast(state, editor.storyId)} Draft kept.`);
       return;
     }
 

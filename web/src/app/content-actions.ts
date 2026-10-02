@@ -2,10 +2,10 @@ import { createComposeActions, type ComposeActions } from "../compose/actions.js
 import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
-import { generationLocks } from "../generation/state.js";
 import { createLibraryActions, type LibraryActions } from "../library/actions.js";
 import { createStoryActions, type StoryActions } from "../story/actions.js";
 import { createPartCommands, type PartCommands } from "../story/part-commands.js";
+import { storyRunLocked } from "./run-lock.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
 
@@ -43,7 +43,7 @@ export function createContentActions(
   // safe (the same trick `app/bootstrap.ts` uses for `onConnected`/`actions`).
   const story = createStoryActions(store, {
     storyChanged: () => { void library.refresh(); },
-    isLocked: (storyId) => generationLocks(store.get().generation, storyId)
+    isLocked: (storyId) => storyRunLocked(store.get(), storyId)
   });
   const library = createLibraryActions(store, { titleChanged: story.titleChanged });
   const generation = createGenerationActions(store, {

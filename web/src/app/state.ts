@@ -1,4 +1,5 @@
 import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
+import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import type { EditorState } from "../editor/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
@@ -37,6 +38,9 @@ export interface AppState {
   readonly editor: EditorState | null;
   /** The part menu request and the delete confirmation (#409 step 6). */
   readonly partUi: PartUiState;
+  /** Chapter undo, the inline rename, and the running summary (#409 step
+   * 7a). See `chapters/state.ts`. */
+  readonly chapters: ChaptersState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -59,6 +63,7 @@ export function initialAppState(
     compose: initialComposeState(),
     editor: null,
     partUi: initialPartUiState(),
+    chapters: initialChaptersState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

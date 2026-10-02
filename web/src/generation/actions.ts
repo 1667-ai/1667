@@ -10,7 +10,8 @@ import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { STORY_RELOADED_TOAST, type AdoptFocus } from "../story/actions.js";
-import { RETAKE_GONE_TOAST, STORY_LOCKED_TOAST, generationBusyToast, generationEditorRefusal, planEditorRefusal } from "../story/part-policy.js";
+import { RETAKE_GONE_TOAST, generationEditorRefusal, planEditorRefusal } from "../story/part-policy.js";
+import { STORY_LOCKED_TOAST, runBusyToast } from "../app/run-lock.js";
 import { planContinue, type GenerationPlan } from "./plan.js";
 import type { GenerationState } from "./state.js";
 import {
@@ -423,10 +424,10 @@ export function createGenerationActions(
      * (not connected, no open story) and the draft just comes back. */
     const check = (plan?: GenerationPlan): { readonly refused: string | null; readonly silent: boolean } => {
       const state = store.get();
-      if (activeRun !== null) {
-        const routeStory = state.route.kind === "story" ? state.route.id : "";
-        return { refused: generationBusyToast(state, routeStory) ?? STORY_LOCKED_TOAST, silent: false };
-      }
+      const routeStory = state.route.kind === "story" ? state.route.id : "";
+      // A running generation, or a chapter summary, owns the one run slot.
+      const busy = runBusyToast(state, routeStory);
+      if (activeRun !== null || busy !== null) return { refused: busy ?? STORY_LOCKED_TOAST, silent: false };
       if (state.connection.kind !== "connected" || state.route.kind !== "story") return { refused: null, silent: true };
       const story = state.story;
       if (story.kind !== "loaded" || story.payload.id !== state.route.id) return { refused: null, silent: true };
