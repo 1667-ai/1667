@@ -5,6 +5,9 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same
+  thing.
+
 ## 0.11.0-beta.6 - 2026-10-02
 
 - **The desktop app is removed.** Use `1667 web` to write in a browser on your

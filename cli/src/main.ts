@@ -81,7 +81,8 @@ export async function main(argv = process.argv.slice(2)): Promise<void> {
     await runAuthCommand(argv.slice(1));
     return;
   }
-  if (argv[0] === "upgrade") {
+  // `update` is an alias: people reach for either word.
+  if (argv[0] === "upgrade" || argv[0] === "update") {
     await runProcessUpgrade(argv.slice(1));
     return;
   }

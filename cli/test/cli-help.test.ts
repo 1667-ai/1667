@@ -76,6 +76,7 @@ test("1667 <command> --help prints that command's page instead of refusing the f
     await main(["import", "--help"]);
     await main(["import-lorebook", "--help"]);
     await main(["export", "-h"]);
+    await main(["update", "--help"]);
   } finally {
     process.stdout.write = original;
   }
@@ -83,6 +84,7 @@ test("1667 <command> --help prints that command's page instead of refusing the f
   expect(output).toContain("1667 import — make a new story from a file");
   expect(output).toContain("1667 import-lorebook — add lorebook Facts");
   expect(output).toContain("1667 export — write a story to a file");
+  expect(output).toContain("1667 update is the same command.");
   expect(output).not.toContain("unknown import option");
 });
 

@@ -73,6 +73,8 @@ export const UPGRADE_HELP = `Usage:
   1667 upgrade [--version <semver>] [--channel <stable|beta>] [--json] [--force]
   1667 upgrade --rollback [--json] [--force]
 
+1667 update is the same command.
+
 --force accepts an Install Root that another account on this machine can write.
 It waives no package verification or version check.
 

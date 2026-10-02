@@ -194,7 +194,8 @@ test("case 3: Enter on a focused take arrow activates the arrow instead of openi
 
 test("case 4: a direction and Enter write a part that records it; p shows it; Shift+Enter adds a line", async () => {
   const project = await scratchProject();
-  const web = await spawnComposeWeb(project);
+  // Slow enough that the streaming part is reliably visible before it lands.
+  const web = await spawnComposeWeb(project, 60);
   const seeded = await seedThreeParts(web, "Direction Story");
   const page = await openSeededPage(web, seeded.storyId, "Direction Story");
   const diagnostics = await collectPageDiagnostics(page);
@@ -212,7 +213,7 @@ test("case 4: a direction and Enter write a part that records it; p shows it; Sh
   await page.keyboard.press("Enter");
   await waitForCount(page.locator(".part-streaming"), 1);
   expect(await composer(page).inputValue()).toBe("");
-  await waitForCount(page.locator(".part-streaming"), 0, 10_000);
+  await waitForCount(page.locator(".part-streaming"), 0, 20_000);
   await waitForCount(page.locator(".part"), 4);
 
   const saved = await seeded.api.loadStory(seeded.storyId);
