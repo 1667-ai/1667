@@ -194,3 +194,121 @@ test("case 4: chapter one and a later chapter are renamed in place; Escape cance
   await waitForCount(title, 0);
   expect((await seeded.api.loadStory(seeded.storyId)).chapterBreaks[0]!.title).toBe("Third");
 }, 60_000);
+
+/** A story `A → B → C` whose first chapter (A, B) is closed by a break. */
+async function seedClosedChapter(web: ReadyWeb, title: string) {
+  const seeded = await seedThreeParts(web, title);
+  const created = await seeded.api.createChapterBreak(seeded.storyId, seeded.b, "Second");
+  return { ...seeded, breakId: created.breakId };
+}
+
+const summaryCard = (page: Page): Locator => page.getByRole("button", { name: /^Chapter One summary/ });
+
+test("case 5: summarize shows the bar status and Stop, refuses Space, and the card appears when done", async () => {
+  const web = await spawnChapterWeb(60);
+  const seeded = await seedClosedChapter(web, "Summarize A Chapter");
+  const page = await openStory(web, seeded.storyId, "Summarize A Chapter");
+  const diagnostics = await collectPageDiagnostics(page);
+
+  await page.getByRole("button", { name: "Chapter actions" }).click();
+  await page.getByRole("menuitem", { name: "Summarize Chapter One" }).click();
+  await page.getByText("Summarizing Chapter One…").first().waitFor();
+  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await screenshot(page, "7a-summary-running");
+  await part(page, "C:").click();
+  await page.keyboard.press("Space");
+  await page.getByText("Summarizing… Esc stops it first.").waitFor();
+
+  await summaryCard(page).waitFor({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Continue" }).waitFor();
+  expect(await summaryCard(page).textContent()).toContain("stands in");
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  expect(saved.nodes.some((node) => node.chapterBreakId === seeded.breakId)).toBeTrue();
+  await summaryCard(page).click();
+  await screenshot(page, "7a-summary-card");
+  await page.waitForTimeout(300);
+  expect(diagnostics.consoleErrors).toEqual([]);
+  expect(diagnostics.cspViolations).toEqual([]);
+}, 90_000);
+
+test("case 6: Esc during a summary stops it; the toast and the saved story agree; a rename right after works", async () => {
+  const web = await spawnChapterWeb(400);
+  const seeded = await seedClosedChapter(web, "Stop A Summary");
+  const page = await openStory(web, seeded.storyId, "Stop A Summary");
+
+  await page.getByRole("button", { name: "Chapter actions" }).click();
+  await page.getByRole("menuitem", { name: "Summarize Chapter One" }).click();
+  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await page.keyboard.press("Escape");
+  const toast = page.getByText(/^Chapter One summary (stopped|completed before stop)\.$/);
+  await toast.waitFor();
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  const exists = saved.nodes.some((node) => node.chapterBreakId === seeded.breakId);
+  expect((await toast.textContent())?.includes("completed")).toBe(exists);
+  await page.getByRole("button", { name: "Continue" }).waitFor();
+
+  await page.getByRole("button", { name: "Second" }).click();
+  await page.keyboard.type(" thoughts");
+  await page.keyboard.press("Enter");
+  expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).chapterBreaks[0]!.title === "Second thoughts")).toBeTrue();
+}, 90_000);
+
+test("case 7: Edit summary and Ctrl/Cmd+S sets the text", async () => {
+  const web = await spawnChapterWeb();
+  const seeded = await seedClosedChapter(web, "Edit A Summary");
+  await seeded.api.summarizeChapter(seeded.storyId, seeded.breakId);
+  const page = await openStory(web, seeded.storyId, "Edit A Summary");
+
+  await summaryCard(page).click();
+  await page.getByRole("button", { name: "Edit summary" }).click();
+  const box = page.getByRole("textbox", { name: "Edit Chapter One summary" });
+  await box.waitFor();
+  expect(await poll(() => box.evaluate((element) => element === document.activeElement))).toBeTrue();
+  await box.fill("A and B happened, in short.");
+  await page.keyboard.press("ControlOrMeta+s");
+  await waitForCount(box, 0);
+  await page.getByText("A and B happened, in short.").waitFor();
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  expect(saved.nodes.find((node) => node.chapterBreakId === seeded.breakId)?.text).toBe("A and B happened, in short.");
+}, 90_000);
+
+test("case 8: editing a part above makes the summary stale; Refresh makes it stand in again", async () => {
+  const web = await spawnChapterWeb();
+  const seeded = await seedClosedChapter(web, "Stale Summary");
+  await seeded.api.summarizeChapter(seeded.storyId, seeded.breakId);
+  const page = await openStory(web, seeded.storyId, "Stale Summary");
+  expect(await summaryCard(page).textContent()).toContain("stands in");
+
+  await part(page, "A:").click();
+  await page.keyboard.press("e");
+  await page.getByRole("textbox", { name: "Text of part 1" }).fill("A: the opening part, changed.");
+  await page.getByRole("button", { name: "Save in place" }).click();
+  await waitForCount(page.getByRole("textbox", { name: "Text of part 1" }), 0);
+  expect(await poll(async () => ((await summaryCard(page).textContent()) ?? "").includes("Stale"))).toBeTrue();
+  await screenshot(page, "7a-summary-stale");
+
+  await summaryCard(page).click();
+  await page.getByRole("button", { name: "Refresh summary" }).click();
+  await page.getByText("Chapter One summary refreshed.").waitFor({ timeout: 30_000 });
+  expect(await poll(async () => ((await summaryCard(page).textContent()) ?? "").includes("stands in"))).toBeTrue();
+}, 90_000);
+
+test("case 9: removing a break takes its summary; u brings back the break, its title, and the summary", async () => {
+  const web = await spawnChapterWeb();
+  const seeded = await seedClosedChapter(web, "Undo With Summary");
+  await seeded.api.summarizeChapter(seeded.storyId, seeded.breakId);
+  const page = await openStory(web, seeded.storyId, "Undo With Summary");
+  await summaryCard(page).waitFor();
+
+  await page.getByRole("button", { name: "Chapter actions" }).click();
+  await page.getByRole("menuitem", { name: "Remove break" }).click();
+  await waitForCount(summaryCard(page), 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).nodes.some((node) => node.chapterBreakId !== undefined)).toBeFalse();
+
+  await page.keyboard.press("u");
+  await summaryCard(page).waitFor();
+  await page.getByRole("button", { name: "Second" }).waitFor();
+  const saved = await seeded.api.loadStory(seeded.storyId);
+  expect(saved.chapterBreaks[0]!.title).toBe("Second");
+  expect(saved.nodes.some((node) => node.chapterBreakId === saved.chapterBreaks[0]!.id)).toBeTrue();
+}, 90_000);

@@ -2,20 +2,27 @@ import { useEffect, useRef, type KeyboardEvent } from "react";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { focusCurrentPart } from "../story/focus-dom.js";
-import { NOT_CONNECTED_TOAST, storyChangeRefusal } from "../story/story-policy.js";
+import { chapterWord } from "../../../shared/chapter-labels.js";
+import type { StoryChapter } from "../../../shared/manuscript-model.js";
+import { NOT_CONNECTED_TOAST, storyChangeRefusal, summarizeRefusal } from "../story/story-policy.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
 
 /** A disabled item's hover text: a few words. */
 function shortRefusal(refusal: string): string {
-  return refusal === NOT_CONNECTED_TOAST ? "Not connected" : "Busy (Esc)";
+  if (refusal === NOT_CONNECTED_TOAST) return "Not connected";
+  return refusal.includes("summary edit") ? "Summary open" : "Busy (Esc)";
 }
 
 /**
  * The `···` menu on a chapter divider: rename the chapter, remove the break.
- * It uses the one menu look. Removing is immediate — `u` undoes it.
+ * summarize or refresh its summary, edit the summary. It uses the one menu
+ * look. Removing is immediate — `u` undoes it. `chapter` is the chapter above
+ * the divider: the one the summary is of.
  */
-export function ChapterMenu({ storyId, breakId }: { readonly storyId: string; readonly breakId: string }) {
+export function ChapterMenu(
+  { storyId, breakId, chapter }: { readonly storyId: string; readonly breakId: string; readonly chapter: StoryChapter }
+) {
   const { store, actions } = useAppContext();
   const { open, setOpen, containerRef } = usePopover();
   const triggerRef = useRef<HTMLButtonElement>(null);
@@ -24,6 +31,7 @@ export function ChapterMenu({ storyId, breakId }: { readonly storyId: string; re
   const wasOpen = useRef(false);
   // Only an open menu follows the state.
   const refusal = useStore(store, (state) => (open ? storyChangeRefusal(state, storyId) : null));
+  const summaryRefusal = useStore(store, (state) => (open ? summarizeRefusal(state, storyId, { closed: true }) : null));
 
   useEffect(() => {
     if (open) {
@@ -52,6 +60,8 @@ export function ChapterMenu({ storyId, breakId }: { readonly storyId: string; re
     buttons[next]!.focus();
   };
 
+  const summaryLabel = chapter.summary === null ? `Summarize Chapter ${chapterWord(chapter.number)}` : "Refresh summary";
+
   return (
     <div className="chapter-menu" ref={containerRef}>
       <button
@@ -78,6 +88,29 @@ export function ChapterMenu({ storyId, breakId }: { readonly storyId: string; re
             <Icon path={ICONS.penLine} />
             <span className="menu-item-text">Rename</span>
           </button>
+          <button
+            type="button"
+            role="menuitem"
+            className="menu-item"
+            title={summaryRefusal === null ? summaryLabel : shortRefusal(summaryRefusal)}
+            disabled={summaryRefusal !== null}
+            onClick={() => choose(() => { void actions.chapters.summarize(chapter.number); })}
+          >
+            <Icon path={ICONS.summary} />
+            <span className="menu-item-text">{summaryLabel}</span>
+          </button>
+          {chapter.summary !== null && (
+            <button
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              title="Edit summary"
+              onClick={() => choose(() => actions.editor.openSummary(breakId))}
+            >
+              <Icon path={ICONS.squarePen} />
+              <span className="menu-item-text">Edit summary</span>
+            </button>
+          )}
           <button
             type="button"
             role="menuitem"

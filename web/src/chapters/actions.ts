@@ -1,20 +1,21 @@
-import type { RemovedChapterBreak, StoryApi } from "../../../client/api.js";
+import type { RemovedChapterBreak } from "../../../client/api.js";
 import { chapterWord } from "../../../shared/chapter-labels.js";
 import { createManuscriptModel } from "../../../shared/manuscript-model.js";
-import type { StoryPayload } from "../../../shared/types.js";
 import type { AppState } from "../app/state.js";
 import { failureToast, runStoryMutation, type StoryMutationOutcome } from "../app/story-mutation.js";
 import type { Store } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
 import type { StoryActions } from "../story/actions.js";
 import { storyChangeRefusal } from "../story/story-policy.js";
+import { createSummaryActions, type SummaryActions } from "./summary-run.js";
+import { openStory, storedChapterTitle, type OpenStory } from "./model.js";
 import type { ChapterRename, ChapterUndoEntry, ChaptersState } from "./state.js";
 
 export interface ChapterActionDependencies {
   readonly story: Pick<StoryActions, "adoptPayload">;
 }
 
-export interface ChapterActions {
+export interface ChapterActions extends SummaryActions {
   /** `C`: ends the chapter after this part. The caller has asked
    * `partActionRefusal` first. Opens the new divider's rename. */
   addBreak(partId: string): Promise<void>;
@@ -31,21 +32,6 @@ export interface ChapterActions {
 }
 
 export const NOTHING_TO_UNDO_TOAST = "Nothing to undo. u takes back an added or removed chapter break.";
-
-type Loaded = { readonly storyId: string; readonly payload: StoryPayload; readonly api: StoryApi };
-
-/** The open story and the connection, or `null`. */
-function openStory(state: AppState): Loaded | null {
-  if (state.route.kind !== "story" || state.story.kind !== "loaded") return null;
-  if (state.story.payload.id !== state.route.id || state.connection.kind !== "connected") return null;
-  return { storyId: state.route.id, payload: state.story.payload, api: state.connection.api };
-}
-
-/** The stored title of the chapter a break opens (`null`: chapter one). */
-export function storedChapterTitle(payload: StoryPayload, breakId: string | null): string | null {
-  if (breakId === null) return payload.firstChapterTitle ?? "";
-  return payload.chapterBreaks.find((candidate) => candidate.id === breakId)?.title ?? null;
-}
 
 export function createChapterActions(store: Store<AppState>, deps: ChapterActionDependencies): ChapterActions {
   const write = (update: (chapters: ChaptersState) => ChaptersState): void =>
@@ -81,8 +67,8 @@ export function createChapterActions(store: Store<AppState>, deps: ChapterAction
   /** Runs one change that needs a connection and an unlocked story. */
   async function change<R extends object>(
     what: string,
-    run: (open: Loaded) => Promise<StoryMutationOutcome<R>>,
-    onSaved: (open: Loaded, outcome: Extract<StoryMutationOutcome<R>, { kind: "saved" }>) => void
+    run: (open: OpenStory) => Promise<StoryMutationOutcome<R>>,
+    onSaved: (open: OpenStory, outcome: Extract<StoryMutationOutcome<R>, { kind: "saved" }>) => void
   ): Promise<void> {
     const state = store.get();
     const open = openStory(state);
@@ -106,6 +92,8 @@ export function createChapterActions(store: Store<AppState>, deps: ChapterAction
     write((chapters) => (chapters.rename?.breakId === breakId ? { ...chapters, rename: null } : chapters));
 
   return {
+    ...createSummaryActions(store, deps),
+
     addBreak: (partId) => change(
       "Ending the chapter",
       async ({ storyId, payload, api }) => {

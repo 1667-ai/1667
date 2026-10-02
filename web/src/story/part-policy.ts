@@ -6,11 +6,11 @@ import { runBusyToast, storyRunLocked, lockedToast, STORY_LOCKED_TOAST, UNSAVED_
 import type { AppState } from "../app/state.js";
 import type { GenerationPlan } from "../generation/plan.js";
 import { appendingTo } from "../generation/state.js";
-import { editorDirty } from "../editor/state.js";
+import { editorDirty, inPartSlot } from "../editor/state.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
-import { NOT_CONNECTED_TOAST } from "./story-policy.js";
+import { NOT_CONNECTED_TOAST, SWITCHING_TOAST as PART_SWITCHING_TOAST } from "./story-policy.js";
 
-export { STORY_LOCKED_TOAST, UNSAVED_TOAST, NOT_CONNECTED_TOAST };
+export { STORY_LOCKED_TOAST, UNSAVED_TOAST, NOT_CONNECTED_TOAST, PART_SWITCHING_TOAST };
 
 /** The part actions the web UI has: the TUI's, plus the ones that are only
  * web-local (`C` ends a chapter at the part). */
@@ -28,7 +28,6 @@ export type WebPartActionId = PartActionId | "end-chapter";
 type LoadedStoryState = Extract<StoryState, { kind: "loaded" }>;
 
 export const PART_UNAVAILABLE_TOAST = "That part is no longer on the story line.";
-export const PART_SWITCHING_TOAST = "A take is still switching. Try again in a moment.";
 export const PART_WRITING_TOAST = "This part is still being written.";
 export const SUMMARY_RETAKE_TOAST = "Summaries are rewritten, not retaken.";
 export const EDITOR_OPEN_TOAST = "Finish or cancel the open editor first.";
@@ -59,7 +58,7 @@ export function partSwitchPending(story: LoadedStoryState, partId: string): bool
 export function editorBlocksChange(state: AppState, partId: string): boolean {
   const editor = state.editor;
   const story = state.story;
-  if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id || editor.mode === "first") {
+  if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id || !inPartSlot(editor)) {
     return false;
   }
   const path = story.payload.path;
@@ -84,7 +83,7 @@ export function generationEditorRefusal(
   if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id) return null;
   // The first-part editor sits where the first generated part would stream:
   // a changed one is never hidden by it.
-  if (editor.mode === "first") return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
+  if (!inPartSlot(editor)) return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
   const path = story.payload.path;
   const editorIndex = path.findIndex((node) => node.id === editor.base.id);
   if (editorIndex < 0) return null;
@@ -114,7 +113,7 @@ export function planEditorRefusal(
   if (editor === null || story.kind !== "loaded" || story.payload.id !== storyId || editor.storyId !== storyId) {
     return null;
   }
-  if (editor.mode === "first") return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
+  if (!inPartSlot(editor)) return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
   const path = story.payload.path;
   const editorIndex = path.findIndex((node) => node.id === editor.base.id);
   if (editorIndex < 0) return null;
@@ -179,7 +178,7 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
     case "write":
     case "edit": {
       const editor = state.editor;
-      if (editor !== null && editor.mode !== "first" && editor.base.id === partId) return null;
+      if (editor !== null && inPartSlot(editor) && editor.base.id === partId) return null;
       return editor !== null && editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
     }
     case "end-chapter": {

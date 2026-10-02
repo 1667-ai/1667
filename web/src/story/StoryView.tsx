@@ -59,6 +59,7 @@ export function StoryView(
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
   const generation = useStore(store, (state) => state.generation);
+  const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
   // Primitives and stable references only: this view must not redraw on every
   // change to the editor's text or the menu's state.
   const editingPartId = useStore(store, (state) => (
@@ -210,6 +211,7 @@ export function StoryView(
                   editingPartId={editingPartId}
                   menuRequest={menuRequest}
                   generation={generationView}
+                  summaryRun={summaryRun?.storyId === storyId ? summaryRun : null}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
                   onSwitchTo={actions.story.switchTakeTo}
@@ -218,7 +220,7 @@ export function StoryView(
           </div>
         </div>
         <div ref={barRef} className={`generation-bar generation-bar-compose${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
-          <Composer storyId={storyId} status={generationStatusText(generation, storyId)}>
+          <Composer storyId={storyId} status={generationStatusText(generation, storyId, summaryRun)}>
             <GenerationButtons onContinue={() => { if (actions.compose.submit(storyId)) focusCurrentPart(); }} />
           </Composer>
         </div>

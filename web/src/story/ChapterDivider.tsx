@@ -53,7 +53,7 @@ export function ChapterDivider({ storyId, row }: { readonly storyId: string; rea
         className="chapter-title"
       />
       <div className="chapter-divider-meta">{parts} {parts === 1 ? "part" : "parts"} above</div>
-      <ChapterMenu storyId={storyId} breakId={row.break.id} />
+      <ChapterMenu storyId={storyId} breakId={row.break.id} chapter={row.closingChapter} />
     </li>
   );
 }

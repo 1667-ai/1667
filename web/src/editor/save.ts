@@ -28,6 +28,15 @@ export type EditorSaveRequest =
       readonly base: StoryNode;
       readonly patch: { instruction?: string; text?: string };
     }
+  /** A chapter summary's text, changed in place. `expected` is the text the
+   * editor opened on (the server refuses the change if it moved). */
+  | {
+      readonly kind: "summary";
+      readonly storyId: string;
+      readonly summaryId: string;
+      readonly text: string;
+      readonly expected: string;
+    }
   /** `w`: the writer's own take next to a part (`parentId` of that part). */
   | {
       readonly kind: "write";
@@ -80,7 +89,7 @@ export async function saveEditor(api: StoryApi, request: EditorSaveRequest): Pro
       if (resolution.kind === "found") return { kind: "saved", payload: reloaded!, landedId: resolution.id };
       // Only a create can be written twice; an in-place edit sent again is
       // answered with a conflict if the first one landed.
-      if (resolution.kind === "unresolved" && request.kind !== "in-place") {
+      if (resolution.kind === "unresolved" && (request.kind === "fork" || request.kind === "write")) {
         return { kind: "unresolved", payload: reloaded, error };
       }
     }
@@ -114,6 +123,9 @@ async function send(api: StoryApi, request: EditorSaveRequest): Promise<StoryPay
   if (request.kind === "in-place") {
     return await retryWhenBusy(() => api.editNode(request.storyId, request.base, request.patch));
   }
+  if (request.kind === "summary") {
+    return await retryWhenBusy(() => api.editChapterSummary(request.storyId, request.summaryId, request.text, request.expected));
+  }
   return await retryWhenBusy(() => api.createNode(request.storyId, {
     parentId: request.parentId,
     ...(request.parentId === null ? { instruction: request.instruction } : {}),
@@ -135,6 +147,8 @@ async function landedIdOf(
   payload: StoryPayload
 ): Promise<string | null> {
   if (request.kind === "in-place") return request.base.id;
+  // A summary is not on the line: there is no part to focus.
+  if (request.kind === "summary") return null;
   const found = await findExactNewTake(api, request, payload);
   return found.kind === "found" ? found.id : null;
 }
@@ -151,6 +165,10 @@ async function resolveEarlierCall(
   request: EditorSaveRequest,
   reloaded: StoryPayload
 ): Promise<Resolution> {
+  if (request.kind === "summary") {
+    const node = reloaded.nodes.find((candidate) => candidate.id === request.summaryId);
+    return node?.text === request.text ? { kind: "found", id: node.id } : { kind: "absent" };
+  }
   if (request.kind === "in-place") {
     const node = reloaded.path.find((candidate) => candidate.id === request.base.id);
     if (node === undefined) return { kind: "absent" };
@@ -167,7 +185,7 @@ const MAX_CANDIDATES = 8;
 
 async function findExactNewTake(
   api: StoryApi,
-  request: Exclude<EditorSaveRequest, { kind: "in-place" }>,
+  request: Exclude<EditorSaveRequest, { kind: "in-place" | "summary" }>,
   payload: StoryPayload
 ): Promise<Resolution> {
   const parentId = parentOf(request);
