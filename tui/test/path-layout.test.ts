@@ -1,8 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import { createDemoController } from "../src/demo.js";
 import { createAtlasLayout } from "../src/atlas-layout.js";
-import { createLaneLayout } from "../src/lane-layout.js";
-import { createPathLayout, initialPathCursor, movePathCursor, resolveRerouteTarget } from "../src/path-layout.js";
+import { createLaneLayout } from "../../shared/lane-layout.js";
+import { createPathLayout, initialPathCursor, movePathCursor, resolveRerouteTarget } from "../../shared/path-layout.js";
 
 describe("path layout model", () => {
   test("builds depth rows and sibling cells for the demo tree", () => {

@@ -1,8 +1,8 @@
 import { createStoryIndex } from "../../shared/story-model.js";
 import { isChapterSummary } from "../../shared/story-tree.js";
 import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
-import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "./map-cold.js";
-import { windowRows } from "./map-window.js";
+import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "../../shared/map-cold.js";
+import { windowRows } from "../../shared/map-window.js";
 import { opening } from "./screens/map-row-labels.js";
 import type { MapMassSort } from "./map-state.js";
 import type { FrameDeadlineCollector } from "./animation-deadline.js";

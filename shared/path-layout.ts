@@ -1,7 +1,7 @@
-import { createStoryIndex, rememberedChildOf, type StoryIndex } from "../../shared/story-model.js";
-import { isMapSketch } from "../../shared/map-model.js";
-import { childrenOf, isChapterSummary, pathTo } from "../../shared/story-tree.js";
-import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
+import { createStoryIndex, rememberedChildOf, type StoryIndex } from "./story-model.js";
+import { isMapSketch } from "./map-model.js";
+import { childrenOf, isChapterSummary, pathTo } from "./story-tree.js";
+import type { Tag, NodeStub, StoryPayload } from "./types.js";
 
 export interface PathCell {
   node: NodeStub;

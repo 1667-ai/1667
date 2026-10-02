@@ -6,7 +6,7 @@ import { buildStoryPayload } from "../../server/story-payload.js";
 import { createDemoController } from "../src/demo.js";
 import type { HitRows, HitTarget } from "../src/hit.js";
 import type { MapState, MapView } from "../src/map-state.js";
-import { movePathCursor } from "../src/path-layout.js";
+import { movePathCursor } from "../../shared/path-layout.js";
 import { renderMapScreen } from "../src/screens/map.js";
 import { frameText, plainLine, visibleWidth } from "../src/screens/story/frame.js";
 import type { StoryScreenState } from "../src/state.js";

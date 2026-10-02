@@ -1,8 +1,7 @@
-import { createStoryIndex } from "../../shared/story-model.js";
-import { isChapterSummary } from "../../shared/story-tree.js";
-import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
+import { createStoryIndex } from "./story-model.js";
+import { isChapterSummary } from "./story-tree.js";
+import type { Tag, NodeStub, StoryPayload } from "./types.js";
 import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "./map-cold.js";
-import type { FrameDeadlineCollector } from "./animation-deadline.js";
 import { assignLanes, type LaneRow, type RawItem } from "./lane-layout-assign.js";
 import { windowRows } from "./map-window.js";
 
@@ -25,9 +24,12 @@ export interface LaneLayout {
   coldLines: number;
   visibleStart: number; visibleEnd: number; totalRows: number; moreRows: number;
 }
+/** What the layout asks of a frame-deadline collector: tell it when a row's
+ *  text will next change. The TUI's collector satisfies this structurally. */
+export interface LayoutDeadlines { at(deadline: number): void }
 export interface LaneLayoutOptions {
   now: number; cursorId?: string | null; showSketches?: boolean;
-  openedColdFolds?: ReadonlySet<string>; maxRows?: number; deadlines?: FrameDeadlineCollector;
+  openedColdFolds?: ReadonlySet<string>; maxRows?: number; deadlines?: LayoutDeadlines;
 }
 
 interface ColdEntry { node: NodeStub; lineCount: number; weeks: number }
@@ -331,46 +333,60 @@ export function moveLaneCursor(layout: LaneLayout, direction: -1 | 1): string | 
 }
 
 /** The nearest selectable row (by row distance, not depth) one lane to the
- *  left or right of the cursor. A parked row counts as lane `laneCount`, so
- *  `→` from the rightmost drawn lane reaches the overflow column. */
-export function moveLaneCursorAcross(layout: LaneLayout, direction: -1 | 1): string | null {
-  const rows = layout.allRows;
-  const cursorIndex = rows.findIndex((row) => row.cursor);
-  if (cursorIndex === -1) return null;
-  const cursorRow = rows[cursorIndex]!;
-  const cursorLane = cursorRow.lane === -1 ? layout.laneCount : cursorRow.lane;
+ *  left or right of the row at `fromIndex`. A parked row counts as lane
+ *  `laneCount`, so `→` from the rightmost drawn lane reaches the overflow
+ *  column. Index-based so a caller that keeps its own cursor never has to
+ *  stamp one onto the rows. Returns the target row's index. */
+export function laneCursorAcross(
+  rows: readonly LaneRow[], laneCount: number, fromIndex: number, direction: -1 | 1
+): number | null {
+  const cursorRow = rows[fromIndex];
+  if (cursorRow === undefined) return null;
+  const cursorLane = cursorRow.lane === -1 ? laneCount : cursorRow.lane;
   const targetLane = cursorLane + direction;
   if (targetLane < 0) return null;
-  let best: { id: string; distance: number } | null = null;
+  let best: { at: number; distance: number } | null = null;
   for (const [index, row] of rows.entries()) {
     if (!laneSelectable(row)) continue;
-    const rowLane = row.lane === -1 ? layout.laneCount : row.lane;
+    const rowLane = row.lane === -1 ? laneCount : row.lane;
     if (rowLane !== targetLane) continue;
-    const distance = Math.abs(index - cursorIndex);
-    if (best === null || distance < best.distance) best = { id: row.id, distance };
+    const distance = Math.abs(index - fromIndex);
+    if (best === null || distance < best.distance) best = { at: index, distance };
   }
-  return best?.id ?? null;
+  return best?.at ?? null;
 }
 
-/** The next selectable row below the cursor still on its own lane — stopping
+export function moveLaneCursorAcross(layout: LaneLayout, direction: -1 | 1): string | null {
+  const cursorIndex = layout.allRows.findIndex((row) => row.cursor);
+  if (cursorIndex === -1) return null;
+  const target = laneCursorAcross(layout.allRows, layout.laneCount, cursorIndex, direction);
+  return target === null ? null : layout.allRows[target]!.id;
+}
+
+/** The next selectable row below `fromIndex` still on its own lane — stopping
  *  at the point that lane closes, since a recycled lane number belongs to an
  *  unrelated line past that row (spec §"residual costs"). Falls back to the
  *  cursor's own row: a lane-0 stop, or a terminal off-path row, has nowhere
- *  further to follow. */
-export function followLane(layout: LaneLayout): string | null {
-  const rows = layout.allRows;
-  const at = rows.findIndex((row) => row.cursor);
-  if (at === -1) return null;
-  const cursorRow = rows[at]!;
-  for (let index = at + 1; index < rows.length; index += 1) {
+ *  further to follow. Returns that row's index. */
+export function laneFollowIndex(rows: readonly LaneRow[], fromIndex: number): number | null {
+  const cursorRow = rows[fromIndex];
+  if (cursorRow === undefined) return null;
+  for (let index = fromIndex + 1; index < rows.length; index += 1) {
     const row = rows[index]!;
-    if (row.kind === "close" && row.lanes.includes(cursorRow.lane)) return cursorRow.id;
+    if (row.kind === "close" && row.lanes.includes(cursorRow.lane)) return fromIndex;
     if (row.lane !== cursorRow.lane) continue;
-    if (row.kind === "node") return row.id;
+    if (row.kind === "node") return index;
     // A sketch, end, or cold row on the same lane is not the reading line
     // continuing (revealed sketches off the active leaf sit on its own lane,
     // right below it) — it ends the walk here, same as the lane closing.
-    if (laneSelectable(row)) return cursorRow.id;
+    if (laneSelectable(row)) return fromIndex;
   }
-  return cursorRow.id;
+  return fromIndex;
+}
+
+export function followLane(layout: LaneLayout): string | null {
+  const at = layout.allRows.findIndex((row) => row.cursor);
+  if (at === -1) return null;
+  const target = laneFollowIndex(layout.allRows, at);
+  return target === null ? null : layout.allRows[target]!.id;
 }
