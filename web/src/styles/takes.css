@@ -84,19 +84,6 @@
 .take-peek-meta.ends { color: var(--meter-warn); }
 .take-peek > footer { border-top: var(--border); color: var(--dim); font: var(--font-meta); padding: var(--s-2) var(--s-3); }
 
-/* ---------- label + canon chips ---------- */
-.label-chip {
-  align-items: center; background: var(--chip); border: 0; border-radius: var(--r-pill); color: var(--dim);
-  display: inline-flex; font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
-  gap: var(--s-1); padding: 3px var(--s-2);
-}
-.label-canon { background: var(--canon-soft); color: var(--stale-amber); }
-.label-alt { background: var(--accent-soft); color: var(--accent); }
-.label-draft { background: var(--chip); color: var(--dim); }
-.label-discarded { background: var(--danger-soft); color: var(--danger); }
-.label-summary { background: var(--summary-soft); color: var(--summary); }
-.canon-mark { color: var(--canon); }
-
 @media (max-width: 720px) {
   .take-peek { width: min(320px, calc(100vw - 2 * var(--s-3))); }
 }

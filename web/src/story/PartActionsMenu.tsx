@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { partActions, type PartActionId } from "../../../shared/part-actions.js";
+import { partActions } from "../../../shared/part-actions.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
@@ -12,6 +12,7 @@ import {
   PART_UNAVAILABLE_TOAST,
   PART_WRITING_TOAST,
   partActionRefusal,
+  type WebPartActionId,
   STORY_LOCKED_TOAST,
   SUMMARY_RETAKE_TOAST,
   UNSAVED_TOAST
@@ -19,7 +20,7 @@ import {
 import { useRequestSignal } from "../ui/useRequestSignal.js";
 
 interface MenuItem {
-  readonly id: PartActionId;
+  readonly id: WebPartActionId;
   readonly label: string;
   /** The key that does the same thing, shown in the hover text. */
   readonly key: string;
@@ -37,6 +38,7 @@ const ITEMS: readonly MenuItem[] = [
   { id: "retake-with-prompt", label: "Retake with direction", key: "R", icon: ICONS.message },
   { id: "write", label: "Write", key: "w", icon: ICONS.penLine },
   { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
+  { id: "tag", label: "Tag line", key: "t", icon: ICONS.flag },
   { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash }
 ];
 
@@ -107,10 +109,10 @@ export function PartActionsMenu(
     wasOpen.current = open;
   }, [open]);
 
-  const available = new Set(partActions(part.node, isLeaf).map((action) => action.id));
+  const available = new Set<WebPartActionId>(partActions(part.node, isLeaf).map((action) => action.id));
   const items = ITEMS.filter((item) => available.has(item.id));
 
-  const run = (id: PartActionId): void => {
+  const run = (id: WebPartActionId): void => {
     closedByItem.current = true;
     setOpen(false);
     actions.part.run(id, part.id);

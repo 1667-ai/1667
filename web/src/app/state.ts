@@ -5,6 +5,7 @@ import type { EditorState } from "../editor/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
+import { initialTagsState, type TagsState } from "../tags/state.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
@@ -41,6 +42,8 @@ export interface AppState {
   /** Chapter undo, the inline rename, and the running summary (#409 step
    * 7a). See `chapters/state.ts`. */
   readonly chapters: ChaptersState;
+  /** The tag popover and the tag drafts (#409 step 7a). See `tags/state.ts`. */
+  readonly tags: TagsState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -64,6 +67,7 @@ export function initialAppState(
     editor: null,
     partUi: initialPartUiState(),
     chapters: initialChaptersState(),
+    tags: initialTagsState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

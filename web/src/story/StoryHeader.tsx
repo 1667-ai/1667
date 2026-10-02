@@ -1,6 +1,6 @@
-import { lineName } from "../../../shared/story-model.js";
 import { countWords } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { LineChip } from "../tags/LineChip.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 
 export interface StoryHeaderProps {
@@ -18,14 +18,12 @@ export interface StoryHeaderProps {
  * field (that is write-side, later steps). */
 export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar }: StoryHeaderProps) {
   const words = payload.path.reduce((total, node) => total + countWords(node.text), 0);
-  const leafId = payload.path.at(-1)?.id ?? null;
-  const line = leafId === null ? null : lineName(payload, leafId);
 
   return (
     <header className="story-header">
       <SidebarToggle onOpen={onOpenSidebar} />
       <div className="story-identity">
-        {line !== null && <span className="story-kicker">{line}</span>}
+        <LineChip payload={payload} />
         <div className="story-title-wrap">
           <h1 className="story-title" title={payload.title}>{payload.title}</h1>
         </div>

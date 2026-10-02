@@ -1,0 +1,17 @@
+/**
+ * The status chip: one look for a line's tag status in the story header
+ * (`tags/LineChip.tsx`), the tag popover's list, and the take preview. The
+ * `.label-*` colour classes follow the tag statuses (`TAG_STATUSES`).
+ */
+
+.label-chip {
+  align-items: center; background: var(--chip); border: 0; border-radius: var(--r-pill); color: var(--dim);
+  display: inline-flex; font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase;
+  gap: var(--s-1); padding: 3px var(--s-2);
+}
+.label-canon { background: var(--canon-soft); color: var(--stale-amber); }
+.label-alt { background: var(--accent-soft); color: var(--accent); }
+.label-draft { background: var(--chip); color: var(--dim); }
+.label-discarded { background: var(--danger-soft); color: var(--danger); }
+.label-summary { background: var(--summary-soft); color: var(--summary); }
+.canon-mark { color: var(--canon); }
