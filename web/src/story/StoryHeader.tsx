@@ -1,6 +1,7 @@
 import { lineName } from "../../../shared/story-model.js";
 import { countWords } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { Icon, ICONS } from "../ui/icons.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 
 export interface StoryHeaderProps {
@@ -9,6 +10,8 @@ export interface StoryHeaderProps {
   readonly onToggleDirections: () => void;
   /** Opens the Library drawer (only shown below the drawer breakpoint). */
   readonly onOpenSidebar: () => void;
+  /** Opens the story map. */
+  readonly onOpenMap: () => void;
 }
 
 /** Title, stats, and the "Show directions" toggle. Ported from
@@ -16,7 +19,7 @@ export interface StoryHeaderProps {
  * (`web/src/styles/story.css` already carries them, from step 3's
  * placeholder) — the title is a plain heading here, never an editable
  * field (that is write-side, later steps). */
-export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar }: StoryHeaderProps) {
+export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar, onOpenMap }: StoryHeaderProps) {
   const words = payload.path.reduce((total, node) => total + countWords(node.text), 0);
   const leafId = payload.path.at(-1)?.id ?? null;
   const line = leafId === null ? null : lineName(payload, leafId);
@@ -35,6 +38,16 @@ export function StoryHeader({ payload, showDirections, onToggleDirections, onOpe
         </span>
       </div>
       <div className="story-actions">
+        <button
+          type="button"
+          className="icon-btn"
+          title="Map (m)"
+          aria-label="Map (m)"
+          disabled={payload.nodes.length === 0}
+          onClick={onOpenMap}
+        >
+          <Icon path={ICONS.branch} />
+        </button>
         <button
           type="button"
           className="btn btn-ghost btn-small"

@@ -180,6 +180,14 @@ function visibleLineLeafId(nodeId: string, showSketches: boolean, index: StoryIn
 }
 
 
+/** The leaf the rows of `nodeId`'s line end on — what a caller keys the path
+ * layout by, since the rows depend on the line, not on the cursor within it. */
+export function pathLineLeafId(payload: StoryPayload, nodeId: string, showSketches: boolean): string {
+  const index = createStoryIndex(payload);
+  const cursor = visiblePathCursor(payload, nodeId, showSketches, index);
+  return visibleLineLeafId(cursor?.id ?? nodeId, showSketches, index);
+}
+
 function visiblePathCursor(
   payload: StoryPayload,
   cursorNodeId: string,
