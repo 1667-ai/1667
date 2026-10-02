@@ -5,6 +5,7 @@ import { takeIndex } from "../../../shared/story-tree.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import type { ManuscriptGeneration } from "../generation/state.js";
 import { StreamingPart } from "../generation/StreamingPart.js";
+import { forkTakeOf } from "./line-switch.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
 import { PartCard } from "./PartCard.js";
 import { SummaryBody } from "./SummaryBody.js";
@@ -56,7 +57,10 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
   const optimisticTakeIndex = useMemo(() => {
     if (switching === null) return null;
     const index = createStoryIndex(payload);
-    return takeIndex(index.tree, switching.targetId).index;
+    // The target may sit deeper than the anchor (a switch from the map): the
+    // anchor shows the take its line runs through.
+    const anchorDepth = index.depthByNodeId.get(switching.partId) ?? 0;
+    return takeIndex(index.tree, forkTakeOf(index, switching.targetId, anchorDepth)).index;
   }, [payload, switching]);
 
   const rows = generation !== null && generation.mode === "take"

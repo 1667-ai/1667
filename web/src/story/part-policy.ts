@@ -2,8 +2,9 @@ import { continuationIntent } from "../../../shared/continuation-intent.js";
 import type { PartActionId } from "../../../shared/part-actions.js";
 import type { AppState } from "../app/state.js";
 import type { GenerationPlan } from "../generation/plan.js";
-import { appendingTo } from "../generation/state.js";
+import { appendingTo, generationLocks } from "../generation/state.js";
 import { editorDirty } from "../editor/state.js";
+import type { LineSwitch } from "./line-switch.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
 
 /**
@@ -30,6 +31,7 @@ export const PART_WRITING_TOAST = "This part is still being written.";
 export const SUMMARY_RETAKE_TOAST = "Summaries are rewritten, not retaken.";
 export const EDITOR_OPEN_TOAST = "Finish or cancel the open editor first.";
 export const NOT_CONNECTED_TOAST = "Not connected.";
+export const LINE_GONE_TOAST = "That line is no longer there. The story was reloaded.";
 
 /** Shown when a retake's part left the line (or became a summary) between
  * the writer opening the retake and sending it. */
@@ -191,6 +193,25 @@ export function partActionRefusal(state: AppState, partId: string, action: PartA
     default:
       return null;
   }
+}
+
+/**
+ * The toast a switch to another line is refused with right now, or `null`.
+ * Fixed order, first match wins: the story is not open; not connected; a
+ * generation writing into (or saving into) this story; a switch already in
+ * flight; the open editor sits on a part the switch replaces (skipped when the
+ * line only grows past its leaf).
+ */
+export function lineSwitchRefusal(state: AppState, plan: LineSwitch): string | null {
+  const story = state.story;
+  if (state.route.kind !== "story" || story.kind !== "loaded" || story.payload.id !== state.route.id) {
+    return PART_UNAVAILABLE_TOAST;
+  }
+  if (state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
+  if (generationLocks(state.generation, story.payload.id)) return STORY_LOCKED_TOAST;
+  if (story.switching !== null) return PART_SWITCHING_TOAST;
+  if (!plan.extendsLeaf && editorBlocksChange(state, plan.anchorId)) return EDITOR_OPEN_TOAST;
+  return null;
 }
 
 /** The part Space continues from: the focused part, or `null` on an empty
