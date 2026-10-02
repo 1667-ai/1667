@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0-beta.6 - 2026-10-02
+
+- **The desktop app is removed.** Use `1667 web` to write in a browser on your
+  computer.
+
 - **`1667 web` is a new, experimental command.** It opens your project and
   serves a page on your computer only. The page shows your Library. You can
   create a story, rename a story, and delete a story. You can pick a light
