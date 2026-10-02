@@ -1,9 +1,8 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import { textHash, type StoryApi } from "../../../client/api.js";
-import { isExplicitMutationUnsent } from "../../../client/api-error.js";
-import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
+import { outcomeUnknown } from "../app/story-mutation.js";
 
 /**
  * The editor's API calls, with the conflict and unknown-outcome handling the
@@ -64,22 +63,6 @@ type Resolution =
   | { readonly kind: "unresolved" };
 
 const CONFLICT_CODES: ReadonlySet<string | null> = new Set(["conflict", "revision_conflict"]);
-
-/** A failure that does not say whether the change was applied: the bridge
- * says the outcome is uncertain, the transport was lost, or the server says
- * so. This is checked before anything else: a bridge failure with an
- * uncertain outcome still carries a structured envelope, but that envelope is
- * not a verdict on the mutation. A plain structured failure is a verdict; an
- * unsent mutation is a verdict too. */
-function outcomeUnknown(error: unknown): boolean {
-  if (error instanceof WebBridgeTransportError && error.mutationOutcome === "uncertain") return true;
-  if (apiErrorCode(error) === "mutation_outcome_unknown") return true;
-  if (isExplicitMutationUnsent(error)) return false;
-  const structured = typeof error === "object" && error !== null
-    && typeof (error as { failure?: unknown }).failure === "object"
-    && (error as { failure?: unknown }).failure !== null;
-  return !structured;
-}
 
 export async function saveEditor(api: StoryApi, request: EditorSaveRequest): Promise<EditorSaveOutcome> {
   try {

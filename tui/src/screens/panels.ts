@@ -23,8 +23,8 @@ import { currentPartActions } from "../story-actions.js";
 import { generationBusy } from "../generation-action.js";
 import { availableTextActions, TEXT_ACTIONS } from "../text-actions.js";
 import { deriveSummaryProgress } from "../summary-model.js";
-import { chapterDisplayTitle,
-  chapterListModel, chapterWindow } from "../chapter-model.js";
+import { chapterDisplayTitle } from "../../../shared/chapter-labels.js";
+import { chapterListModel, chapterWindow } from "../chapter-model.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../model.js";
 import { formatTokensScaled, formatTokensEstimate } from "../rail.js";
 import type { RequestTokenEstimate } from "../request-projection.js";

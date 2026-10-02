@@ -1,6 +1,7 @@
 import { formatTokensEstimate } from "./rail.js";
 import { type ResolvedKey } from "./keys.js";
-import { chapterListModel, chapterWord } from "./chapter-model.js";
+import { chapterWord } from "../../shared/chapter-labels.js";
+import { chapterListModel } from "./chapter-model.js";
 import {
   chapterForRow,
   createStoryViewModel,

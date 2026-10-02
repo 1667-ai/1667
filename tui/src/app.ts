@@ -27,7 +27,7 @@ import { captureMouseActionState } from "./mouse-actions.js";
 import { createInteractiveInputAdmission } from "./interactive-input-admission.js";
 import { createStoryViewModel, lastPartRowIndex, rowIndexForPathIndex } from "./model.js";
 import { resolveApparatusKey } from "./apparatus-key.js";
-import { chapterWord } from "./chapter-model.js";
+import { chapterWord } from "../../shared/chapter-labels.js";
 import { openingFocusIndex, readingPartIdFor, type ReadingPositions } from "./reading-position.js";
 import { bindLiveReadingPositionState } from "./reading-position-persist.js";
 import { handleOverlayAction } from "./overlay-actions.js";
