@@ -164,6 +164,8 @@ test("case 3: a change made elsewhere shows a toast, keeps the typed text, and t
   expect(await editorProse(page, 2).inputValue()).toBe("B: my version.");
 
   await page.getByRole("button", { name: "Save in place" }).click();
+  // The open editor already holds the typed text: wait for it to close.
+  await waitForCount(editorProse(page, 2), 0);
   await waitForCount(part(page, "B: my version."), 1);
   const saved = await seeded.api.loadStory(seeded.storyId);
   expect(saved.path[1]!.text).toBe("B: my version.");
@@ -233,6 +235,9 @@ test("case 6: w on an empty story writes part 1", async () => {
   await box.fill("In the beginning.");
   await page.getByRole("button", { name: "Save", exact: true }).click();
 
+  // The open editor is itself a part that holds the typed text, so only its
+  // close shows that the save is done.
+  await waitForCount(box, 0);
   await waitForCount(part(page, "In the beginning."), 1);
   const saved = await api.loadStory(created.id);
   expect(saved.path).toHaveLength(1);
