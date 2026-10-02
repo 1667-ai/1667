@@ -25,6 +25,9 @@ export function handleStructureKey(
       if (partId === null) return false;
       actions.part.run("end-chapter", partId);
       return true;
+    case "undo":
+      void actions.chapters.undo();
+      return true;
     default:
       return false;
   }

@@ -2,7 +2,9 @@ import { apiErrorCode, isExplicitMutationUnsent } from "../../../client/api-erro
 import type { StoryApi } from "../../../client/api.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { STORY_RELOADED_TOAST } from "../story/actions.js";
 import { retryWhenBusy } from "./busy-retry.js";
+import { errorMessage } from "./toasts.js";
 
 /**
  * One story change with the conflict and unknown-outcome handling every
@@ -62,4 +64,17 @@ export async function runStoryMutation<R extends object>(
     if (found !== null) return { kind: "saved", payload: reloaded, value: found, reconciled: true };
     return { kind: "failed", payload: reloaded, error };
   }
+}
+
+/** What to tell the writer after a mutation that did not go through. A
+ * conflict names the reload; a lost answer says so; the rest name the cause.
+ * `kept` is appended, e.g. " Draft kept." */
+export function failureToast(
+  outcome: Exclude<StoryMutationOutcome<object>, { readonly kind: "saved" }>,
+  what: string,
+  kept = ""
+): string {
+  if (outcome.kind === "conflict") return `${STORY_RELOADED_TOAST}${kept}`;
+  if (outcome.kind === "unresolved") return `Could not check whether ${what} went through. Try again.${kept}`;
+  return `${what} failed: ${errorMessage(outcome.error)}${kept}`;
 }

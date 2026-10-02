@@ -88,3 +88,24 @@
 }
 .chapter-title.untitled { color: var(--dim); font-size: var(--fs-body); font-style: italic; font-weight: 400; }
 .chapter-divider-meta { color: var(--dim); font: var(--font-meta); margin-top: var(--s-1); }
+
+/* ---------- chapter controls (#409 step 7a) ---------- */
+.chapter-title-button {
+  background: transparent; border: 0; border-radius: var(--r-sm); cursor: pointer;
+  display: inline-block; max-width: 100%; padding: 0 var(--s-2); text-align: inherit;
+  transition: background 120ms ease;
+}
+.chapter-title-button:hover { background: var(--row-hover); }
+.chapter-one-title {
+  background: transparent; border: 0; border-radius: var(--r-sm); color: var(--dim); cursor: pointer;
+  font: var(--font-meta); letter-spacing: var(--ls-label); padding: var(--s-1) var(--s-2); text-transform: uppercase;
+}
+.chapter-one-title:hover { background: var(--row-hover); }
+.chapter-title-input {
+  background: var(--surface); border: var(--border); border-radius: var(--r-md); color: var(--ink);
+  font-family: var(--serif); font-size: var(--fs-title); height: var(--btn-lg); max-width: 100%; outline: none;
+  padding: 0 var(--s-3); text-align: center; transition: border-color 120ms ease, box-shadow 120ms ease; width: 28ch;
+}
+.chapter-title-input:focus { border-color: var(--accent); box-shadow: var(--focus); }
+.chapter-menu { position: absolute; right: 0; top: var(--s-2); }
+.chapter-menu-popover { right: 0; top: calc(100% + var(--s-1)); }

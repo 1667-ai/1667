@@ -4,6 +4,7 @@ import type { ComposeActions } from "../compose/actions.js";
 import { focusComposer } from "../compose/dom.js";
 import type { EditorActions } from "../editor/actions.js";
 import type { GenerationActions } from "../generation/actions.js";
+import type { ChapterActions } from "../chapters/actions.js";
 import type { TagsActions } from "../tags/actions.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import type { AppState } from "../app/state.js";
@@ -20,6 +21,7 @@ export interface PartCommandDependencies {
   readonly compose: Pick<ComposeActions, "startRetake">;
   readonly editor: Pick<EditorActions, "openEdit" | "openWrite">;
   readonly tags: Pick<TagsActions, "openForPart">;
+  readonly chapters: Pick<ChapterActions, "addBreak">;
 }
 
 export interface PartCommands {
@@ -74,6 +76,7 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       case "edit": deps.editor.openEdit(partId); break;
       case "prune": askDelete(partId); break;
       case "tag": deps.tags.openForPart(partId); break;
+      case "end-chapter": void deps.chapters.addBreak(partId); break;
       default: break;
     }
   }

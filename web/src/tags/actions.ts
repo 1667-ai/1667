@@ -2,10 +2,10 @@ import { apiErrorCode } from "../../../client/api-error.js";
 import { rememberedLeafId } from "../../../shared/story-model.js";
 import type { StoryPayload, TagStatus } from "../../../shared/types.js";
 import type { AppState } from "../app/state.js";
-import { runStoryMutation, type StoryMutationOutcome } from "../app/story-mutation.js";
+import { failureToast, runStoryMutation, type StoryMutationOutcome } from "../app/story-mutation.js";
 import type { Store } from "../app/store.js";
-import { errorMessage, pushToast } from "../app/toasts.js";
-import { STORY_RELOADED_TOAST, type StoryActions } from "../story/actions.js";
+import { pushToast } from "../app/toasts.js";
+import type { StoryActions } from "../story/actions.js";
 import { openPart } from "../story/state.js";
 import { storyChangeRefusal } from "../story/story-policy.js";
 import { stillLineEnd, tagDraftKey, tagDraftOf, tagOf, type TagDraft, type TagsState } from "./state.js";
@@ -30,8 +30,6 @@ export interface TagsActions {
 
 export const NAME_REQUIRED_TOAST = "Name the line first. Draft kept.";
 export const LINE_CHANGED_TOAST = "That line changed. Open the tag again.";
-
-const ANSWER_LOST_TOAST = "Could not check whether the tag went through. Try again.";
 
 type Loaded = { readonly storyId: string; readonly payload: StoryPayload };
 
@@ -70,9 +68,7 @@ export function createTagActions(store: Store<AppState>, deps: TagActionDependen
     kept: string
   ): void {
     if (outcome.kind !== "unresolved" && outcome.payload !== null) deps.story.adoptPayload(storyId, outcome.payload);
-    if (outcome.kind === "conflict") pushToast(store, `${STORY_RELOADED_TOAST}${kept}`);
-    else if (outcome.kind === "unresolved") pushToast(store, ANSWER_LOST_TOAST);
-    else pushToast(store, `${what} failed: ${errorMessage(outcome.error)}${kept}`);
+    pushToast(store, failureToast(outcome, what, kept));
   }
 
   async function save(): Promise<void> {
@@ -109,7 +105,7 @@ export function createTagActions(store: Store<AppState>, deps: TagActionDependen
     );
     write((tags) => ({ ...tags, busy: false }));
     if (outcome.kind !== "saved") {
-      settleFailure(storyId, outcome, "Tag", " Draft kept.");
+      settleFailure(storyId, outcome, "Saving the tag", " Draft kept.");
       return;
     }
     const announcement = `Tagged line “${name}”.`;
@@ -148,7 +144,7 @@ export function createTagActions(store: Store<AppState>, deps: TagActionDependen
       payload = outcome.payload;
     }
     if (payload === null) {
-      if (outcome.kind !== "saved") settleFailure(storyId, outcome, "Remove tag", "");
+      if (outcome.kind !== "saved") settleFailure(storyId, outcome, "Removing the tag", "");
       return;
     }
     const announcement = "Tag removed.";

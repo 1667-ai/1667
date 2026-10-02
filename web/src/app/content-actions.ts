@@ -3,6 +3,7 @@ import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
 import { createLibraryActions, type LibraryActions } from "../library/actions.js";
+import { createChapterActions, type ChapterActions } from "../chapters/actions.js";
 import { createTagActions, type TagsActions } from "../tags/actions.js";
 import { createStoryActions, type StoryActions } from "../story/actions.js";
 import { createPartCommands, type PartCommands } from "../story/part-commands.js";
@@ -18,6 +19,7 @@ export interface ContentActions {
   readonly compose: ComposeActions;
   readonly editor: EditorActions;
   readonly tags: TagsActions;
+  readonly chapters: ChapterActions;
 }
 
 /**
@@ -55,7 +57,8 @@ export function createContentActions(
   const compose = createComposeActions(store, { story, generation });
   const editor = createEditorActions(store, { story });
   const tags = createTagActions(store, { story });
-  const part = createPartCommands(store, { story, generation, compose, editor, tags });
-  return { library, story, generation, part, compose, editor, tags };
+  const chapters = createChapterActions(store, { story });
+  const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters });
+  return { library, story, generation, part, compose, editor, tags, chapters };
 }
 

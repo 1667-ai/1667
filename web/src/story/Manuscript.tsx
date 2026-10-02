@@ -70,7 +70,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
 
   return (
     <ol className="manuscript" aria-label="Manuscript">
-      <ChapterOneHeading chapters={model.chapters} />
+      <ChapterOneHeading storyId={payload.id} chapters={model.chapters} />
       {rows.map((row) => {
         if (row.kind === "part") {
           const isSwitchingAnchor = switching !== null && row.id === switching.partId;
@@ -95,7 +95,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
             />
           );
         }
-        if (row.kind === "chapter-divider") return <ChapterDivider key={row.id} row={row} />;
+        if (row.kind === "chapter-divider") return <ChapterDivider key={row.id} storyId={payload.id} row={row} />;
         return <ChapterSummaryCard key={row.id} row={row} />;
       })}
       {generation !== null && generation.mode === "take" && (
