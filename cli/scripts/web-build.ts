@@ -91,13 +91,26 @@ function packageNameFromModuleId(moduleId: string): string | null {
   return first;
 }
 
+/** The mode of every build here. `bun test` sets `NODE_ENV=test`, which would
+ * otherwise bundle React's slow development build into the served app. */
+export const WEB_BUILD_MODE = "production";
+
 export async function buildWebAssetsWithVite(): Promise<WebBuildResult> {
   const { build } = await import("vite");
-  const result = await build({
-    configFile,
-    build: { write: false },
-    logLevel: "warn"
-  }) as ViteBuildOutput | readonly ViteBuildOutput[];
+  const previousNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = WEB_BUILD_MODE;
+  let result: ViteBuildOutput | readonly ViteBuildOutput[];
+  try {
+    result = await build({
+      configFile,
+      mode: WEB_BUILD_MODE,
+      build: { write: false },
+      logLevel: "warn"
+    }) as ViteBuildOutput | readonly ViteBuildOutput[];
+  } finally {
+    if (previousNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = previousNodeEnv;
+  }
   const results: readonly ViteBuildOutput[] = Array.isArray(result) ? result : [result];
   const outputs = results.flatMap((one) => one.output);
 
