@@ -35,8 +35,12 @@ export function routeHash(route: Route): string {
   return `${STORY_PREFIX}${encodeURIComponent(route.id)}${route.map === true ? MAP_SUFFIX : ""}`;
 }
 
-export function navigate(route: Route): void {
-  location.hash = routeHash(route);
+/** Goes to `route` as a new history entry, so Back returns here. `replace`
+ * swaps the current entry instead (for a page that is gone, like a deleted
+ * story, which Back must not show again). */
+export function navigate(route: Route, options: { readonly replace?: boolean } = {}): void {
+  if (options.replace === true) location.replace(routeHash(route));
+  else location.hash = routeHash(route);
 }
 
 /** The story whose map this tab opened from the story's own page: the history
@@ -57,7 +61,7 @@ export function closeMap(storyId: string): void {
     history.back();
     return;
   }
-  location.replace(routeHash({ kind: "story", id: storyId }));
+  navigate({ kind: "story", id: storyId }, { replace: true });
 }
 
 export function listenForRouteChanges(onChange: (route: Route) => void): () => void {
