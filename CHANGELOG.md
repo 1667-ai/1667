@@ -5,14 +5,7 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **`1667 web` is faster on slow devices and slow connections.** A slow
-  browser no longer stops a generation. The host holds the text until the
-  browser is ready. A large story responds faster when you move between parts.
-  The browser keeps the app files, and the host compresses the scripts and
-  styles. A source run always serves the production build of the app.
-
-- **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same
-  thing.
+## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line
   and give it a status. Press `C` to end a chapter at a part. Press `c` to open
@@ -33,6 +26,18 @@ This file records notable changes to 1667. Product terms use the definitions in
   the part menu to start a fact at a part, add a fact state, end a fact, or make
   a fact from the text that you select. A diamond mark in a part header shows
   that fact states start at that part.
+
+- **The Back and Forward buttons of the browser move between pages.** Use
+  them to move between the Library, a story, and the map of a story.
+
+- **`1667 web` is faster on slow devices and slow connections.** A slow
+  browser no longer stops a generation. The host holds the text until the
+  browser is ready. A large story responds faster when you move between parts.
+  The browser keeps the app files, and the host compresses the scripts and
+  styles. A source run always serves the production build of the app.
+
+- **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same
+  thing.
 
 ## 0.11.0-beta.6 - 2026-10-02
 
