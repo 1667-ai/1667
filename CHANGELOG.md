@@ -8,6 +8,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same
   thing.
 
+- **`1667 web` can tag a line and manage chapters.** Press `t` to name a line
+  and give it a status. Press `C` to end a chapter at a part. Press `c` to open
+  the chapters panel. You can rename a chapter, remove a chapter break, and
+  write, refresh, or edit a chapter summary. Press `u` to undo a chapter break
+  change.
+
 ## 0.11.0-beta.6 - 2026-10-02
 
 - **The desktop app is removed.** Use `1667 web` to write in a browser on your
