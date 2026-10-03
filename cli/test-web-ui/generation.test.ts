@@ -798,3 +798,38 @@ test("case 18: two tabs can write into the same story concurrently — neither "
   await pageA.keyboard.press("Escape");
   await waitForCount(continueButton(pageA), 1, 6_000);
 }, 30_000);
+
+test("case 19: a slow browser never stops a generation — the main thread is "
+  + "blocked several times mid-stream and the full text still lands, saved, "
+  + "with no Not saved toast", async () => {
+  const project = await scratchProject();
+  const web = await spawnGenWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Slow Browser Story");
+  await api.createNode(created.id, { text: "The opening line.", parentId: null });
+
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, created.id);
+  await page.getByRole("heading", { name: "Slow Browser Story" }).waitFor();
+  await waitForCount(page.locator(".part"), 1);
+
+  await continueButton(page).click();
+  await waitForCount(caret(page), 1);
+  // Each block is far longer than the host's credit window of 8 batches.
+  for (let i = 0; i < 3; i++) {
+    await page.evaluate(() => {
+      const end = performance.now() + 600;
+      while (performance.now() < end) { /* hold the main thread */ }
+    });
+    await page.waitForTimeout(150);
+  }
+
+  await waitForCount(continueButton(page), 1, 20_000);
+
+  const onScreen = await proseText(part(page, "The opening line."));
+  expect(onScreen).toContain("story will continue in earnest from exactly this point.");
+  expect(await page.getByText("Not saved").count()).toBe(0);
+
+  const inspected = await api.loadStory(created.id);
+  expect(inspected.path.at(-1)!.text).toBe(onScreen);
+}, 60_000);

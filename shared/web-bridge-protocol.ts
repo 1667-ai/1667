@@ -16,6 +16,7 @@ import {
 } from "./story-aggregate-version.js";
 import {
   MAX_UNACKNOWLEDGED_DELTA_BATCHES,
+  MAX_UNACKNOWLEDGED_DELTA_BYTES,
   isWorkerOperationId,
   isWorkerMethod,
   workerOperationKey,
@@ -40,6 +41,9 @@ export const WEB_BRIDGE_PATH = "/api/bridge";
 
 /** Keep the browser-facing credit window equal to the Worker-facing bound. */
 export const WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES = MAX_UNACKNOWLEDGED_DELTA_BATCHES;
+
+/** The most text the Host holds for a slow browser before it stops the run. */
+export const WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BYTES = MAX_UNACKNOWLEDGED_DELTA_BYTES;
 
 /** Correlation exists only until the Host allocates a worker-shaped id. */
 export type BridgeCallId = string;

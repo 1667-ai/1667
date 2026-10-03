@@ -4,6 +4,7 @@ import {
 } from "../shared/failure-envelope.js";
 import {
   WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES,
+  WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BYTES,
   decodeBridgeClientMessage,
   decodeBridgeMessageText,
   encodeBridgeMessage,
@@ -47,6 +48,13 @@ interface ActiveRequest {
   nextSequence: number;
   terminal: boolean;
   stoppedText: string;
+  /** Text held back while the delta credit window is full. Reasoning always
+   * precedes prose, as it does in the live stream. */
+  heldReasoning: string;
+  heldReasoningTokens: number;
+  heldProse: string;
+  /** Fires when the browser sends no ack for too long while text is held. */
+  stallTimer: ReturnType<typeof setTimeout> | null;
   terminalTimer: ReturnType<typeof setTimeout> | null;
 }
 
@@ -137,6 +145,7 @@ export class WebBridge {
     this.activeByCall.forEach((request) => {
       request.controller.abort();
       if (request.terminalTimer !== null) clearTimeout(request.terminalTimer);
+      clearStallTimer(request);
     });
     this.activeByCall.clear();
     this.activeByOperation.clear();
@@ -192,6 +201,10 @@ export class WebBridge {
       nextSequence: 0,
       terminal: false,
       stoppedText: "",
+      heldReasoning: "",
+      heldReasoningTokens: 0,
+      heldProse: "",
+      stallTimer: null,
       terminalTimer: null
     };
     this.activeByCall.set(message.callId, request);
@@ -258,35 +271,90 @@ export class WebBridge {
   }
 
   private sendDelta(request: ActiveRequest, text: string): void {
-    const id = request.id;
-    if (id === undefined) return;
-    if (request.unacknowledged.size >= WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES) {
-      request.controller.abort();
-      request.stoppedText += text;
-      return;
-    }
-    const sequence = request.nextSequence++;
-    request.unacknowledged.add(sequence);
-    this.post({ type: "delta", id, sequence, text });
+    if (request.id === undefined) return;
+    request.heldProse += text;
+    this.flushHeld(request);
   }
 
   private sendReasoningDelta(request: ActiveRequest, delta: ReasoningDelta): void {
+    if (request.id === undefined) return;
+    // Reasoning always arrives before prose; once prose is held, later
+    // reasoning keeps its place behind it only by being sent after it, so
+    // flush order is reasoning first. That matches the live stream.
+    request.heldReasoning += delta.text;
+    request.heldReasoningTokens = delta.tokenCount;
+    this.flushHeld(request);
+  }
+
+  /** Send held text while delta credit is free. A slow browser delays the
+   * text; it never loses it. */
+  private flushHeld(request: ActiveRequest, force = false): void {
     const id = request.id;
     if (id === undefined) return;
-    if (request.unacknowledged.size >= WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES) {
-      request.controller.abort();
-      this.sendReasoningStopped(request, delta.text);
+    for (;;) {
+      if (!force
+        && request.unacknowledged.size >= WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES) {
+        break;
+      }
+      if (request.heldReasoning.length > 0) {
+        const sequence = request.nextSequence++;
+        request.unacknowledged.add(sequence);
+        const text = request.heldReasoning;
+        request.heldReasoning = "";
+        this.post({
+          type: "delta",
+          id,
+          sequence,
+          text,
+          reasoning: { tokenCount: request.heldReasoningTokens }
+        });
+        continue;
+      }
+      if (request.heldProse.length > 0) {
+        const sequence = request.nextSequence++;
+        request.unacknowledged.add(sequence);
+        const text = request.heldProse;
+        request.heldProse = "";
+        this.post({ type: "delta", id, sequence, text });
+        continue;
+      }
+      break;
+    }
+    this.guardLiveness(request);
+  }
+
+  /** The abort is only a liveness guard: a browser that holds too much text
+   * unsent, or that does not acknowledge anything for a long time. */
+  private guardLiveness(request: ActiveRequest): void {
+    const held = request.heldReasoning.length + request.heldProse.length;
+    if (held === 0) {
+      clearStallTimer(request);
       return;
     }
-    const sequence = request.nextSequence++;
-    request.unacknowledged.add(sequence);
-    this.post({
-      type: "delta",
-      id,
-      sequence,
-      text: delta.text,
-      reasoning: { tokenCount: delta.tokenCount }
-    });
+    const heldBytes = new TextEncoder().encode(request.heldReasoning + request.heldProse).byteLength;
+    if (heldBytes > WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BYTES) {
+      this.abortStalled(request);
+      return;
+    }
+    if (request.stallTimer === null) {
+      request.stallTimer = setTimeout(
+        () => this.abortStalled(request),
+        WEB_BRIDGE_ACK_STALL_MS
+      );
+    }
+  }
+
+  private abortStalled(request: ActiveRequest): void {
+    clearStallTimer(request);
+    if (request.terminal) return;
+    // The browser is gone or hung. Keep the text for the stopped result.
+    request.stoppedText += request.heldProse;
+    request.heldProse = "";
+    if (request.heldReasoning.length > 0) {
+      this.sendReasoningStopped(request, request.heldReasoning);
+    }
+    request.heldReasoning = "";
+    request.controller.abort();
   }
 
   private sendReasoningStopped(request: ActiveRequest, text: string): void {
@@ -300,7 +368,10 @@ export class WebBridge {
     if (request === undefined || request.terminal) return;
     if (!request.unacknowledged.delete(sequence)) {
       this.protocolError("1667 web: the browser acknowledged an unknown delta.");
+      return;
     }
+    clearStallTimer(request);
+    this.flushHeld(request);
   }
 
   private sendTerminal(
@@ -308,6 +379,9 @@ export class WebBridge {
     message: Extract<BridgeHostMessage, { type: "result" | "complete" | "error" }>
   ): void {
     if (this.closed || request.terminal || request.id === undefined) return;
+    // The client must have all the text before the terminal frame.
+    this.flushHeld(request, true);
+    clearStallTimer(request);
     request.terminal = true;
     this.post(message);
     request.terminalTimer = setTimeout(() => {
@@ -357,6 +431,17 @@ export class WebBridge {
     } catch {
       this.close();
     }
+  }
+}
+
+/** No acknowledgement for this long, with text held back, means the browser
+ * is hung or gone. A throttled but live tab acknowledges far sooner. */
+const WEB_BRIDGE_ACK_STALL_MS = 30_000;
+
+function clearStallTimer(request: ActiveRequest): void {
+  if (request.stallTimer !== null) {
+    clearTimeout(request.stallTimer);
+    request.stallTimer = null;
   }
 }
 

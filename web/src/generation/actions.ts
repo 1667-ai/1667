@@ -146,6 +146,16 @@ interface Admission {
   readonly plan: GenerationPlan;
 }
 
+/** The text of a failure, or "" when there is none (a run that stopped with
+ * no error at all must not show the word "null"). */
+function failureText(error: unknown): string {
+  return error === null || error === undefined ? "" : errorMessage(error);
+}
+
+function notSavedToast(message: string): string {
+  return message.length === 0 ? "Not saved" : `Not saved: ${message}`;
+}
+
 function continueTargetOf(target: GenerationTarget): ContinueTarget {
   return target.mode === "append"
     ? { appendTo: target.appendTo, expectedTextHash: target.expectedTextHash }
@@ -311,8 +321,8 @@ export function createGenerationActions(
     // reachable (Copy/Discard) rather than lose it — decision 3, generalized
     // from "connection lost" to any commit failure, timeout-class or not.
     if (outcome.payload !== null) deps.adoptPayload(run.storyId, outcome.payload);
-    endRun(run, "unsaved", errorMessage(outcome.error));
-    pushToast(store, `Not saved: ${run.message}`);
+    endRun(run, "unsaved", failureText(outcome.error));
+    pushToast(store, notSavedToast(run.message));
   }
 
   async function settleStopped(run: ActiveRun, failureMessage: string | null): Promise<void> {
@@ -376,7 +386,7 @@ export function createGenerationActions(
 
     const disposition = stoppedTextDisposition(error);
     if (disposition === "save") {
-      await settleStopped(run, errorMessage(error));
+      await settleStopped(run, failureText(error) || null);
       return;
     }
     if (disposition === "keep-unsaved" && run.buffer.text.trim().length > 0) {
@@ -386,8 +396,8 @@ export function createGenerationActions(
       // `stoppedTextDisposition`'s own doc). Show the same "Not saved" card
       // a failed save leaves behind, rather than attempting a commit that
       // cannot succeed or silently losing real prose.
-      endRun(run, "unsaved", errorMessage(error));
-      pushToast(store, `Not saved: ${run.message}`);
+      endRun(run, "unsaved", failureText(error));
+      pushToast(store, notSavedToast(run.message));
       return;
     }
 
