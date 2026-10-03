@@ -64,7 +64,7 @@ export function createContentActions(
   const chapters = createChapterActions(store, { story });
   const panel = createPanelActions(store);
   const facts = createFactActions(store, { story, panel });
-  const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters });
+  const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
   return { library, story, generation, part, compose, editor, tags, chapters, panel, facts };
 }
 

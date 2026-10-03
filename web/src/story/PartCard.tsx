@@ -10,6 +10,7 @@ import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
 import { PartActionsMenu } from "./PartActionsMenu.js";
+import { FactAnchorMark } from "./FactAnchorMark.js";
 import { Prose } from "./Prose.js";
 import { SummaryBody } from "./SummaryBody.js";
 import { TakePeek } from "./TakePeek.js";
@@ -251,6 +252,7 @@ function PartCardImpl({
               </span>
             </>
           )}
+          <FactAnchorMark payload={payload} partId={part.id} />
           <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
         {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}

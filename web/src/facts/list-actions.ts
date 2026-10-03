@@ -7,11 +7,11 @@ import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { failureToast, runStoryMutation, type StoryMutationOutcome } from "../app/story-mutation.js";
 import { pushToast } from "../app/toasts.js";
+import type { PanelActions } from "../panel/actions.js";
 import type { StoryActions } from "../story/actions.js";
 import { storyChangeRefusal } from "../story/story-policy.js";
 import { loadedStory, type FactEditorActions } from "./actions.js";
-import { STATES_UNAVAILABLE_TOAST } from "./save.js";
-import { factEditorDirty, type FactsFilter, type FactsState } from "./state.js";
+import { factEditorDirty, STATES_UNAVAILABLE_TOAST, type FactsFilter, type FactsState } from "./state.js";
 
 export interface FactListActions {
   setFilter(change: Partial<FactsFilter>): void;
@@ -26,15 +26,21 @@ export interface FactListActions {
    * the fact in the panel next. */
   startPick(action: "new-state" | "end", partId: string): void;
   cancelPick(): void;
+  /** The ◆ mark: opens Facts filtered to the facts with a state at this part. */
+  showAnchored(partId: string): void;
   /** The pick: finishes the action on this fact. */
   pickFact(factId: string): Promise<void>;
 }
 
-export const CLEAR_FILTER_TO_REORDER_TOAST = "Clear the scope, tag and filter to reorder facts.";
+export const CLEAR_FILTER_TO_REORDER_TOAST = "Clear the filters to reorder facts.";
 
 export function createFactListActions(
   store: Store<AppState>,
-  deps: { readonly story: Pick<StoryActions, "adoptPayload">; readonly editor: FactEditorActions }
+  deps: {
+    readonly story: Pick<StoryActions, "adoptPayload">;
+    readonly editor: FactEditorActions;
+    readonly panel: Pick<PanelActions, "open">;
+  }
 ): FactListActions {
   const writeFacts = (change: (facts: FactsState) => FactsState): void =>
     store.set((state) => {
@@ -178,6 +184,11 @@ export function createFactListActions(
       const loaded = loadedStory(store.get());
       if (loaded === null) return;
       writeFacts((facts) => ({ ...facts, pick: { storyId: loaded.storyId, action, partId } }));
+    },
+
+    showAnchored: (partId) => {
+      writeFacts((facts) => ({ ...facts, filter: { scope: "everywhere", tag: null, query: "", anchorPartId: partId } }));
+      deps.panel.open("facts");
     },
 
     cancelPick: () => writeFacts((facts) => (facts.pick === null ? facts : { ...facts, pick: null })),

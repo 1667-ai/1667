@@ -8,6 +8,6 @@ export type FactActions = FactEditorActions & FactListActions;
 /** The Facts view's actions: the editor's and the list's, as one object. */
 export function createFactActions(store: Store<AppState>, deps: FactEditorActionDependencies): FactActions {
   const editor = createFactEditorActions(store, deps);
-  const list = createFactListActions(store, { story: deps.story, editor });
+  const list = createFactListActions(store, { story: deps.story, editor, panel: deps.panel });
   return { ...editor, ...list };
 }

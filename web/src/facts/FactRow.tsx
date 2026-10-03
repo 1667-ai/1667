@@ -24,7 +24,7 @@ export function FactRow(
   const picking = useStore(store, (state) => state.facts.pick !== null);
   const pathIds = payload.path.map((node) => node.id);
   const projection = factPathProjection(fact, pathIds);
-  const scope = factScopeLabel(fact, pathIds, payload.path, projection);
+  const scope = factScopeLabel(fact, pathIds, [], projection);
   const glyph = factPriorityGlyph(fact.priority);
   const body = factBody(fact, pathIds, projection);
 

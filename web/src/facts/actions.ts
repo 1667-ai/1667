@@ -21,8 +21,8 @@ import {
   type FactFormField
 } from "./form.js";
 import { editorOnFact, editorOnNewFact, editorOnNewState, editorOnState, formOfFactState } from "./open.js";
-import { createdFact, runFactSave, STATES_UNAVAILABLE_TOAST, type FactSaveRequest, type FactSaveValue } from "./save.js";
-import { factEditorDirty, type FactEditor, type FactsState } from "./state.js";
+import { createdFact, runFactSave, type FactSaveRequest, type FactSaveValue } from "./save.js";
+import { factEditorDirty, STATES_UNAVAILABLE_TOAST, type FactEditor, type FactsState } from "./state.js";
 
 export interface FactEditorActionDependencies {
   readonly story: Pick<StoryActions, "adoptPayload">;

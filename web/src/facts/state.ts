@@ -61,6 +61,8 @@ export interface FactsFilter {
   readonly scope: FactScopeFilter;
   readonly tag: string | null;
   readonly query: string;
+  /** Only the facts with a state at this part (the ◆ mark's filter). */
+  readonly anchorPartId: string | null;
 }
 
 /** A part-menu action that needs a fact: the panel lists the facts and the
@@ -79,8 +81,10 @@ export interface FactsState {
   readonly busy: boolean;
 }
 
+export const STATES_UNAVAILABLE_TOAST = "Fact states need a newer backend.";
+
 export function initialFactsState(): FactsState {
-  return { filter: { scope: "everywhere", tag: null, query: "" }, editor: null, pick: null, busy: false };
+  return { filter: { scope: "everywhere", tag: null, query: "", anchorPartId: null }, editor: null, pick: null, busy: false };
 }
 
 /** True when the writer has typed something that closing would throw away. */

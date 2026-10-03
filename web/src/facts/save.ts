@@ -43,8 +43,6 @@ export interface FactSaveValue {
   readonly stateId: string | null;
 }
 
-export const STATES_UNAVAILABLE_TOAST = "Fact states need a newer backend.";
-
 /** Whether `fact` holds a state like the one `body` describes, not among the
  * known ones. */
 function newStateOf(fact: StoryFact, body: FactStateInput, known: ReadonlySet<string>): FactState | undefined {

@@ -63,3 +63,12 @@
 
 .facts-editor .seg { display: flex; }
 .facts-editor .seg-btn { flex: 1; }
+
+/* The ◆ in a part's header. */
+.fact-mark {
+  align-items: center; background: transparent; border: 0; border-radius: var(--r-pill); color: var(--accent);
+  cursor: pointer; display: inline-flex; flex: none; font: var(--font-meta); gap: var(--s-1); height: var(--hit);
+  padding: 0 var(--s-2); transition: background 120ms ease;
+}
+.fact-mark:hover { background: var(--accent-soft); }
+.fact-mark svg { height: var(--icon-sm); width: var(--icon-sm); fill: currentColor; stroke: none; }

@@ -70,6 +70,19 @@ export function FactsPanel(
             </button>
           ))}
         </div>
+        {filter.anchorPartId !== null && (
+          <div className="facts-scopes">
+            <button
+              type="button"
+              className="chip-btn"
+              aria-pressed="true"
+              title="Show all facts again"
+              onClick={() => actions.facts.setFilter({ anchorPartId: null })}
+            >
+              At part {payload.path.findIndex((node) => node.id === filter.anchorPartId) + 1} ×
+            </button>
+          </div>
+        )}
         <div className="facts-filters">
           {tags.length > 0 && (
             <select
