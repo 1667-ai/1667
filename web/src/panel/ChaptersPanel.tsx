@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { chapterDisplayTitle, extentLabel } from "../../../shared/chapter-labels.js";
-import { createManuscriptModel, type StoryChapter } from "../../../shared/manuscript-model.js";
+import { type StoryChapter } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import { formatTokens } from "../../../shared/tokens.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
@@ -36,7 +37,7 @@ export function ChaptersPanel(
   const focusedPartId = useStore(store, (state) => (
     state.story.kind === "loaded" ? effectiveFocusedPartId(state.story) : null
   ));
-  const chapters = createManuscriptModel(payload).chapters;
+  const chapters = manuscriptModelOf(payload).chapters;
   const [selectedRow, setSelectedRow] = useState<HTMLElement | null>(null);
 
   useEffect(() => { selectedRow?.scrollIntoView({ block: "nearest" }); }, [selectedRow, cursor]);

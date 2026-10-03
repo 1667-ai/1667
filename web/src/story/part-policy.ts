@@ -1,6 +1,6 @@
 import { continuationIntent } from "../../../shared/continuation-intent.js";
 import { chapterWord } from "../../../shared/chapter-labels.js";
-import { createManuscriptModel } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "./manuscript-model.js";
 import type { PartActionId } from "../../../shared/part-actions.js";
 import { runBusyToast, storyRunLocked, lockedToast, STORY_LOCKED_TOAST, UNSAVED_TOAST } from "../app/run-lock.js";
 import type { AppState } from "../app/state.js";
@@ -204,7 +204,7 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
       return editor !== null && editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
     }
     case "end-chapter": {
-      const chapter = createManuscriptModel(story.payload).chapters.find((candidate) =>
+      const chapter = manuscriptModelOf(story.payload).chapters.find((candidate) =>
         candidate.closedBy?.parentPartId === partId);
       return chapter === undefined ? null : `Chapter ${chapterWord(chapter.number)} already ends here.`;
     }

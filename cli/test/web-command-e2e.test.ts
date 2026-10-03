@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import path from "node:path";
+import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import {
   cleanupWebProcesses,
   scratchProject,
@@ -70,7 +71,7 @@ test("the shell page and every hashed asset it references are public, "
     const asset = await fetch(`${web.origin}${assetPath}`);
     expect(asset.status).toBe(200);
     expect(asset.headers.get("content-type")).toBe(contentTypeForPath(assetPath));
-    assertSecurityHeaders(asset, web.port);
+    assertSecurityHeaders(asset, web.port, assetPath.startsWith("/assets/") ? IMMUTABLE : "no-store");
     if (assetPath.endsWith(".js")) {
       scriptBody = await asset.text();
     } else if (assetPath.endsWith(".css")) {
@@ -81,7 +82,7 @@ test("the shell page and every hashed asset it references are public, "
         const font = await fetch(`${web.origin}${fontPath}`);
         expect(font.status).toBe(200);
         expect(font.headers.get("content-type")).toBe("font/woff2");
-        assertSecurityHeaders(font, web.port);
+        assertSecurityHeaders(font, web.port, IMMUTABLE);
         // The woff2 binary magic number: proves the body traveled as bytes,
         // not mangled through a UTF-8 string somewhere on the way.
         const magic = Buffer.from(await font.arrayBuffer()).subarray(0, 4).toString("ascii");
@@ -98,6 +99,54 @@ test("the shell page and every hashed asset it references are public, "
   const unknown = await fetch(`${web.origin}/assets/does-not-exist.js`);
   expect(unknown.status).toBe(404);
 }, 30_000);
+
+test("hashed assets are cached for good and compressed on request; the shell page stays no-store", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const html = await (await fetch(`${web.origin}/`)).text();
+  const references = hashedAssetReferences(html);
+  const script = references.find((reference) => /^\/assets\/.+\.js$/.test(reference))!;
+  const stylesheet = references.find((reference) => reference.endsWith(".css"))!;
+
+  for (const assetPath of [script, stylesheet]) {
+    const plainResponse = await fetch(`${web.origin}${assetPath}`, { headers: { "accept-encoding": "identity" } });
+    expect(plainResponse.headers.get("content-encoding")).toBeNull();
+    expect(plainResponse.headers.get("vary")).toBe("accept-encoding");
+    const plain = Buffer.from(await plainResponse.arrayBuffer());
+
+    for (const encoding of ["gzip", "br"] as const) {
+      // Raw sockets: `fetch` would decode the body before the test sees it.
+      const raw = await rawGet(Number(web.port), assetPath, encoding);
+      expect(raw.head).toContain(`content-encoding: ${encoding}`);
+      expect(raw.head).toContain("vary: accept-encoding");
+      expect(raw.head).toContain(`cache-control: ${IMMUTABLE}`);
+      expect(raw.body.length).toBeLessThan(plain.length / 2);
+      const decoded = encoding === "gzip" ? gunzipSync(raw.body) : brotliDecompressSync(raw.body);
+      expect(decoded.equals(plain)).toBeTrue();
+    }
+  }
+
+  const font = cssAssetReferences(await (await fetch(`${web.origin}${stylesheet}`)).text())[0]!;
+  const fontResponse = await fetch(`${web.origin}${font}`, { headers: { "accept-encoding": "gzip, br" } });
+  expect(fontResponse.headers.get("content-encoding")).toBeNull();
+  expect(fontResponse.headers.get("cache-control")).toBe(IMMUTABLE);
+
+  const shell = await fetch(`${web.origin}/`, { headers: { "accept-encoding": "gzip, br" } });
+  expect(shell.headers.get("cache-control")).toBe("no-store");
+  const status = await fetch(`${web.origin}/api/status`);
+  expect(status.headers.get("cache-control")).toBe("no-store");
+}, 30_000);
+
+/** GET with a chosen `accept-encoding` over a plain socket, returning the
+ * response head text and the body bytes exactly as sent on the wire. */
+async function rawGet(port: number, assetPath: string, encoding: string): Promise<{ head: string; body: Buffer }> {
+  const response = await rawRequestBytes(
+    port,
+    `GET ${assetPath} HTTP/1.1\r\nHost: 127.0.0.1:${port}\r\nAccept-Encoding: ${encoding}\r\nConnection: close\r\n\r\n`
+  );
+  const split = response.indexOf("\r\n\r\n");
+  return { head: response.subarray(0, split).toString("latin1").toLowerCase(), body: response.subarray(split + 4) };
+}
 
 /** Every root-absolute `src`/`href` an HTML document references — the
  * script, stylesheet, and favicon tags. */
@@ -239,11 +288,13 @@ test("a port that is already taken fails, and the message suggests --port", asyn
   }
 }, 30_000);
 
-function assertSecurityHeaders(response: Response, port: string): void {
+const IMMUTABLE = "public, max-age=31536000, immutable";
+
+function assertSecurityHeaders(response: Response, port: string, cacheControl = "no-store"): void {
   expect(response.headers.get("content-security-policy")).toBe(csp(port));
   expect(response.headers.get("x-content-type-options")).toBe("nosniff");
   expect(response.headers.get("referrer-policy")).toBe("no-referrer");
-  expect(response.headers.get("cache-control")).toBe("no-store");
+  expect(response.headers.get("cache-control")).toBe(cacheControl);
   expect(response.headers.get("x-frame-options")).toBe("DENY");
 }
 
@@ -251,18 +302,22 @@ function assertSecurityHeaders(response: Response, port: string): void {
  * parsing, and return everything the server writes back before it closes
  * the connection. */
 async function rawRequest(port: number, raw: string): Promise<string> {
-  return await new Promise<string>((resolve, reject) => {
+  return (await rawRequestBytes(port, raw)).toString("utf8");
+}
+
+async function rawRequestBytes(port: number, raw: string): Promise<Buffer> {
+  return await new Promise<Buffer>((resolve, reject) => {
     const socket = connect({ host: "127.0.0.1", port });
     const chunks: Buffer[] = [];
     const timer = setTimeout(() => {
       socket.destroy();
-      resolve(Buffer.concat(chunks).toString("utf8"));
+      resolve(Buffer.concat(chunks));
     }, 5_000);
     socket.once("connect", () => socket.write(raw));
     socket.on("data", (chunk: Buffer) => chunks.push(chunk));
     socket.once("close", () => {
       clearTimeout(timer);
-      resolve(Buffer.concat(chunks).toString("utf8"));
+      resolve(Buffer.concat(chunks));
     });
     socket.once("error", (error) => {
       clearTimeout(timer);

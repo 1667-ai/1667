@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { createManuscriptModel, type StoryChapter } from "../../../shared/manuscript-model.js";
+import { type StoryChapter } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
@@ -65,17 +66,25 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
     if (requested === "chapters") {
       const story = store.get().story;
       const focusedId = story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
-      const here = createManuscriptModel(payload).parts.find((part) => part.id === focusedId)?.chapterNumber ?? 1;
+      const here = manuscriptModelOf(payload).parts.find((part) => part.id === focusedId)?.chapterNumber ?? 1;
       setCursor(Math.max(0, here - 1));
     }
-    asideRef.current?.focus();
+    // A text field inside the panel (the fact editor's name) already took the
+    // keyboard: a child's effect runs before this one, and the panel must not
+    // take it back. A clicked tab button keeps nothing: the panel's keys need
+    // the focus on the panel.
+    const aside = asideRef.current;
+    const active = document.activeElement;
+    const fieldInside = aside !== null && active !== null && aside.contains(active)
+      && active.matches("input, textarea, select, [contenteditable='true']");
+    if (aside !== null && !fieldInside) aside.focus();
     // Only when the view changes: a later change to the story must not move the row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested, openSerial]);
 
   if (view === null) return null;
   const hiddenByDock = requested === null;
-  const chapters = createManuscriptModel(payload).chapters;
+  const chapters = manuscriptModelOf(payload).chapters;
   const selected = chapters[Math.min(cursor, chapters.length - 1)];
 
   const close = (): void => {

@@ -1,3 +1,4 @@
+import { useMemo } from "react";
 import { countWords } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
@@ -24,7 +25,10 @@ export interface StoryHeaderProps {
 export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar, onOpenMap }: StoryHeaderProps) {
   const { store, actions } = useAppContext();
   const panelView = useStore(store, (state) => state.panel.view);
-  const words = payload.path.reduce((total, node) => total + countWords(node.text), 0);
+  const words = useMemo(
+    () => payload.path.reduce((total, node) => total + countWords(node.text), 0),
+    [payload]
+  );
 
   return (
     <header className="story-header">

@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` is faster on slow devices and slow connections.** A slow
+  browser no longer stops a generation. The host holds the text until the
+  browser is ready. A large story responds faster when you move between parts.
+  The browser keeps the app files, and the host compresses the scripts and
+  styles. A source run always serves the production build of the app.
+
 - **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same
   thing.
 

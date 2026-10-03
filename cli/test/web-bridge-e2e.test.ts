@@ -343,7 +343,7 @@ test("closing the socket after the first delta rejects the pending call; "
   }
 }, 30_000);
 
-test("a raw connection that never acks gets exactly 8 deltas, then a terminal, and no more", async () => {
+test("a raw connection that never acks gets 8 deltas, and the run still completes with every delta sent before the terminal", async () => {
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
   const setup = await openBridge(web);
@@ -385,20 +385,25 @@ test("a raw connection that never acks gets exactly 8 deltas, then a terminal, a
         target: { parentId }
       },
       expectedAggregateVersion: aggregateVersion
-      // Deliberately never sends "ack": the credit window is the only thing
-      // that can ever stop this stream's deltas.
+      // Deliberately never sends "ack": the credit window holds the text
+      // back, and the run must still finish without losing any of it.
     }));
-    await waitFor(
-      () => messages.filter((message) => message.type === "delta").length >= 8,
-      20_000
-    );
-    const deltaCount = messages.filter((message) => message.type === "delta").length;
-    expect(deltaCount).toBe(8);
     await waitFor(
       () => messages.some((message) => message.type === "complete" || message.type === "error"),
       20_000
     );
-    expect(messages.filter((message) => message.type === "delta").length).toBe(deltaCount);
+    const terminalIndex = messages.findIndex((message) => message.type === "complete" || message.type === "error");
+    const terminal = messages[terminalIndex] as { readonly type: string; readonly value?: unknown; readonly stoppedText?: string };
+    expect(terminal.type).toBe("complete");
+    expect(terminal.value).not.toBeNull();
+    expect(terminal.stoppedText).toBeUndefined();
+    const deltas = messages.filter((message) => message.type === "delta") as unknown as { readonly text: string; readonly reasoning?: unknown }[];
+    expect(deltas.length).toBeGreaterThanOrEqual(8);
+    // Every delta reaches the browser before the terminal frame.
+    expect(messages.slice(terminalIndex).some((message) => message.type === "delta")).toBeFalse();
+    const prose = deltas.filter((delta) => delta.reasoning === undefined).map((delta) => delta.text).join("");
+    expect(prose.length).toBeGreaterThan(0);
+    expect(prose.trimEnd().endsWith("from exactly this point.")).toBeTrue();
   } finally {
     raw.close();
   }

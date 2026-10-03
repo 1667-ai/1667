@@ -1,4 +1,6 @@
 import { randomBytes, timingSafeEqual } from "node:crypto";
+import { promisify } from "node:util";
+import { brotliCompress, constants as zlibConstants, gzip } from "node:zlib";
 import {
   createServer,
   type IncomingMessage,
@@ -301,7 +303,7 @@ async function handleRequest(
       if (method !== "GET" && method !== "HEAD") {
         return sendPage(response, method, 405, simplePage("Method not allowed."), context.port);
       }
-      return send(response, method, 200, asset.contentType, asset.body, context.port);
+      return await sendAsset(response, method, pathname, asset, request.headers["accept-encoding"], context.port);
     }
     return sendPage(response, method, 404, simplePage("Not found."), context.port);
   } catch {
@@ -361,20 +363,96 @@ function matchesToken(candidate: string | null, tokenBuffer: Buffer): boolean {
   return timingSafeEqual(decoded, tokenBuffer);
 }
 
+/** Hashed `/assets/*` files never change under one name, so a browser keeps
+ * them for good. The shell page (`/`) names the current hashes, so it stays
+ * `no-store` like every other response. */
+const IMMUTABLE_CACHE_CONTROL = "public, max-age=31536000, immutable";
+
+const gzipAsync = promisify(gzip);
+const brotliAsync = promisify(brotliCompress);
+
+type Encoding = "br" | "gzip";
+
+/** Compressed copies, made once per asset on its first request. The assets
+ * never change while the server runs. */
+const compressedAssets = new WeakMap<WebAsset, Map<Encoding, Promise<Buffer>>>();
+
+function isCompressible(contentType: string): boolean {
+  return contentType.startsWith("text/") || contentType.startsWith("application/json");
+}
+
+/** The best encoding the client accepts, or `null`. Quality values only
+ * matter at `q=0` (refused). */
+function acceptedEncoding(header: string | string[] | undefined): Encoding | null {
+  if (typeof header !== "string") return null;
+  const accepted = new Set<string>();
+  for (const entry of header.split(",")) {
+    const [name, ...parameters] = entry.trim().toLowerCase().split(";");
+    const refused = parameters.some((parameter) => /^\s*q=0(\.0*)?\s*$/.test(parameter));
+    if (name !== undefined && name.length > 0 && !refused) accepted.add(name);
+  }
+  if (accepted.has("br")) return "br";
+  if (accepted.has("gzip")) return "gzip";
+  return null;
+}
+
+function compressedCopy(asset: WebAsset, encoding: Encoding): Promise<Buffer> {
+  let copies = compressedAssets.get(asset);
+  if (copies === undefined) {
+    copies = new Map();
+    compressedAssets.set(asset, copies);
+  }
+  let copy = copies.get(encoding);
+  if (copy === undefined) {
+    copy = encoding === "br"
+      ? brotliAsync(asset.body, { params: { [zlibConstants.BROTLI_PARAM_QUALITY]: 9 } })
+      : gzipAsync(asset.body, { level: 9 });
+    copies.set(encoding, copy);
+  }
+  return copy;
+}
+
+async function sendAsset(
+  response: ServerResponse,
+  method: string,
+  pathname: string,
+  asset: WebAsset,
+  acceptEncoding: string | string[] | undefined,
+  port: number
+): Promise<void> {
+  const extra: Record<string, string> = {};
+  if (pathname.startsWith("/assets/")) extra["cache-control"] = IMMUTABLE_CACHE_CONTROL;
+  if (!isCompressible(asset.contentType)) {
+    return send(response, method, 200, asset.contentType, asset.body, port, extra);
+  }
+  extra["vary"] = "accept-encoding";
+  const encoding = acceptedEncoding(acceptEncoding);
+  if (encoding === null) {
+    return send(response, method, 200, asset.contentType, asset.body, port, extra);
+  }
+  extra["content-encoding"] = encoding;
+  send(response, method, 200, asset.contentType, await compressedCopy(asset, encoding), port, extra);
+}
+
 function send(
   response: ServerResponse,
   method: string,
   status: number,
   contentType: string,
   body: string | Uint8Array,
-  port: number
+  port: number,
+  extraHeaders: Readonly<Record<string, string>> = {}
 ): void {
   const payload = typeof body === "string" ? Buffer.from(body, "utf8") : body;
   // A 204 carries no body by definition, so it carries no Content-Type
   // either — a route that answers one (the reading-positions PUT) always
   // passes an empty body alongside it; this is what actually drops the
   // header, rather than trusting every route to remember to omit it.
-  const headers: Record<string, string> = { ...securityHeaders(port), "content-length": String(payload.length) };
+  const headers: Record<string, string> = {
+    ...securityHeaders(port),
+    ...extraHeaders,
+    "content-length": String(payload.length)
+  };
   if (status !== 204) headers["content-type"] = contentType;
   response.writeHead(status, headers);
   if (method === "HEAD") response.end();

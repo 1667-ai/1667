@@ -76,6 +76,9 @@ async function buildWebAssets(): Promise<ReadonlyMap<string, WebAsset>> {
 
 async function hashWebInputs(): Promise<string> {
   const hash = createHash("sha256");
+  // The build mode is part of the key, so an old development build can never
+  // match a production build.
+  hash.update("mode:production\n");
   const files: string[] = [];
   for (const directory of HASHED_DIRECTORIES) {
     files.push(...await filesUnder(path.join(repositoryRoot, directory)));

@@ -331,6 +331,10 @@ test("case 10: c opens the chapters panel; its keys move, jump, rename, summariz
   // The row of the chapter being read is selected.
   expect(await rows.nth(1).getAttribute("aria-current")).toBe("true");
   await screenshot(page, "7a-panel");
+  // A click on a view tab leaves the keys with the panel, not the tab button.
+  await page.getByRole("button", { name: "Facts", exact: true }).click();
+  await page.getByRole("button", { name: "Chapters", exact: true }).click();
+  await waitForCount(rows, 2);
 
   await page.keyboard.press("ArrowUp");
   await waitForAttribute(rows.nth(0), "aria-current", "true");

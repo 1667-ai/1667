@@ -10,7 +10,7 @@
 .manuscript { list-style: none; margin: 0; padding: 0; }
 
 .part {
-  animation: rise 400ms ease both; margin-bottom: var(--s-8); position: relative;
+  animation: rise 400ms ease backwards; margin-bottom: var(--s-8); position: relative;
   scroll-margin-block: 84px;
 }
 /* A part hosting an open popover (take peek) must sit above siblings that
