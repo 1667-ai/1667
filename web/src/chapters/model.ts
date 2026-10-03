@@ -1,5 +1,6 @@
 import type { StoryApi } from "../../../client/api.js";
-import { createManuscriptModel, type StoryChapter } from "../../../shared/manuscript-model.js";
+import { type StoryChapter } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import type { AppState } from "../app/state.js";
 
@@ -25,5 +26,5 @@ export function storedChapterTitle(payload: StoryPayload, breakId: string | null
 
 /** The chapter a break closes, with its summary (if any). */
 export function chapterClosedBy(payload: StoryPayload, breakId: string): StoryChapter | null {
-  return createManuscriptModel(payload).chapters.find((chapter) => chapter.closedBy?.id === breakId) ?? null;
+  return manuscriptModelOf(payload).chapters.find((chapter) => chapter.closedBy?.id === breakId) ?? null;
 }

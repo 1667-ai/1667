@@ -1,6 +1,6 @@
 import type { RemovedChapterBreak } from "../../../client/api.js";
 import { chapterWord } from "../../../shared/chapter-labels.js";
-import { createManuscriptModel } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { AppState } from "../app/state.js";
 import { failureToast, runStoryMutation, type StoryMutationOutcome } from "../app/story-mutation.js";
 import type { Store } from "../app/store.js";
@@ -110,7 +110,7 @@ export function createChapterActions(store: Store<AppState>, deps: ChapterAction
         );
       },
       ({ storyId, payload }, { payload: next, value }) => {
-        const number = createManuscriptModel(payload).parts.find((part) => part.id === partId)?.chapterNumber ?? 1;
+        const number = manuscriptModelOf(payload).parts.find((part) => part.id === partId)?.chapterNumber ?? 1;
         const announcement = `Chapter ${chapterWord(number)} ends here. The next part opens Chapter ${chapterWord(number + 1)}.`;
         deps.story.adoptPayload(storyId, next, { announcement });
         pushUndo(storyId, { kind: "added", breakId: value.breakId });

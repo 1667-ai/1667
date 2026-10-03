@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent } from "react";
-import { createManuscriptModel, type StoryChapter } from "../../../shared/manuscript-model.js";
+import { type StoryChapter } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
@@ -65,7 +66,7 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
     if (requested === "chapters") {
       const story = store.get().story;
       const focusedId = story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
-      const here = createManuscriptModel(payload).parts.find((part) => part.id === focusedId)?.chapterNumber ?? 1;
+      const here = manuscriptModelOf(payload).parts.find((part) => part.id === focusedId)?.chapterNumber ?? 1;
       setCursor(Math.max(0, here - 1));
     }
     asideRef.current?.focus();
@@ -75,7 +76,7 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
 
   if (view === null) return null;
   const hiddenByDock = requested === null;
-  const chapters = createManuscriptModel(payload).chapters;
+  const chapters = manuscriptModelOf(payload).chapters;
   const selected = chapters[Math.min(cursor, chapters.length - 1)];
 
   const close = (): void => {

@@ -1,5 +1,5 @@
 import { chapterWord } from "../../../shared/chapter-labels.js";
-import { createManuscriptModel } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { StoryNode } from "../../../shared/types.js";
 import type { EditorSaveRequest } from "./save.js";
 import type { AppState } from "../app/state.js";
@@ -113,7 +113,7 @@ export function editorIsOffLine(state: AppState, storyId: string): boolean {
   if (editor.mode === "summary") {
     // The summary has a card only while its chapter is closed and it stands in.
     const id = editor.summary.id;
-    return !createManuscriptModel(state.story.payload).chapters.some((chapter) => chapter.summary?.id === id);
+    return !manuscriptModelOf(state.story.payload).chapters.some((chapter) => chapter.summary?.id === id);
   }
   return !path.some((node) => node.id === editor.base.id);
 }

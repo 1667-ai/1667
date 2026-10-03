@@ -1,7 +1,7 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import { chapterWord } from "../../../shared/chapter-labels.js";
 import type { StoryChapter } from "../../../shared/manuscript-model.js";
-import { createManuscriptModel } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import type { AppState } from "../app/state.js";
@@ -112,7 +112,7 @@ export function createSummaryActions(
       const state = store.get();
       const open = openStory(state);
       if (open === null) return;
-      const chapter = createManuscriptModel(open.payload).chapters.find((candidate) => candidate.number === chapterNumber);
+      const chapter = manuscriptModelOf(open.payload).chapters.find((candidate) => candidate.number === chapterNumber);
       if (chapter === undefined) return;
       const refusal = summarizeRefusal(state, open.storyId, { closed: chapter.closedBy !== null });
       if (refusal !== null) {

@@ -1,5 +1,6 @@
 import { Fragment, useMemo } from "react";
-import { createManuscriptModel, type StoryRow } from "../../../shared/manuscript-model.js";
+import { type StoryRow } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "./manuscript-model.js";
 import { createStoryIndex } from "../../../shared/story-model.js";
 import { takeIndex } from "../../../shared/story-tree.js";
 import type { StoryPayload } from "../../../shared/types.js";
@@ -51,7 +52,7 @@ function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): reado
  * reference equality is exactly the right memo key).
  */
 export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, menuRequest, generation, summaryRun, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
-  const model = useMemo(() => createManuscriptModel(payload), [payload]);
+  const model = useMemo(() => manuscriptModelOf(payload), [payload]);
 
   const switchingAnchor = switching === null
     ? null

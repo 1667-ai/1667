@@ -1,9 +1,9 @@
 import {
-  createManuscriptModel,
   lastPartRowIndex,
   rowIndexForNode,
   rowPart
 } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "./manuscript-model.js";
 import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import type { AppState } from "../app/state.js";
 
@@ -65,7 +65,7 @@ export function storyIdOf(state: StoryState): string | null {
 export function effectiveFocusedPartId(
   state: Extract<StoryState, { kind: "loaded" }>
 ): string | null {
-  const model = createManuscriptModel(state.payload);
+  const model = manuscriptModelOf(state.payload);
   if (state.focusedPartId !== null && rowIndexForNode(model, state.focusedPartId) >= 0) {
     return state.focusedPartId;
   }

@@ -1,6 +1,7 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { StoryApi } from "../../../client/api.js";
-import { createManuscriptModel, rowPart } from "../../../shared/manuscript-model.js";
+import { rowPart } from "../../../shared/manuscript-model.js";
+import { manuscriptModelOf } from "./manuscript-model.js";
 import { openingFocusIndex } from "../../../shared/reading-position.js";
 import {
   resolveSwitchTarget,
@@ -258,7 +259,7 @@ export function createStoryActions(
       const connection = store.get().connection;
       const storedPartId = connection.kind === "connected" ? await connection.readingPositions.positionFor(id) : null;
       if (!isCurrentStoryRoute(store, id)) return;
-      const model = createManuscriptModel(payload);
+      const model = manuscriptModelOf(payload);
       const openingIndex = openingFocusIndex(model, payload, storedPartId);
       focusedPartId = rowPart(model, openingIndex)?.id ?? null;
     }
@@ -410,23 +411,23 @@ export function createStoryActions(
     focusPart: (partId) => withOpenStory(store, (storyId) => setFocusedPart(store, storyId, partId)),
 
     moveFocus: (direction) => withOpenStory(store, (storyId, story) => {
-      const model = createManuscriptModel(story.payload);
+      const model = manuscriptModelOf(story.payload);
       const nextId = nextPartId(model, effectiveFocusedPartId(story), direction);
       if (nextId !== null) setFocusedPart(store, storyId, nextId);
     }),
 
     focusFirst: () => withOpenStory(store, (storyId, story) => {
-      const nextId = firstPartId(createManuscriptModel(story.payload));
+      const nextId = firstPartId(manuscriptModelOf(story.payload));
       if (nextId !== null) setFocusedPart(store, storyId, nextId);
     }),
 
     focusLast: () => withOpenStory(store, (storyId, story) => {
-      const nextId = lastPartId(createManuscriptModel(story.payload));
+      const nextId = lastPartId(manuscriptModelOf(story.payload));
       if (nextId !== null) setFocusedPart(store, storyId, nextId);
     }),
 
     jumpChapter: (direction) => withOpenStory(store, (storyId, story) => {
-      const model = createManuscriptModel(story.payload);
+      const model = manuscriptModelOf(story.payload);
       const nextId = chapterJumpPartId(model, effectiveFocusedPartId(story), direction);
       if (nextId !== null) setFocusedPart(store, storyId, nextId);
     }),
