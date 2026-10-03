@@ -7,6 +7,7 @@ import type { AppState } from "../app/state.js";
 import type { GenerationPlan } from "../generation/plan.js";
 import { appendingTo } from "../generation/state.js";
 import { editorDirty, inPartSlot } from "../editor/state.js";
+import { factEditorDirty, STATES_UNAVAILABLE_TOAST } from "../facts/state.js";
 import type { LineSwitch } from "./line-switch.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
 import { NOT_CONNECTED_TOAST, SWITCHING_TOAST as PART_SWITCHING_TOAST } from "./story-policy.js";
@@ -15,7 +16,24 @@ export { STORY_LOCKED_TOAST, UNSAVED_TOAST, NOT_CONNECTED_TOAST, PART_SWITCHING_
 
 /** The part actions the web UI has: the TUI's, plus the ones that are only
  * web-local (`C` ends a chapter at the part). */
-export type WebPartActionId = PartActionId | "end-chapter";
+export type WebPartActionId =
+  | PartActionId
+  | "end-chapter"
+  | FactPartActionId;
+
+/** The fact actions of the part menu (#409 step 7c). */
+export type FactPartActionId = "fact-here" | "fact-state" | "fact-end" | "new-fact" | "fact-from-selection";
+
+export const FACT_PART_ACTIONS: readonly FactPartActionId[] = [
+  "fact-here", "fact-state", "fact-end", "new-fact", "fact-from-selection"
+];
+
+export function isFactPartAction(id: WebPartActionId): id is FactPartActionId {
+  return (FACT_PART_ACTIONS as readonly string[]).includes(id);
+}
+
+export const NO_FACTS_TOAST = "No facts yet. Add a fact first.";
+export const FACT_EDITOR_BUSY_TOAST = "Save or cancel the open fact first.";
 
 /**
  * The one policy for what a part action may do right now — read by the keys,
@@ -167,6 +185,8 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
     return PART_WRITING_TOAST;
   }
 
+  if (isFactPartAction(action)) return factActionRefusal(state, story, action);
+
   if (action !== "direct" && partSwitchPending(story, partId)) return PART_SWITCHING_TOAST;
 
   switch (action) {
@@ -191,6 +211,25 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
     default:
       return null;
   }
+}
+
+/** Why a fact action of the part menu is refused. Opening an editor changes
+ * nothing yet, so only a fact editor with unsaved changes and a missing fact
+ * (for a new state or an end) refuse; the end changes the story at once. */
+function factActionRefusal(state: AppState, story: LoadedStoryState, action: FactPartActionId): string | null {
+  const storyId = story.payload.id;
+  if (action === "fact-state" || action === "fact-end") {
+    if (state.connection.kind !== "connected" || state.connection.api.createFactState === undefined) {
+      return STATES_UNAVAILABLE_TOAST;
+    }
+    if (story.payload.facts.length === 0) return NO_FACTS_TOAST;
+  }
+  if (action === "fact-end" && storyRunLocked(state, storyId)) return lockedToast(state, storyId);
+  if (action !== "fact-end") {
+    const editor = state.facts.editor;
+    if (editor !== null && factEditorDirty(editor)) return FACT_EDITOR_BUSY_TOAST;
+  }
+  return null;
 }
 
 /**

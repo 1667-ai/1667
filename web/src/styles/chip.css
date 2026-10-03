@@ -15,3 +15,12 @@
 .label-discarded { background: var(--danger-soft); color: var(--danger); }
 .label-summary { background: var(--summary-soft); color: var(--summary); }
 .canon-mark { color: var(--canon); }
+
+/* A chip that is a toggle: a filter choice (the Facts view's scope chips). */
+.chip-btn {
+  background: var(--chip); border: 0; border-radius: var(--r-pill); color: var(--dim); cursor: pointer;
+  font-family: var(--ui); font-size: var(--fs-small); height: var(--btn-sm); padding: 0 var(--s-3);
+  transition: color 120ms ease, background 120ms ease;
+}
+.chip-btn:hover { color: var(--ink); }
+.chip-btn[aria-pressed="true"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }

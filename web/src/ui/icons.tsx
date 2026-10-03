@@ -20,6 +20,10 @@ export const ICONS = {
   message: "M20 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z",
   flag: "M5 21V4 M5 5h11l-2 4 2 4H5",
   summary: "M4 6h16 M4 12h10 M4 18h7",
+  facts: "M9 6h11 M9 12h11 M9 18h11 M4 6h.01 M4 12h.01 M4 18h.01",
+  arrowUp: "M12 19V5 M6 11l6-6 6 6",
+  arrowDown: "M12 5v14 M6 13l6 6 6-6",
+  diamond: "M12 3l9 9-9 9-9-9Z",
   branch: "M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M18 9a9 9 0 0 1-9 9",
   /* Three solid circles, r 1.6, each drawn as two arcs (`FILLED`). */
   dots: "M3.4 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0 M10.4 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0 M17.4 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0"

@@ -49,3 +49,17 @@
     padding: 0; position: fixed; z-index: 65;
   }
 }
+
+/* A segmented control: the panel's view switch and the fact editor's choices. */
+.seg { background: var(--chip); border-radius: var(--r-md); display: inline-flex; gap: 2px; padding: 2px; }
+.seg-btn {
+  background: transparent; border: 0; border-radius: var(--r-sm); color: var(--dim); cursor: pointer;
+  font-family: var(--ui); font-size: var(--fs-small); height: var(--btn-sm); padding: 0 var(--s-3);
+  transition: color 120ms ease, background 120ms ease;
+}
+.seg-btn:hover:not(:disabled) { color: var(--ink); }
+.seg-btn[aria-pressed="true"], .seg-btn[aria-checked="true"] {
+  background: var(--surface); box-shadow: inset 0 0 0 1px var(--line); color: var(--ink); font-weight: 600;
+}
+.seg-btn:disabled { cursor: default; opacity: var(--disabled-opacity); }
+.panel-empty { color: var(--dim); font-size: var(--fs-ui); margin: 0; padding: var(--s-3); }

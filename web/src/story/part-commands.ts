@@ -4,7 +4,9 @@ import type { ComposeActions } from "../compose/actions.js";
 import { focusComposer } from "../compose/dom.js";
 import type { EditorActions } from "../editor/actions.js";
 import type { GenerationActions } from "../generation/actions.js";
+import type { PanelActions } from "../panel/actions.js";
 import type { ChapterActions } from "../chapters/actions.js";
+import type { FactActions } from "../facts/index.js";
 import type { TagsActions } from "../tags/actions.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import type { AppState } from "../app/state.js";
@@ -22,13 +24,15 @@ export interface PartCommandDependencies {
   readonly editor: Pick<EditorActions, "openEdit" | "openWrite">;
   readonly tags: Pick<TagsActions, "openForPart">;
   readonly chapters: Pick<ChapterActions, "addBreak">;
+  readonly facts: Pick<FactActions, "openNew" | "startPick">;
+  readonly panel: Pick<PanelActions, "open">;
 }
 
 export interface PartCommands {
   /** The one dispatcher for a part action, whether it comes from a key or
    * from the `···` menu: asks `partActionRefusal` first (a refusal is a
    * toast and nothing else), then does the action. */
-  run(id: WebPartActionId, partId: string): void;
+  run(id: WebPartActionId, partId: string, options?: { readonly selection?: string }): void;
   /** `x`: opens this part's `···` menu. */
   openMenu(partId: string): void;
   cancelDelete(): void;
@@ -47,7 +51,7 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
     setUi((ui) => ({ ...ui, deletePlan: plan, deleting: false }));
   }
 
-  function run(id: WebPartActionId, partId: string): void {
+  function run(id: WebPartActionId, partId: string, options: { readonly selection?: string } = {}): void {
     const state = store.get();
     const refusal = partActionRefusal(state, partId, id);
     if (refusal !== null) {
@@ -77,6 +81,11 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       case "prune": askDelete(partId); break;
       case "tag": deps.tags.openForPart(partId); break;
       case "end-chapter": void deps.chapters.addBreak(partId); break;
+      case "fact-here": deps.facts.openNew({ anchorPartId: partId }); break;
+      case "new-fact": deps.facts.openNew(); break;
+      case "fact-from-selection": deps.facts.openNew({ text: options.selection ?? "" }); break;
+      case "fact-state": deps.facts.startPick("new-state", partId); deps.panel.open("facts"); break;
+      case "fact-end": deps.facts.startPick("end", partId); deps.panel.open("facts"); break;
       default: break;
     }
   }

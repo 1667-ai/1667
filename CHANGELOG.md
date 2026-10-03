@@ -20,6 +20,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   Press the arrow keys to move on the map. Press Enter to go to a part or to
   switch to another line. Press Esc to close the map.
 
+- **`1667 web` can manage facts.** Press `f` to open the facts view in the side
+  panel. You can add, edit, reorder, and delete a fact. You can filter the list
+  by scope, tag, or text. You can set the facts budget. Press `F` to keep the
+  facts view open beside the story. A fact can have more than one state. Use
+  the part menu to start a fact at a part, add a fact state, end a fact, or make
+  a fact from the text that you select. A diamond mark in a part header shows
+  that fact states start at that part.
+
 ## 0.11.0-beta.6 - 2026-10-02
 
 - **The desktop app is removed.** Use `1667 web` to write in a browser on your

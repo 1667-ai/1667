@@ -2,6 +2,7 @@ import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.
 import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import type { EditorState } from "../editor/state.js";
+import { initialFactsState, type FactsState } from "../facts/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
@@ -45,6 +46,9 @@ export interface AppState {
   readonly chapters: ChaptersState;
   /** The tag popover and the tag drafts (#409 step 7a). See `tags/state.ts`. */
   readonly tags: TagsState;
+  /** The Facts view's filter, editor and pick mode (#409 step 7b). See
+   * `facts/state.ts`. */
+  readonly facts: FactsState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
   readonly reading: ReadingPreferences;
@@ -71,6 +75,7 @@ export function initialAppState(
     partUi: initialPartUiState(),
     chapters: initialChaptersState(),
     tags: initialTagsState(),
+    facts: initialFactsState(),
     panel: initialPanelState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],

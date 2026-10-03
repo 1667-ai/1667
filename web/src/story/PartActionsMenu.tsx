@@ -1,4 +1,4 @@
-import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
+import { Fragment, useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
 import { partActions } from "../../../shared/part-actions.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { useAppContext } from "../app/context.js";
@@ -13,11 +13,14 @@ import {
   PART_WRITING_TOAST,
   partActionRefusal,
   type WebPartActionId,
+  FACT_EDITOR_BUSY_TOAST,
+  NO_FACTS_TOAST,
   STORY_LOCKED_TOAST,
   SUMMARY_RETAKE_TOAST,
   UNSAVED_TOAST
 } from "./part-policy.js";
 import { SUMMARY_LOCKED_TOAST } from "../app/run-lock.js";
+import { STATES_UNAVAILABLE_TOAST } from "../facts/state.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";
 
 interface MenuItem {
@@ -27,6 +30,8 @@ interface MenuItem {
   readonly key: string;
   readonly icon: string;
   readonly danger?: boolean;
+  /** The first item of the facts group: a heading goes above it. */
+  readonly group?: "facts";
 }
 
 /** The TUI's part actions (`shared/part-actions.ts`) that the web UI has,
@@ -41,7 +46,12 @@ const ITEMS: readonly MenuItem[] = [
   { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
   { id: "tag", label: "Tag line", key: "t", icon: ICONS.flag },
   { id: "end-chapter", label: "End chapter here", key: "C", icon: ICONS.summary },
-  { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash }
+  { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash },
+  { id: "fact-here", label: "Fact from here", key: "", icon: ICONS.diamond, group: "facts" },
+  { id: "fact-state", label: "New fact state", key: "", icon: ICONS.plus },
+  { id: "fact-end", label: "End fact here", key: "", icon: ICONS.x },
+  { id: "new-fact", label: "New fact", key: "", icon: ICONS.facts },
+  { id: "fact-from-selection", label: "New fact from selection", key: "", icon: ICONS.penLine }
 ];
 
 /** A disabled item's hover text: a few words, where the toast for the same
@@ -55,7 +65,10 @@ const SHORT_REFUSAL: ReadonlyMap<string, string> = new Map([
   [PART_WRITING_TOAST, "Still writing"],
   [SUMMARY_RETAKE_TOAST, "Not for summaries"],
   [EDITOR_OPEN_TOAST, "Editor open"],
-  [NOT_CONNECTED_TOAST, "Not connected"]
+  [NOT_CONNECTED_TOAST, "Not connected"],
+  [FACT_EDITOR_BUSY_TOAST, "Fact editor open"],
+  [NO_FACTS_TOAST, "No facts yet"],
+  [STATES_UNAVAILABLE_TOAST, "Needs a newer backend"]
 ]);
 
 function shortRefusal(refusal: string): string {
@@ -95,6 +108,21 @@ export function PartActionsMenu(
 
   useRequestSignal(menuSerial, () => setOpen(true));
 
+  // The text selected in this part when the menu opens, for "New fact from
+  // selection". Read once on opening: clicking a menu item may clear it.
+  const [selection, setSelection] = useState("");
+  useLayoutEffect(() => {
+    if (!open) {
+      setSelection("");
+      return;
+    }
+    const selected = window.getSelection();
+    const article = triggerRef.current?.closest("[data-part-id]") ?? null;
+    const inside = selected !== null && !selected.isCollapsed && article !== null
+      && article.contains(selected.anchorNode) && article.contains(selected.focusNode);
+    setSelection(inside ? selected.toString().trim() : "");
+  }, [open]);
+
   // Open upward when the trigger sits in the lower half of the manuscript.
   const [up, setUp] = useState(false);
   useLayoutEffect(() => {
@@ -118,12 +146,14 @@ export function PartActionsMenu(
 
   const available = new Set<WebPartActionId>(partActions(part.node, isLeaf).map((action) => action.id));
   available.add("end-chapter");
+  for (const id of ["fact-here", "fact-state", "fact-end", "new-fact"] as const) available.add(id);
+  if (selection.length > 0) available.add("fact-from-selection");
   const items = ITEMS.filter((item) => available.has(item.id));
 
   const run = (id: WebPartActionId): void => {
     closedByItem.current = true;
     setOpen(false);
-    actions.part.run(id, part.id);
+    actions.part.run(id, part.id, id === "fact-from-selection" ? { selection } : {});
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -159,12 +189,13 @@ export function PartActionsMenu(
           {items.map((item) => {
             const refusal = state === null ? null : partActionRefusal(state, part.id, item.id);
             return (
+            <Fragment key={item.id}>
+            {item.group === "facts" && <div className="menu-heading" role="presentation">Facts</div>}
             <button
-              key={item.id}
               type="button"
               role="menuitem"
               className={`menu-item${item.danger === true ? " menu-item-danger" : ""}`}
-              title={refusal === null ? `${item.label} (${item.key})` : shortRefusal(refusal)}
+              title={refusal === null ? (item.key === "" ? item.label : `${item.label} (${item.key})`) : shortRefusal(refusal)}
               disabled={refusal !== null}
               onClick={() => run(item.id)}
             >
@@ -172,6 +203,7 @@ export function PartActionsMenu(
               <span className="menu-item-text">{item.label}</span>
               <span className="menu-key" aria-hidden="true">{item.key}</span>
             </button>
+            </Fragment>
             );
           })}
         </div>
