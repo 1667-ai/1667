@@ -2,12 +2,13 @@ import type { StoryActions } from "../story/actions.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
-import { generationLocks } from "../generation/state.js";
+import { lockedToast, storyRunLocked } from "../app/run-lock.js";
 import { STORY_RELOADED_TOAST } from "../story/actions.js";
-import { STORY_LOCKED_TOAST } from "../story/part-policy.js";
 import { openPart } from "../story/state.js";
 import { reconcileEditor, saveEditor, type EditorSaveOutcome, type EditorSaveRequest } from "./save.js";
-import { editorDirty, editorPartId, openEditorState, type EditorState } from "./state.js";
+import { chapterClosedBy } from "../chapters/model.js";
+import { EDITOR_OPEN_TOAST } from "../story/part-policy.js";
+import { editorDirty, editorPartId, inPartSlot, openEditorState, openSummaryEditorState, type EditorState } from "./state.js";
 
 export interface EditorActionDependencies {
   readonly story: Pick<StoryActions, "adoptPayload">;
@@ -22,6 +23,9 @@ export interface EditorActions {
   /** `w`: opens an empty editor for the writer's own take of this part, or —
    * with `null` on an empty story — for the first part. */
   openWrite(partId: string | null): void;
+  /** Opens the summary editor on the summary of the chapter that `breakId`
+   * closes (the summary card's Edit, and the divider menu). */
+  openSummary(breakId: string): void;
   setText(text: string): void;
   setInstruction(text: string): void;
   /** Saves the open editor: as a new take (the default, and the only Save of
@@ -42,6 +46,8 @@ export const UNRESOLVED_TOAST =
   "Could not check whether your last save went through. Save again to check; nothing is written twice. Draft kept.";
 export const EARLIER_SAVE_LANDED_TOAST =
   "Your earlier save did go through. Your newer changes are still in the editor.";
+export const SUMMARY_CHANGED_TOAST = "The summary changed in another window. Save again to overwrite.";
+export const SUMMARY_GONE_TOAST = "This summary no longer exists. Copy your text before closing.";
 export const SUMMARY_FORK_TOAST = "A summary can only be saved in place.";
 
 type BuiltSave =
@@ -54,6 +60,21 @@ type BuiltSave =
  * it makes none. Pure: the I/O and the outcome handling are in `save`. */
 function buildRequest(editor: EditorState, kind: SaveKind, state: AppState): BuiltSave {
   const text = editor.text.trim();
+  if (editor.mode === "summary") {
+    if (text.length === 0) return { kind: "refused", toast: NOTHING_TO_SAVE_TOAST };
+    if (text === editor.summary.text.trim()) return { kind: "unchanged" };
+    return {
+      kind: "request",
+      announcement: "Summary updated.",
+      request: {
+        kind: "summary",
+        storyId: editor.storyId,
+        summaryId: editor.summary.id,
+        text,
+        expected: editor.summary.text
+      }
+    };
+  }
   const knownNodeIds = new Set(state.story.kind === "loaded" ? state.story.payload.nodes.map((node) => node.id) : []);
   if (editor.mode === "edit") {
     const base = editor.base;
@@ -115,7 +136,7 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
 
   /** The one way an editor opens. A changed editor is never replaced, and the
    * same editor opened again keeps its draft. */
-  function open(mode: EditorState["mode"], partId: string | null): void {
+  function open(mode: Exclude<EditorState["mode"], "summary">, partId: string | null): void {
     const state = store.get();
     if (state.route.kind !== "story" || state.story.kind !== "loaded" || state.story.payload.id !== state.route.id) return;
     const storyId = state.story.payload.id;
@@ -150,8 +171,8 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
       pushToast(store, "Not connected. Draft kept.");
       return;
     }
-    if (generationLocks(state.generation, editor.storyId)) {
-      pushToast(store, `${STORY_LOCKED_TOAST} Draft kept.`);
+    if (storyRunLocked(state, editor.storyId)) {
+      pushToast(store, `${lockedToast(state, editor.storyId)} Draft kept.`);
       return;
     }
 
@@ -171,7 +192,7 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
       }
       if (settled.payload !== null) deps.story.adoptPayload(editor.storyId, settled.payload);
       update((current) => ({ ...current, pending: null }));
-      if (settled.kind === "saved" && editor.pending.kind !== "in-place" && editor.pending.text !== editor.text.trim()) {
+      if (settled.kind === "saved" && (editor.pending.kind === "fork" || editor.pending.kind === "write") && editor.pending.text !== editor.text.trim()) {
         // It landed, but the writer has typed more since: keep going from the
         // saved part instead of writing the new text beside it.
         const landed = settled.payload.path.find((node) => node.id === settled.landedId) ?? null;
@@ -201,6 +222,20 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
     if (!stillOpen) return;
 
     if (outcome.kind === "conflict") {
+      if (editor.mode === "summary") {
+        const id = editor.summary.id;
+        const found = outcome.payload?.nodes.find((node) => node.id === id) ?? null;
+        if (found === null) {
+          pushToast(store, SUMMARY_GONE_TOAST);
+          update((current) => ({ ...current, saving: false }));
+          return;
+        }
+        update((current) => (current.mode === "summary"
+          ? { ...current, summary: { ...current.summary, text: found.text ?? "" }, saving: false, overwriteArmed: true }
+          : current));
+        pushToast(store, SUMMARY_CHANGED_TOAST);
+        return;
+      }
       if (editor.mode === "edit") {
         const baseId = editor.base.id;
         const rebased = outcome.payload?.path.find((node) => node.id === baseId) ?? null;
@@ -233,6 +268,31 @@ export function createEditorActions(store: Store<AppState>, deps: EditorActionDe
   return {
     openEdit: (partId) => open("edit", partId),
     openWrite: (partId) => open(partId === null ? "first" : "write", partId),
+
+    openSummary: (breakId) => {
+      const state = store.get();
+      if (state.route.kind !== "story" || state.story.kind !== "loaded" || state.story.payload.id !== state.route.id) return;
+      const storyId = state.story.payload.id;
+      const summary = chapterClosedBy(state.story.payload, breakId)?.summary ?? null;
+      const chapter = chapterClosedBy(state.story.payload, breakId);
+      if (summary === null || chapter === null) return;
+      const current = state.editor;
+      if (current !== null && current.mode === "summary" && current.summary.id === summary.id) return;
+      if (current !== null && editorDirty(current)) {
+        pushToast(store, EDITOR_OPEN_TOAST);
+        return;
+      }
+      opened += 1;
+      store.set((s) => ({
+        ...s,
+        editor: openSummaryEditorState(storyId, {
+          id: summary.id,
+          breakId,
+          chapterNumber: chapter.number,
+          text: summary.text ?? ""
+        })
+      }));
+    },
 
     setText: (text) => update((editor) => (
       editor.text === text && !editor.discardArmed ? editor : { ...editor, text, discardArmed: false }

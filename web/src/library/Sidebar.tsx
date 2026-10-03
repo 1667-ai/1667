@@ -1,4 +1,4 @@
-import { useRef } from "react";
+import { useCallback, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { useKeymap } from "../app/keymap.js";
 import { navigate } from "../app/router.js";
@@ -36,7 +36,12 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
   const activeId = route.kind === "story" ? route.id : null;
   const visible = filterAndSort(stories, query);
   const searchRef = useRef<HTMLInputElement>(null);
-  useKeymap({ searchRef, stopGeneration: actions.generation.stop });
+  // Esc stops whichever run exists: a generation, or a chapter summary.
+  const stopGeneration = useCallback(
+    () => actions.generation.stop() || actions.chapters.stopSummary(),
+    [actions]
+  );
+  useKeymap({ searchRef, stopGeneration });
 
   return (
     <>

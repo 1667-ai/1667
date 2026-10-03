@@ -1,7 +1,7 @@
 /**
  * Ported from `~/source/storytavern/web/src/story.css`: `.main`,
  * `.story-view`, `.story-header`, `.story-title*`, `.story-stats`,
- * `.story-kicker`, `.prose-plain`, `.welcome`, `.story-empty`. Part,
+ * `.prose-plain`, `.welcome`, `.story-empty`. Part,
  * autoname, rewrite, and human-edit rules are dropped — none of that exists
  * yet. `.connection-*` and `.recovery-banner*` moved to `styles/connection.css`
  * (review fix D18) — they have nothing to do with the story view itself.
@@ -21,7 +21,6 @@
   display: flex; gap: var(--s-3); min-height: 72px; padding: var(--s-3) var(--s-6);
 }
 .story-identity { display: flex; flex: 1; flex-direction: column; gap: 2px; min-width: 160px; }
-.story-kicker { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
 .story-stats { color: var(--dim); font: var(--font-meta); }
 .story-title-wrap { align-items: center; display: flex; gap: var(--s-1); min-width: 0; }
 /* `.story-title` styles an `<h1>` (review fix E: this used to be an

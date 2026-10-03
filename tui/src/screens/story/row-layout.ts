@@ -1,4 +1,4 @@
-import { chapterWord, extentLabel } from "../../chapter-model.js";
+import { chapterWord, extentLabel } from "../../../../shared/chapter-labels.js";
 import type { StoryFact } from "../../../../shared/types.js";
 import type {
   ChapterDividerRow,

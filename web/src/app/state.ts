@@ -1,9 +1,12 @@
 import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
+import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import type { EditorState } from "../editor/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
+import { initialPanelState, type PanelState } from "../panel/state.js";
+import { initialTagsState, type TagsState } from "../tags/state.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
@@ -37,6 +40,13 @@ export interface AppState {
   readonly editor: EditorState | null;
   /** The part menu request and the delete confirmation (#409 step 6). */
   readonly partUi: PartUiState;
+  /** Chapter undo, the inline rename, and the running summary (#409 step
+   * 7a). See `chapters/state.ts`. */
+  readonly chapters: ChaptersState;
+  /** The tag popover and the tag drafts (#409 step 7a). See `tags/state.ts`. */
+  readonly tags: TagsState;
+  /** The story panel (#409 step 7a). See `panel/state.ts`. */
+  readonly panel: PanelState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -59,6 +69,9 @@ export function initialAppState(
     compose: initialComposeState(),
     editor: null,
     partUi: initialPartUiState(),
+    chapters: initialChaptersState(),
+    tags: initialTagsState(),
+    panel: initialPanelState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,

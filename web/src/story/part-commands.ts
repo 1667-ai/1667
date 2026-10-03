@@ -1,17 +1,18 @@
 import { apiErrorCode } from "../../../client/api-error.js";
-import type { PartActionId } from "../../../shared/part-actions.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import type { ComposeActions } from "../compose/actions.js";
 import { focusComposer } from "../compose/dom.js";
 import type { EditorActions } from "../editor/actions.js";
 import type { GenerationActions } from "../generation/actions.js";
+import type { ChapterActions } from "../chapters/actions.js";
+import type { TagsActions } from "../tags/actions.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { STORY_RELOADED_TOAST, type StoryActions } from "./actions.js";
 import { createDeletePlan } from "./delete-plan.js";
-import { partActionRefusal } from "./part-policy.js";
+import { partActionRefusal, type WebPartActionId } from "./part-policy.js";
 import { openPart } from "./state.js";
 
 export interface PartCommandDependencies {
@@ -19,13 +20,15 @@ export interface PartCommandDependencies {
   readonly generation: Pick<GenerationActions, "continue">;
   readonly compose: Pick<ComposeActions, "startRetake">;
   readonly editor: Pick<EditorActions, "openEdit" | "openWrite">;
+  readonly tags: Pick<TagsActions, "openForPart">;
+  readonly chapters: Pick<ChapterActions, "addBreak">;
 }
 
 export interface PartCommands {
   /** The one dispatcher for a part action, whether it comes from a key or
    * from the `···` menu: asks `partActionRefusal` first (a refusal is a
    * toast and nothing else), then does the action. */
-  run(id: PartActionId, partId: string): void;
+  run(id: WebPartActionId, partId: string): void;
   /** `x`: opens this part's `···` menu. */
   openMenu(partId: string): void;
   cancelDelete(): void;
@@ -44,7 +47,7 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
     setUi((ui) => ({ ...ui, deletePlan: plan, deleting: false }));
   }
 
-  function run(id: PartActionId, partId: string): void {
+  function run(id: WebPartActionId, partId: string): void {
     const state = store.get();
     const refusal = partActionRefusal(state, partId, id);
     if (refusal !== null) {
@@ -72,6 +75,8 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       case "write": deps.editor.openWrite(partId); break;
       case "edit": deps.editor.openEdit(partId); break;
       case "prune": askDelete(partId); break;
+      case "tag": deps.tags.openForPart(partId); break;
+      case "end-chapter": void deps.chapters.addBreak(partId); break;
       default: break;
     }
   }

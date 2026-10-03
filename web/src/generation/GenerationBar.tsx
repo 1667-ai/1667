@@ -1,6 +1,8 @@
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { useBarClearance } from "../ui/bar-clearance.js";
+import { chapterWord } from "../../../shared/chapter-labels.js";
+import type { SummaryRun } from "../chapters/state.js";
 import { manuscriptGenerationView, type GenerationState } from "./state.js";
 
 /**
@@ -16,7 +18,24 @@ import { manuscriptGenerationView, type GenerationState } from "./state.js";
 export function GenerationButtons({ onContinue }: { readonly onContinue: () => void }) {
   const { store, actions } = useAppContext();
   const kind = useStore(store, (state) => state.generation.kind);
+  const summaryPhase = useStore(store, (state) => state.chapters.summaryRun?.phase ?? null);
 
+  // A chapter summary has the same Stop, and nothing else (`Esc` stops it too).
+  if (kind === "idle" && summaryPhase !== null) {
+    return summaryPhase === "stopping"
+      ? <button type="button" className="btn btn-primary btn-cta" title="Stopping" disabled>Stopping…</button>
+      : (
+        <button
+          type="button"
+          className="btn btn-danger btn-cta"
+          aria-keyshortcuts="Escape"
+          title="Stop (Esc)"
+          onClick={() => { actions.chapters.stopSummary(); }}
+        >
+          Stop
+        </button>
+      );
+  }
   if (kind === "idle") {
     return (
       <button
@@ -83,8 +102,12 @@ export function GenerationButtons({ onContinue }: { readonly onContinue: () => v
  * "a different story" case has no matching `storyId` to view, so it repeats
  * only the one boundary that still applies there: "Waiting…" until either
  * reasoning or text exists (review fix #12). */
-export function generationStatusText(generation: GenerationState, viewingStoryId: string | null): string | null {
-  if (generation.kind === "idle") return null;
+export function generationStatusText(
+  generation: GenerationState,
+  viewingStoryId: string | null,
+  summaryRun: SummaryRun | null = null
+): string | null {
+  if (generation.kind === "idle") return summaryRun === null ? null : summaryStatusText(summaryRun, viewingStoryId);
   if (generation.storyId !== viewingStoryId) {
     if (generation.kind === "unsaved") return `Not saved in ${generation.storyTitle}`;
     return generation.reasoning === null && generation.text.length === 0
@@ -92,6 +115,14 @@ export function generationStatusText(generation: GenerationState, viewingStoryId
       : `Writing in ${generation.storyTitle}…`;
   }
   return manuscriptGenerationView(generation, generation.storyId)?.statusLabel ?? "";
+}
+
+/** The bar's text while a chapter summary runs. */
+function summaryStatusText(run: SummaryRun, viewingStoryId: string | null): string {
+  if (run.phase === "stopping") return "Stopping…";
+  return run.storyId === viewingStoryId
+    ? `Summarizing Chapter ${chapterWord(run.chapterNumber)}…`
+    : `Summarizing in ${run.storyTitle}…`;
 }
 
 /**
@@ -103,11 +134,12 @@ export function generationStatusText(generation: GenerationState, viewingStoryId
 export function GenerationBar() {
   const { store } = useAppContext();
   const generation = useStore(store, (state) => state.generation);
+  const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
   const barRef = useBarClearance();
-  if (generation.kind === "idle") return null;
+  if (generation.kind === "idle" && summaryRun === null) return null;
   return (
     <div ref={barRef} className={`generation-bar${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
-      <span className="generation-status">{generationStatusText(generation, null)}</span>
+      <span className="generation-status">{generationStatusText(generation, null, summaryRun)}</span>
       <div className="generation-bar-actions">
         <GenerationButtons onContinue={() => {}} />
       </div>

@@ -1,11 +1,21 @@
 import { continuationIntent } from "../../../shared/continuation-intent.js";
+import { chapterWord } from "../../../shared/chapter-labels.js";
+import { createManuscriptModel } from "../../../shared/manuscript-model.js";
 import type { PartActionId } from "../../../shared/part-actions.js";
+import { runBusyToast, storyRunLocked, lockedToast, STORY_LOCKED_TOAST, UNSAVED_TOAST } from "../app/run-lock.js";
 import type { AppState } from "../app/state.js";
 import type { GenerationPlan } from "../generation/plan.js";
-import { appendingTo, generationLocks } from "../generation/state.js";
-import { editorDirty } from "../editor/state.js";
+import { appendingTo } from "../generation/state.js";
+import { editorDirty, inPartSlot } from "../editor/state.js";
 import type { LineSwitch } from "./line-switch.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
+import { NOT_CONNECTED_TOAST, SWITCHING_TOAST as PART_SWITCHING_TOAST } from "./story-policy.js";
+
+export { STORY_LOCKED_TOAST, UNSAVED_TOAST, NOT_CONNECTED_TOAST, PART_SWITCHING_TOAST };
+
+/** The part actions the web UI has: the TUI's, plus the ones that are only
+ * web-local (`C` ends a chapter at the part). */
+export type WebPartActionId = PartActionId | "end-chapter";
 
 /**
  * The one policy for what a part action may do right now — read by the keys,
@@ -18,19 +28,10 @@ import { effectiveFocusedPartId, type StoryState } from "./state.js";
 
 type LoadedStoryState = Extract<StoryState, { kind: "loaded" }>;
 
-/** A generation is writing into, or saving into, this story. */
-export const STORY_LOCKED_TOAST = "Writing… Esc stops it first.";
-
-/** A generation's text is not saved yet; nothing may start or remove the
- * part it hangs below until the writer retries or discards it. */
-export const UNSAVED_TOAST = "The last text is not saved yet. Retry or discard it first.";
-
 export const PART_UNAVAILABLE_TOAST = "That part is no longer on the story line.";
-export const PART_SWITCHING_TOAST = "A take is still switching. Try again in a moment.";
 export const PART_WRITING_TOAST = "This part is still being written.";
 export const SUMMARY_RETAKE_TOAST = "Summaries are rewritten, not retaken.";
 export const EDITOR_OPEN_TOAST = "Finish or cancel the open editor first.";
-export const NOT_CONNECTED_TOAST = "Not connected.";
 export const LINE_GONE_TOAST = "That line is no longer there. The story was reloaded.";
 
 /** Shown when a retake's part left the line (or became a summary) between
@@ -53,24 +54,13 @@ export function partSwitchPending(story: LoadedStoryState, partId: string): bool
   return story.switching !== null && (story.switching.partId === partId || belowPendingSwitch(story, partId));
 }
 
-/** Why a start of generation in `storyId` is refused by a generation that
- * already exists, or `null` when none does. */
-export function generationBusyToast(state: AppState, storyId: string): string | null {
-  const generation = state.generation;
-  if (generation.kind === "idle") return null;
-  if (generation.storyId !== storyId) {
-    return `Already writing in ${generation.storyTitle}. Esc stops it.`;
-  }
-  return generation.kind === "unsaved" ? UNSAVED_TOAST : STORY_LOCKED_TOAST;
-}
-
 /** True when the open editor sits in `partId` or in a part below it on the
  * line, so a switch, retake, or delete of `partId` would take the edited part
  * away. */
 export function editorBlocksChange(state: AppState, partId: string): boolean {
   const editor = state.editor;
   const story = state.story;
-  if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id || editor.mode === "first") {
+  if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id || !inPartSlot(editor)) {
     return false;
   }
   const path = story.payload.path;
@@ -95,7 +85,7 @@ export function generationEditorRefusal(
   if (editor === null || story.kind !== "loaded" || editor.storyId !== story.payload.id) return null;
   // The first-part editor sits where the first generated part would stream:
   // a changed one is never hidden by it.
-  if (editor.mode === "first") return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
+  if (!inPartSlot(editor)) return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
   const path = story.payload.path;
   const editorIndex = path.findIndex((node) => node.id === editor.base.id);
   if (editorIndex < 0) return null;
@@ -125,7 +115,7 @@ export function planEditorRefusal(
   if (editor === null || story.kind !== "loaded" || story.payload.id !== storyId || editor.storyId !== storyId) {
     return null;
   }
-  if (editor.mode === "first") return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
+  if (!inPartSlot(editor)) return editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
   const path = story.payload.path;
   const editorIndex = path.findIndex((node) => node.id === editor.base.id);
   if (editorIndex < 0) return null;
@@ -150,7 +140,7 @@ export function planEditorRefusal(
  * 6. the editor: a change that would take the edited part away, or opening a
  *    second editor over a changed one.
  */
-export function partActionRefusal(state: AppState, partId: string, action: PartActionId): string | null {
+export function partActionRefusal(state: AppState, partId: string, action: WebPartActionId): string | null {
   const story = state.story;
   if (state.route.kind !== "story" || story.kind !== "loaded" || story.payload.id !== state.route.id) {
     return PART_UNAVAILABLE_TOAST;
@@ -162,14 +152,17 @@ export function partActionRefusal(state: AppState, partId: string, action: PartA
   if (node.role === "summary" && (action === "retake" || action === "retake-with-prompt")) {
     return SUMMARY_RETAKE_TOAST;
   }
-  const changesNow = action === "continue" || action === "retake" || action === "prune";
+  const changesNow = action === "continue" || action === "retake" || action === "prune" || action === "end-chapter";
   if (changesNow && state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
 
   if (action === "continue" || action === "retake") {
-    const busy = generationBusyToast(state, storyId);
+    const busy = runBusyToast(state, storyId);
     if (busy !== null) return busy;
-  } else if (action === "prune" && state.generation.kind !== "idle" && state.generation.storyId === storyId) {
-    return generationBusyToast(state, storyId);
+  } else if (action === "prune" && (state.generation.kind !== "idle" && state.generation.storyId === storyId
+    || state.chapters.summaryRun?.storyId === storyId)) {
+    return runBusyToast(state, storyId);
+  } else if (action === "end-chapter" && storyRunLocked(state, storyId)) {
+    return lockedToast(state, storyId);
   } else if (action === "edit" && appendingTo(state.generation, storyId) === partId) {
     return PART_WRITING_TOAST;
   }
@@ -187,8 +180,13 @@ export function partActionRefusal(state: AppState, partId: string, action: PartA
     case "write":
     case "edit": {
       const editor = state.editor;
-      if (editor !== null && editor.mode !== "first" && editor.base.id === partId) return null;
+      if (editor !== null && inPartSlot(editor) && editor.base.id === partId) return null;
       return editor !== null && editorDirty(editor) ? EDITOR_OPEN_TOAST : null;
+    }
+    case "end-chapter": {
+      const chapter = createManuscriptModel(story.payload).chapters.find((candidate) =>
+        candidate.closedBy?.parentPartId === partId);
+      return chapter === undefined ? null : `Chapter ${chapterWord(chapter.number)} already ends here.`;
     }
     default:
       return null;
@@ -208,7 +206,7 @@ export function lineSwitchRefusal(state: AppState, plan: LineSwitch): string | n
     return PART_UNAVAILABLE_TOAST;
   }
   if (state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
-  if (generationLocks(state.generation, story.payload.id)) return STORY_LOCKED_TOAST;
+  if (storyRunLocked(state, story.payload.id)) return lockedToast(state, story.payload.id);
   if (story.switching !== null) return PART_SWITCHING_TOAST;
   if (!plan.extendsLeaf && editorBlocksChange(state, plan.anchorId)) return EDITOR_OPEN_TOAST;
   return null;

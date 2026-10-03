@@ -10,10 +10,13 @@
 @import "./modal.css";
 @import "./story.css";
 @import "./manuscript.css";
+@import "./chip.css";
 @import "./takes.css";
 @import "./map.css";
+@import "./tags.css";
 @import "./generation.css";
 @import "./compose.css";
 @import "./editor.css";
+@import "./panel.css";
 @import "./connection.css";
 @import "./toast.css";

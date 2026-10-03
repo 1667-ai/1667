@@ -5,9 +5,9 @@ import { pushToast } from "../app/toasts.js";
 import {
   NOT_CONNECTED_TOAST,
   RETAKE_GONE_TOAST,
-  generationBusyToast,
   partActionRefusal
 } from "../story/part-policy.js";
+import { runBusyToast } from "../app/run-lock.js";
 import { openPart } from "../story/state.js";
 import type { StoryActions } from "../story/actions.js";
 import { focusComposer } from "./dom.js";
@@ -43,7 +43,7 @@ export interface ComposeActions {
  * promise "draft kept". The generation wording is the policy's own. */
 function submitRefusal(state: AppState, storyId: string): string | null {
   if (state.connection.kind !== "connected") return `${NOT_CONNECTED_TOAST} Draft kept.`;
-  const busy = generationBusyToast(state, storyId);
+  const busy = runBusyToast(state, storyId);
   return busy === null ? null : `${busy} Draft kept.`;
 }
 

@@ -1,3 +1,5 @@
+import { chapterWord } from "../../../shared/chapter-labels.js";
+import { createManuscriptModel } from "../../../shared/manuscript-model.js";
 import type { StoryNode } from "../../../shared/types.js";
 import type { EditorSaveRequest } from "./save.js";
 import type { AppState } from "../app/state.js";
@@ -11,6 +13,8 @@ import type { AppState } from "../app/state.js";
  * - `write` (`w`): the writer's own take, a sibling of `base`, whose slot it
  *   sits in. Empty when it opens.
  * - `first` (`w` on an empty story): the first part. It has no `base`.
+ * - `summary`: a chapter's summary text, edited in the summary card. It has
+ *   no `base` either: it is not a part of the line.
  */
 interface EditorFields {
   readonly storyId: string;
@@ -27,15 +31,39 @@ interface EditorFields {
   readonly pending: EditorSaveRequest | null;
 }
 
+/** The summary being edited, as it was when the editor opened (`text` is
+ * replaced by the reloaded one after a conflict). */
+export interface SummaryTarget {
+  readonly id: string;
+  readonly breakId: string;
+  readonly chapterNumber: number;
+  readonly text: string;
+}
+
 export type EditorState =
   | (EditorFields & { readonly mode: "edit" | "write"; readonly base: StoryNode })
-  | (EditorFields & { readonly mode: "first" });
+  | (EditorFields & { readonly mode: "first" })
+  | (EditorFields & { readonly mode: "summary"; readonly summary: SummaryTarget });
+
+/** The editors that sit in a part's slot (`edit` and `write`). */
+export type PartSlotEditor = Extract<EditorState, { readonly base: StoryNode }>;
+
+export function inPartSlot(editor: EditorState): editor is PartSlotEditor {
+  return editor.mode === "edit" || editor.mode === "write";
+}
+
+export function openSummaryEditorState(storyId: string, summary: SummaryTarget): EditorState {
+  return {
+    storyId, saving: false, overwriteArmed: false, discardArmed: false, pending: null,
+    mode: "summary", summary, text: summary.text, instruction: ""
+  };
+}
 
 /** One way to open an editor: `node` is the part to edit, or the part to write
  * next to; it is `null` only for `first`. */
 export function openEditorState(
   storyId: string,
-  mode: EditorState["mode"],
+  mode: Exclude<EditorState["mode"], "summary">,
   node: StoryNode | null
 ): EditorState {
   const fields = { storyId, saving: false, overwriteArmed: false, discardArmed: false, pending: null };
@@ -51,11 +79,12 @@ export function openEditorState(
 
 /** The part whose slot the editor sits in; `null` for `first`. */
 export function editorPartId(editor: EditorState | null): string | null {
-  return editor === null || editor.mode === "first" ? null : editor.base.id;
+  return editor === null || !inPartSlot(editor) ? null : editor.base.id;
 }
 
 /** True when the writer has typed something that Cancel would throw away. */
 export function editorDirty(editor: EditorState): boolean {
+  if (editor.mode === "summary") return editor.text !== editor.summary.text;
   if (editor.mode === "edit") {
     return editor.text !== editor.base.text || editor.instruction !== editor.base.instruction;
   }
@@ -66,6 +95,7 @@ export function editorDirty(editor: EditorState): boolean {
 export function editorTitle(editor: EditorState, partNumber: number): string {
   if (editor.mode === "edit") return `Edit part ${partNumber}`;
   if (editor.mode === "first") return "Your first part";
+  if (editor.mode === "summary") return `Edit Chapter ${chapterWord(editor.summary.chapterNumber)} summary`;
   return `Your take of part ${partNumber}`;
 }
 
@@ -80,6 +110,11 @@ export function editorIsOffLine(state: AppState, storyId: string): boolean {
   if (state.story.kind !== "loaded" || state.story.payload.id !== storyId) return false;
   const path = state.story.payload.path;
   if (editor.mode === "first") return path.length > 0;
+  if (editor.mode === "summary") {
+    // The summary has a card only while its chapter is closed and it stands in.
+    const id = editor.summary.id;
+    return !createManuscriptModel(state.story.payload).chapters.some((chapter) => chapter.summary?.id === id);
+  }
   return !path.some((node) => node.id === editor.base.id);
 }
 

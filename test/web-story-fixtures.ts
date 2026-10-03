@@ -162,6 +162,8 @@ export interface FakeApiOptions {
   readonly getTakeLine?: StoryApi["getTakeLine"];
   readonly getSettings?: StoryApi["getSettings"];
   readonly defaultContinueDirection?: string;
+  /** Any other `StoryApi` method, by name (a chapter or tag call). */
+  readonly methods?: Readonly<Record<string, (...args: never[]) => unknown>>;
 }
 
 export interface FakeApi {
@@ -238,6 +240,8 @@ export function fakeApi(overrides: FakeApiOptions = {}): FakeApi {
       return overrides.getTakeLine(storyId, nodeId);
     }
   };
+
+  for (const [name, method] of Object.entries(overrides.methods ?? {})) implemented[name] = method;
 
   // The one cast in the file: a `StoryApi` has about a hundred methods, and a
   // test must not have to name them. A Proxy answers every name, so the type
