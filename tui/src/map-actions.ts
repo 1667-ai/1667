@@ -12,9 +12,9 @@ import {
   moveLaneCursor,
   moveLaneCursorAcross,
   type LaneRow
-} from "./lane-layout.js";
+} from "../../shared/lane-layout.js";
 import type { ResolvedKey } from "./keys.js";
-import { initialPathCursor, movePathCursor, visiblePathSiblings } from "./path-layout.js";
+import { initialPathCursor, movePathCursor, visiblePathSiblings } from "../../shared/path-layout.js";
 import type { MapState } from "./map-state.js";
 import { nextMapView, nextMassSort } from "./map-state.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "./model.js";

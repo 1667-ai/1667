@@ -1,4 +1,4 @@
-import type { PathCell, PathLayout } from "../path-layout.js";
+import type { PathCell, PathLayout } from "../../../shared/path-layout.js";
 import type { Tag } from "../../../shared/types.js";
 import { tagGlyph, tagRole } from "./map-row-labels.js";
 import {

@@ -2,8 +2,9 @@ import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
-import { navigate } from "../app/router.js";
+import { navigate, openMap } from "../app/router.js";
 import { useStore } from "../app/store.js";
+import { pushToast } from "../app/toasts.js";
 import { PartEditor } from "../editor/PartEditor.js";
 import { Composer } from "../compose/Composer.js";
 import { EditorRecovery } from "../editor/EditorRecovery.js";
@@ -37,6 +38,8 @@ function liveRegionText(story: Extract<StoryState, { kind: "loaded" }>, generati
   if (generationView !== null && generationView.live) return generationView.statusLabel;
   return story.announcement ?? "";
 }
+
+const NOTHING_TO_MAP_TOAST = "Nothing to map yet.";
 
 /** Roughly one prose line at the default size — `⇧↑`/`⇧↓`'s nudge. */
 const LINE_SCROLL_PX = 60;
@@ -154,6 +157,10 @@ export function StoryView(
       case "scroll-up": return scrollBy(container, -pageScrollDistance(container));
       case "scroll-down": return scrollBy(container, pageScrollDistance(container));
       case "open-library": navigate({ kind: "library" }); return true;
+      case "open-map":
+        if (current.story.payload.nodes.length === 0) pushToast(store, NOTHING_TO_MAP_TOAST);
+        else openMap(storyId);
+        return true;
       default: return handleWritingKey(binding, event, current.story, actions);
     }
   }), [actions, store, storyId]);
@@ -189,6 +196,7 @@ export function StoryView(
         showDirections={showDirections}
         onToggleDirections={actions.story.toggleDirections}
         onOpenSidebar={onOpenSidebar}
+        onOpenMap={() => openMap(storyId)}
       />
       <div className="story-columns">
       <div className="story-main">

@@ -15,7 +15,15 @@ import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
-import { EDITOR_OPEN_TOAST, STORY_LOCKED_TOAST, belowPendingSwitch, editorBlocksChange } from "./part-policy.js";
+import { planLineSwitch } from "./line-switch.js";
+import {
+  EDITOR_OPEN_TOAST,
+  LINE_GONE_TOAST,
+  STORY_LOCKED_TOAST,
+  belowPendingSwitch,
+  editorBlocksChange,
+  lineSwitchRefusal
+} from "./part-policy.js";
 import { lockedToast } from "../app/run-lock.js";
 import { chapterJumpPartId, firstPartId, lastPartId, nextPartId } from "./focus-model.js";
 import { effectiveFocusedPartId, loadedStoryState, type StoryState } from "./state.js";
@@ -104,6 +112,12 @@ export interface StoryActions {
   jumpChapter(direction: -1 | 1): void;
   switchTake(partId: string, direction: SwitchDirection): void;
   switchTakeTo(partId: string, targetId: string): void;
+  /** Goes to any node of the story (the map's Enter): a node already on the
+   * line only takes focus; any other switches the line through it, under the
+   * same policy as the other changes. Returns `false` when it refused (with a
+   * toast) or could not start, `true` when it focused the node or began the
+   * switch. A switch lands later; watch `story.switching`. */
+  switchLine(targetId: string): boolean;
   toggleDirections(): void;
   /** Forces the debounced reading-position write out immediately — called on
    * `pagehide`/visibility hidden (`app/bootstrap.ts`) with `keepalive: true`
@@ -254,6 +268,13 @@ export function createStoryActions(
       // take switch already landed while this one was in flight.
       if (state.story.kind === "loaded" && state.story.payload.id === id
         && !isAtLeastVersion(payload, state.story.payload)) return state;
+      // A reload of the open story keeps a switch that is still in flight
+      // (the map reloads on open while a switch may already be running). A
+      // switch whose loop has ended owns nothing any more, so it is dropped.
+      if (state.story.kind === "loaded" && state.story.payload.id === id) {
+        const switching = switchLoopRunning.has(id) ? state.story.switching : null;
+        return { ...state, story: { ...state.story, payload, switching } };
+      }
       return { ...state, story: loadedStoryState(payload, focusedPartId) };
     });
   }));
@@ -293,6 +314,9 @@ export function createStoryActions(
             }
             pushToast(store, `Switch take failed: ${errorMessage(error)}`);
             updateLoadedStory(store, storyId, (current) => ({ ...current, switching: null }));
+            // A failed request can leave the story version moved on; show the
+            // story as the backend has it now.
+            await load(storyId);
             return;
           }
           if (!isCurrentStoryRoute(store, storyId)) return;
@@ -437,6 +461,26 @@ export function createStoryActions(
       }
       beginSwitch(storyId, partId, targetId);
     }),
+
+    switchLine: (targetId) => withOpenStory(store, (storyId, story) => {
+      const plan = planLineSwitch(story.payload, targetId);
+      if (plan === null) {
+        pushToast(store, LINE_GONE_TOAST);
+        void load(storyId);
+        return false;
+      }
+      if (plan.kind === "focus") {
+        setFocusedPart(store, storyId, plan.partId);
+        return true;
+      }
+      const refusal = lineSwitchRefusal(store.get(), plan);
+      if (refusal !== null) {
+        pushToast(store, refusal);
+        return false;
+      }
+      beginSwitch(storyId, plan.anchorId, targetId);
+      return true;
+    }) ?? false,
 
     toggleDirections: () => {
       const next = !store.get().reading.showDirections;

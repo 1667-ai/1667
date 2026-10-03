@@ -5,7 +5,7 @@ import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { factRows } from "./facts-model.js";
 import { applyTextKey, type ResolvedKey } from "./keys.js";
-import { resolveRerouteTarget } from "./path-layout.js";
+import { resolveRerouteTarget } from "../../shared/path-layout.js";
 import { flushReadingPositionPersist } from "./reading-position-persist.js";
 import { abortPendingSearch, runSearch } from "./search-request.js";
 

@@ -5,7 +5,7 @@ import type { StoryNode, StoryPayload, StorySummary } from "../../shared/types.j
 import { createTestRenderer } from "@opentui/core/testing";
 import { createStoryViewModel, resolveSwitchTarget } from "../src/model.js";
 import { chapterListModel } from "../src/chapter-model.js";
-import { createPathLayout, movePathCursor } from "../src/path-layout.js";
+import { createPathLayout, movePathCursor } from "../../shared/path-layout.js";
 import { libraryRows, libraryTotals } from "../src/library-model.js";
 import { createPalette } from "../src/palette.js";
 import { renderStoryScreen } from "../src/screens/story.js";
@@ -17,7 +17,7 @@ import { createWrapCache, wrapText, type ProseStyle, type WrapCache } from "../s
 import { createComposer } from "../src/composer-model.js";
 import { nextRequestEstimate } from "../src/request-projection.js";
 import { createAtlasLayout } from "../src/atlas-layout.js";
-import { createLaneLayout } from "../src/lane-layout.js";
+import { createLaneLayout } from "../../shared/lane-layout.js";
 import { renderLaneRow } from "../src/screens/map-lane-row.js";
 import {
   createStoryWrapBuild,

@@ -175,7 +175,8 @@ test("case 1: parts open in order, the leaf carries aria-current, directions "
     }));
   expect(iconButtons.filter((button) => button.icon && button.shown).length).toBeGreaterThan(4);
   expect(iconButtons.filter((button) => button.title.trim() === "" || button.label.trim() === "")).toEqual([]);
-  expect(iconButtons.filter((button) => button.icon && button.shown && (button.width < 32 || button.height < 32)))
+  // Half a pixel of slack: layout can land a 32 px box at 31.99998 px.
+  expect(iconButtons.filter((button) => button.icon && button.shown && (button.width < 31.5 || button.height < 31.5)))
     .toEqual([]);
 
   // The sidebar row of a story with more than one line shows its line count,
