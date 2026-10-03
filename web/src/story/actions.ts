@@ -269,9 +269,11 @@ export function createStoryActions(
       if (state.story.kind === "loaded" && state.story.payload.id === id
         && !isAtLeastVersion(payload, state.story.payload)) return state;
       // A reload of the open story keeps a switch that is still in flight
-      // (the map reloads on open while a switch may already be running).
+      // (the map reloads on open while a switch may already be running). A
+      // switch whose loop has ended owns nothing any more, so it is dropped.
       if (state.story.kind === "loaded" && state.story.payload.id === id) {
-        return { ...state, story: { ...state.story, payload } };
+        const switching = switchLoopRunning.has(id) ? state.story.switching : null;
+        return { ...state, story: { ...state.story, payload, switching } };
       }
       return { ...state, story: loadedStoryState(payload, focusedPartId) };
     });

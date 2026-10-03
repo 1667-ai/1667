@@ -59,7 +59,9 @@ export function StoryMap({ storyId, onOpenSidebar }: { readonly storyId: string;
 
   const loaded = story !== null && story.kind === "loaded" ? story : null;
   const payload = loaded?.payload ?? null;
-  const focusedId = loaded === null ? null : effectiveFocusedPartId(loaded);
+  // Memoized: the focus walks the whole manuscript model, and a cursor move
+  // must not pay for that.
+  const focusedId = useMemo(() => (loaded === null ? null : effectiveFocusedPartId(loaded)), [loaded]);
   const leafId = payload?.path.at(-1)?.id ?? null;
   const wanted = cursor ?? focusedId ?? leafId;
 
