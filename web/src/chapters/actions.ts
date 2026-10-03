@@ -128,7 +128,12 @@ export function createChapterActions(store: Store<AppState>, deps: ChapterAction
       const title = storedChapterTitle(open.payload, breakId);
       if (title === null) return;
       write((chapters) => {
-        if (chapters.rename?.saving === true) return chapters;
+        const current = chapters.rename;
+        if (current?.saving === true) return chapters;
+        // Reopening the same chapter keeps a changed draft, wherever it is shown.
+        if (current !== null && current.storyId === open.storyId && current.breakId === breakId && current.text !== title) {
+          return { ...chapters, rename: { ...current, origin } };
+        }
         return { ...chapters, rename: { storyId: open.storyId, breakId, text: title, origin, saving: false } };
       });
     },

@@ -64,6 +64,12 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLInputElement) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
     const handled = (): void => event.preventDefault();
+    // A held key must not repeat an action (Shift+D would remove break after
+    // break); only the arrows repeat.
+    if (event.repeat && event.key !== "ArrowUp" && event.key !== "ArrowDown") {
+      handled();
+      return;
+    }
     switch (event.key) {
       case "Escape":
         handled();

@@ -54,7 +54,12 @@ export function ChaptersPanel(
             ref={selected ? setSelectedRow : undefined}
             className={`panel-row${selected ? " selected" : ""}${here ? " here" : ""}`}
             aria-current={selected ? "true" : undefined}
-            onClick={() => { onCursor(index); onJump(chapter); }}
+            onClick={(event) => {
+              // A click in the rename input is typing, not a jump.
+              if (event.target instanceof HTMLInputElement) return;
+              onCursor(index);
+              onJump(chapter);
+            }}
           >
             <span className="panel-row-number">{chapter.number}</span>
             <div className="panel-row-main">

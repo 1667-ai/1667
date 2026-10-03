@@ -90,7 +90,14 @@ export function createTagActions(store: Store<AppState>, deps: TagActionDependen
     }
     if (!stillLineEnd(payload, open.nodeId)) {
       pushToast(store, LINE_CHANGED_TOAST);
-      write((tags) => ({ ...tags, open: null }));
+      // The line grew: the draft follows it to its new end, so opening the tag
+      // there shows what was typed.
+      const movedTo = payload.nodes.some((node) => node.id === open.nodeId) ? rememberedLeafId(payload, open.nodeId) : null;
+      write((tags) => {
+        if (movedTo === null) return { ...tags, open: null };
+        const { [tagDraftKey(storyId, open.nodeId)]: _old, ...rest } = tags.drafts;
+        return { ...tags, open: null, drafts: { ...rest, [tagDraftKey(storyId, movedTo)]: draft } };
+      });
       return;
     }
     if (state.connection.kind !== "connected") return;

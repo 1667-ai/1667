@@ -351,7 +351,12 @@ test("case 10: c opens the chapters panel; its keys move, jump, rename, summariz
   await panel.getByText("✓ stands in").waitFor();
 
   await page.keyboard.press("ArrowDown");
-  await page.keyboard.press("Shift+D");
+  // A held key acts once.
+  await page.keyboard.down("Shift");
+  await page.keyboard.down("D");
+  await page.keyboard.down("D");
+  await page.keyboard.up("D");
+  await page.keyboard.up("Shift");
   await page.getByText("Chapter break removed. u undoes.").waitFor();
   await waitForCount(rows, 1);
   expect((await seeded.api.loadStory(seeded.storyId)).chapterBreaks).toHaveLength(0);
@@ -372,6 +377,13 @@ test("case 11: below 1200 px the panel is a drawer; Enter jumps and closes it; E
   await panel.waitFor();
   await page.getByRole("button", { name: "Close chapters" }).waitFor({ state: "attached" });
   await screenshot(page, "7a-panel-drawer");
+  // A click in the rename input is typing: it does not jump or close the drawer.
+  await page.keyboard.press("e");
+  const renameBox = page.getByRole("textbox", { name: "Chapter title" });
+  await renameBox.click();
+  expect(await panel.count()).toBe(1);
+  await page.keyboard.press("Escape");
+  await waitForCount(renameBox, 0);
   await page.keyboard.press("ArrowUp");
   await page.keyboard.press("Enter");
   await waitForCount(panel, 0);
