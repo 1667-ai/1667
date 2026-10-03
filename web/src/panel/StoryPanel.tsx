@@ -59,6 +59,16 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
     if (!window.matchMedia(DOCKED_QUERY).matches) actions.panel.close();
   };
 
+  const endChapterHere = (): void => {
+    const story = store.get().story;
+    const partId = story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
+    if (partId === null) return;
+    // The new divider's title field opens in the manuscript; a drawer would
+    // cover it and keep the keys.
+    if (!window.matchMedia(DOCKED_QUERY).matches) actions.panel.close();
+    actions.part.run("end-chapter", partId);
+  };
+
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
     // A field inside (a rename) handles its own keys.
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLInputElement) return;
@@ -97,9 +107,7 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
         return;
       case "n": {
         handled();
-        const story = store.get().story;
-        const partId = story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
-        if (partId !== null) actions.part.run("end-chapter", partId);
+        endChapterHere();
         return;
       }
       default:
@@ -132,11 +140,7 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
             type="button"
             className="btn btn-small"
             title="End chapter here (n)"
-            onClick={() => {
-              const story = store.get().story;
-              const partId = story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
-              if (partId !== null) actions.part.run("end-chapter", partId);
-            }}
+            onClick={endChapterHere}
           >
             <Icon path={ICONS.plus} />
             End chapter here

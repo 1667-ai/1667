@@ -390,6 +390,18 @@ test("case 11: below 1200 px the panel is a drawer; Enter jumps and closes it; E
   await waitForAttribute(part(page, "A:"), "aria-current", "true");
   expect(await poll(() => part(page, "A:").evaluate((element) => element === document.activeElement))).toBeTrue();
 
+  // `n` from the drawer closes it, so the new title field is not covered.
+  await page.keyboard.press("c");
+  await panel.waitFor();
+  await page.keyboard.press("n");
+  await waitForCount(panel, 0);
+  const newTitle = page.getByRole("textbox", { name: "Chapter title" });
+  await newTitle.waitFor();
+  expect(await poll(() => newTitle.evaluate((element) => element === document.activeElement))).toBeTrue();
+  await page.keyboard.type("Early");
+  await page.keyboard.press("Enter");
+  expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).chapterBreaks.some((item) => item.title === "Early"))).toBeTrue();
+
   await page.keyboard.press("c");
   await panel.waitFor();
   await page.keyboard.press("Escape");
