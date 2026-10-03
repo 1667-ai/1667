@@ -213,7 +213,7 @@ test("case 5: summarize shows the bar status and Stop, refuses Space, and the ca
   await page.getByRole("button", { name: "Chapter actions" }).click();
   await page.getByRole("menuitem", { name: "Summarize Chapter One" }).click();
   await page.getByText("Summarizing Chapter One…").first().waitFor();
-  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await page.getByRole("button", { name: "Stop", exact: true }).waitFor();
   await screenshot(page, "7a-summary-running");
   await part(page, "C:").click();
   await page.keyboard.press("Space");
@@ -238,7 +238,7 @@ test("case 6: Esc during a summary stops it; the toast and the saved story agree
 
   await page.getByRole("button", { name: "Chapter actions" }).click();
   await page.getByRole("menuitem", { name: "Summarize Chapter One" }).click();
-  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await page.getByRole("button", { name: "Stop", exact: true }).waitFor();
   await page.keyboard.press("Escape");
   const toast = page.getByText(/^Chapter One summary (stopped|completed before stop)\.$/);
   await toast.waitFor();
@@ -248,6 +248,8 @@ test("case 6: Esc during a summary stops it; the toast and the saved story agree
   await page.getByRole("button", { name: "Continue" }).waitFor();
 
   await page.getByRole("button", { name: "Second" }).click();
+  await page.getByRole("textbox", { name: "Chapter title" }).waitFor();
+  await page.keyboard.press("ArrowRight");
   await page.keyboard.type(" thoughts");
   await page.keyboard.press("Enter");
   expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).chapterBreaks[0]!.title === "Second thoughts")).toBeTrue();
@@ -260,7 +262,7 @@ test("case 7: Edit summary and Ctrl/Cmd+S sets the text", async () => {
   const page = await openStory(web, seeded.storyId, "Edit A Summary");
 
   await summaryCard(page).click();
-  await page.getByRole("button", { name: "Edit summary" }).click();
+  await page.getByRole("button", { name: "Edit", exact: true }).click();
   const box = page.getByRole("textbox", { name: "Edit Chapter One summary" });
   await box.waitFor();
   expect(await poll(() => box.evaluate((element) => element === document.activeElement))).toBeTrue();
@@ -288,8 +290,8 @@ test("case 8: editing a part above makes the summary stale; Refresh makes it sta
   await screenshot(page, "7a-summary-stale");
 
   await summaryCard(page).click();
-  await page.getByRole("button", { name: "Refresh summary" }).click();
-  await page.getByText("Chapter One summary refreshed.").waitFor({ timeout: 30_000 });
+  await page.getByRole("button", { name: "Refresh", exact: true }).click();
+  await page.getByText("Chapter One summary refreshed.").first().waitFor({ timeout: 30_000 });
   expect(await poll(async () => ((await summaryCard(page).textContent()) ?? "").includes("stands in"))).toBeTrue();
 }, 90_000);
 
