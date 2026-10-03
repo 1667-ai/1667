@@ -17,6 +17,7 @@ export function FactStates({ payload, editor }: { readonly payload: StoryPayload
   const available = useStore(store, (state) => (
     state.connection.kind === "connected" && state.connection.api.createFactState !== undefined
   ));
+  const factsBusy = useStore(store, (state) => state.facts.busy);
   const [confirming, setConfirming] = useState<string | null>(null);
   const fact = editor.factId === null ? undefined : payload.facts.find((candidate) => candidate.id === editor.factId);
   if (fact === undefined || !available) return null;
@@ -25,7 +26,7 @@ export function FactStates({ payload, editor }: { readonly payload: StoryPayload
   const stateful = isFactStateful(fact);
   const partNumber = focusedId === null ? 0 : payload.path.findIndex((node) => node.id === focusedId) + 1;
   const editingId = editor.body.kind === "state" ? editor.body.stateId : null;
-  const busy = editor.saving;
+  const busy = editor.saving || factsBusy;
   const hasStoryWide = entries.some((entry) => entry.state.anchorPartId === undefined);
   const adding = editor.body.kind === "new-state";
 

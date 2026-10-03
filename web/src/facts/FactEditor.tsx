@@ -3,6 +3,7 @@ import { FACT_ACTIVATIONS, FACT_PRIORITIES, FACT_RECURSIONS, FACT_SECONDARY_MODE
 import { factTagPresets } from "../../../shared/fact-view.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
+import { useStore } from "../app/store.js";
 import { IS_MAC } from "../app/platform.js";
 import { Modal } from "../ui/Modal.js";
 import { FactStates } from "./FactStates.js";
@@ -52,7 +53,7 @@ function Choice<T extends string>(
 /** The fact editor: Name, Tag and Text up front, the activation and budget
  * fields under "More". The draft lives in the store (`facts/state.ts`). */
 export function FactEditor({ payload, editor }: { readonly payload: StoryPayload; readonly editor: FactEditorState }) {
-  const { actions } = useAppContext();
+  const { store, actions } = useAppContext();
   const nameRef = useRef<HTMLInputElement>(null);
   const [more, setMore] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
@@ -60,7 +61,8 @@ export function FactEditor({ payload, editor }: { readonly payload: StoryPayload
   const dirty = factEditorDirty(editor);
   const ends = body.kind !== "fact" && body.ends;
   const isNew = editor.factId === null;
-  const busy = editor.saving;
+  const factsBusy = useStore(store, (state) => state.facts.busy);
+  const busy = editor.saving || factsBusy;
 
   useEffect(() => {
     nameRef.current?.focus();

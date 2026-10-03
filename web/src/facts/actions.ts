@@ -63,19 +63,33 @@ export function loadedStory(state: AppState): Loaded | null {
   return state.story.payload.id === state.route.id ? { storyId: state.route.id, payload: state.story.payload } : null;
 }
 
-/** After a conflict: the writer's changed fields stay; every other field takes
- * the reloaded value, and the baseline becomes the reloaded fact. */
-function mergeAfterConflict(editor: FactEditor, fact: StoryFact): FactEditor {
-  const reloaded = editor.body.kind === "state"
+/** The form a stored fact (and the editor's state) would open with. */
+function reloadedFormOf(editor: FactEditor, fact: StoryFact): FactForm {
+  return editor.body.kind === "state"
     ? formOfFactState(fact, canonicalFactStates(fact).find((state) => state.id === (editor.body as { stateId: string }).stateId) ?? null)
     : formOfDraft(factDraftOf(fact));
+}
+
+/** True when the stored fact differs from what the editor opened on: the story
+ * moved on (another window, or a reload while the draft stayed open). The
+ * baseline is read the way a reload formats it, and a new state's text is not
+ * compared (it starts from the text in effect, not from a stored one). */
+function movedSinceOpened(editor: FactEditor, fact: StoryFact): boolean {
+  const parsed = parseForm(editor.base, false);
+  const base = parsed.ok ? formOfDraft(parsed.draft) : editor.base;
+  const stored = reloadedFormOf(editor, fact);
+  return changedFields(base, stored).some((field) => field !== "text" || editor.body.kind !== "new-state");
+}
+
+/** After a conflict: the writer's changed fields stay; every other field takes
+ * the reloaded value, and both baselines become the reloaded fact. */
+function mergeAfterConflict(editor: FactEditor, fact: StoryFact): FactEditor {
+  const reloaded = reloadedFormOf(editor, fact);
   const changed = new Set(changedFields(editor.base, editor.form));
   const form = Object.fromEntries(
     (Object.keys(reloaded) as FactFormField[]).map((field) => [field, changed.has(field) ? editor.form[field] : reloaded[field]])
   ) as unknown as FactForm;
-  const body = editor.body.kind === "state"
-    ? { ...editor.body, baseText: changed.has("text") ? editor.body.baseText : reloaded.text }
-    : editor.body;
+  const body = editor.body.kind === "state" ? { ...editor.body, baseText: reloaded.text } : editor.body;
   return { ...editor, base: reloaded, form, body, saving: false, overwriteArmed: true };
 }
 
@@ -284,6 +298,14 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
     const refusal = storyChangeRefusal(state, editor.storyId);
     if (refusal !== null) {
       pushToast(store, `${refusal} Draft kept.`);
+      return;
+    }
+    // A reload may have moved the story on while the draft stayed open: take
+    // the conflict path now, before a save overwrites the newer text.
+    const stored = editor.factId === null ? undefined : loaded.payload.facts.find((candidate) => candidate.id === editor.factId);
+    if (stored !== undefined && editor.pending === null && movedSinceOpened(editor, stored)) {
+      update((current) => mergeAfterConflict(current, stored));
+      pushToast(store, FACT_CHANGED_TOAST);
       return;
     }
     const token = opened;

@@ -23,6 +23,8 @@ export function handleFactsKey(event: KeyboardEvent<HTMLElement>, context: Facts
   const { actions, rows, cursor, setCursor, filterRef, editorOpen, picking, close } = context;
   if (event.defaultPrevented || event.nativeEvent.isComposing) return;
   const target = event.target as HTMLElement;
+  // A dialog (the delete confirm) has its own keys.
+  if (target.closest("dialog") !== null) return;
   const inFilter = target === filterRef.current;
   if (!inFilter && (target instanceof HTMLInputElement || target instanceof HTMLTextAreaElement || target instanceof HTMLSelectElement)) {
     return;

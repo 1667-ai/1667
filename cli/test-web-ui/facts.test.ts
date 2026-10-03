@@ -200,17 +200,26 @@ test("case 4: Delete asks first; Cancel keeps the fact, Delete removes it", asyn
   const seeded = await seedThreeParts(web, "Fact Delete");
   await seeded.api.createFact(seeded.storyId, { name: "Gone soon", text: "Short lived." });
   const page = await openStory(web, seeded.storyId, "Fact Delete");
+  const diagnostics = await collectPageDiagnostics(page);
 
   await page.keyboard.press("f");
   await waitForCount(rows(page), 1);
   await page.keyboard.press("Enter");
+  await editor(page).getByRole("textbox", { name: "Text" }).fill("An edit that stays.");
   await editor(page).getByRole("button", { name: "Delete" }).click();
   const dialog = page.getByRole("dialog", { name: "Delete fact" });
   await dialog.waitFor();
-  await dialog.getByRole("button", { name: "Cancel" }).click();
+  // Esc only cancels the dialog: it does not arm the editor's discard.
+  await page.keyboard.press("Escape");
   await waitForCount(dialog, 0);
   expect((await seeded.api.loadStory(seeded.storyId)).facts).toHaveLength(1);
   expect(await editor(page).count()).toBe(1);
+  expect(await editor(page).getByText("Esc again discards your changes.").count()).toBe(0);
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).inputValue()).toBe("An edit that stays.");
+  await editor(page).getByRole("button", { name: "Delete" }).click();
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await waitForCount(dialog, 0);
 
   await editor(page).getByRole("button", { name: "Delete" }).click();
   await dialog.waitFor();
@@ -218,6 +227,7 @@ test("case 4: Delete asks first; Cancel keeps the fact, Delete removes it", asyn
   await waitForCount(dialog, 0);
   await waitForCount(editor(page), 0);
   expect((await seeded.api.loadStory(seeded.storyId)).facts).toHaveLength(0);
+  expect(diagnostics.consoleErrors).toEqual([]);
   await panel(page).getByText("No facts yet").waitFor();
 }, 60_000);
 
@@ -370,4 +380,34 @@ test("case 9: a fact changed in another window keeps the draft; the next Save ov
   const fact = (await seeded.api.loadStory(seeded.storyId)).facts[0]!;
   expect(fact.states[0]).toMatchObject({ text: "Mara keeps the light for years." });
   expect(fact.tag).toBe("rules");
+}, 60_000);
+
+test("case 10: a draft left open while another window changes the fact is not saved over it silently", async () => {
+  const web = await spawnFactsWeb();
+  const seeded = await seedThreeParts(web, "Fact Return");
+  const made = await seeded.api.createFact(seeded.storyId, { name: "Mara", text: "Mara keeps the light." });
+  const factId = made.facts[0]!.id;
+  const other = await seeded.api.createStory("Elsewhere");
+  const page = await openStory(web, seeded.storyId, "Fact Return");
+
+  await page.keyboard.press("f");
+  await waitForCount(rows(page), 1);
+  await page.keyboard.press("Enter");
+  const body = editor(page).getByRole("textbox", { name: "Text" });
+  await body.fill("Mara keeps the light for years.");
+
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, other.id);
+  await page.getByRole("heading", { name: "Elsewhere" }).waitFor();
+  await seeded.api.patchFact(seeded.storyId, factId, { text: "Mara left." });
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, seeded.storyId);
+  await page.getByRole("heading", { name: "Fact Return" }).waitFor();
+  await body.waitFor();
+  expect(await body.inputValue()).toBe("Mara keeps the light for years.");
+
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await page.getByText("This fact changed in another window. Save again to overwrite.").first().waitFor();
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[0]).toMatchObject({ text: "Mara left." });
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await waitForCount(editor(page), 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[0]).toMatchObject({ text: "Mara keeps the light for years." });
 }, 60_000);
