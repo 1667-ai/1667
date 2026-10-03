@@ -7,6 +7,7 @@ import type { AppState } from "../app/state.js";
 import type { GenerationPlan } from "../generation/plan.js";
 import { appendingTo } from "../generation/state.js";
 import { editorDirty, inPartSlot } from "../editor/state.js";
+import type { LineSwitch } from "./line-switch.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
 import { NOT_CONNECTED_TOAST, SWITCHING_TOAST as PART_SWITCHING_TOAST } from "./story-policy.js";
 
@@ -31,6 +32,7 @@ export const PART_UNAVAILABLE_TOAST = "That part is no longer on the story line.
 export const PART_WRITING_TOAST = "This part is still being written.";
 export const SUMMARY_RETAKE_TOAST = "Summaries are rewritten, not retaken.";
 export const EDITOR_OPEN_TOAST = "Finish or cancel the open editor first.";
+export const LINE_GONE_TOAST = "That line is no longer there. The story was reloaded.";
 
 /** Shown when a retake's part left the line (or became a summary) between
  * the writer opening the retake and sending it. */
@@ -189,6 +191,25 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
     default:
       return null;
   }
+}
+
+/**
+ * The toast a switch to another line is refused with right now, or `null`.
+ * Fixed order, first match wins: the story is not open; not connected; a
+ * generation writing into (or saving into) this story; a switch already in
+ * flight; the open editor sits on a part the switch replaces (skipped when the
+ * line only grows past its leaf).
+ */
+export function lineSwitchRefusal(state: AppState, plan: LineSwitch): string | null {
+  const story = state.story;
+  if (state.route.kind !== "story" || story.kind !== "loaded" || story.payload.id !== state.route.id) {
+    return PART_UNAVAILABLE_TOAST;
+  }
+  if (state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
+  if (storyRunLocked(state, story.payload.id)) return lockedToast(state, story.payload.id);
+  if (story.switching !== null) return PART_SWITCHING_TOAST;
+  if (!plan.extendsLeaf && editorBlocksChange(state, plan.anchorId)) return EDITOR_OPEN_TOAST;
+  return null;
 }
 
 /** The part Space continues from: the focused part, or `null` on an empty

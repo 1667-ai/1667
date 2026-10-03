@@ -8,6 +8,7 @@ import { GenerationBar } from "./generation/GenerationBar.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
+import { StoryMap } from "./map/StoryMap.js";
 import { StoryView } from "./story/StoryView.js";
 import {
   ClosedOverlay,
@@ -93,7 +94,9 @@ function Shell() {
           />
         )}
         {route.kind === "story"
-          ? <StoryView storyId={route.id} onOpenSidebar={openSidebar} />
+          ? (route.map === true
+            ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
+            : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
           : (
             <>
               <div className="main-toolbar"><SidebarToggle onOpen={openSidebar} /></div>

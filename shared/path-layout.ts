@@ -1,7 +1,7 @@
-import { createStoryIndex, rememberedChildOf, type StoryIndex } from "../../shared/story-model.js";
-import { isMapSketch } from "../../shared/map-model.js";
-import { childrenOf, isChapterSummary, pathTo } from "../../shared/story-tree.js";
-import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
+import { createStoryIndex, rememberedChildOf, type StoryIndex } from "./story-model.js";
+import { isMapSketch } from "./map-model.js";
+import { childrenOf, isChapterSummary, pathTo } from "./story-tree.js";
+import type { Tag, NodeStub, StoryPayload } from "./types.js";
 
 export interface PathCell {
   node: NodeStub;
@@ -179,6 +179,14 @@ function visibleLineLeafId(nodeId: string, showSketches: boolean, index: StoryIn
   }
 }
 
+
+/** The leaf the rows of `nodeId`'s line end on — what a caller keys the path
+ * layout by, since the rows depend on the line, not on the cursor within it. */
+export function pathLineLeafId(payload: StoryPayload, nodeId: string, showSketches: boolean): string {
+  const index = createStoryIndex(payload);
+  const cursor = visiblePathCursor(payload, nodeId, showSketches, index);
+  return visibleLineLeafId(cursor?.id ?? nodeId, showSketches, index);
+}
 
 function visiblePathCursor(
   payload: StoryPayload,

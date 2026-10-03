@@ -5,7 +5,7 @@ import {
   type AtlasRow
 } from "../atlas-layout.js";
 import { addHit, type HitRegion, type HitRow, type HitRows } from "../hit.js";
-import { createPathLayout } from "../path-layout.js";
+import { createPathLayout } from "../../../shared/path-layout.js";
 import { addInlineHits } from "./story/hits.js";
 import { MAP_VIEWS, type MapState, type MapView } from "../map-state.js";
 import { pruneConfirmText } from "../prune-model.js";

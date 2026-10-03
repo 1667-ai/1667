@@ -15,7 +15,7 @@ import {
   LANE_BUDGET,
   type LaneLayout,
   type LaneRow
-} from "../src/lane-layout.js";
+} from "../../shared/lane-layout.js";
 import { createDemoController } from "../src/demo.js";
 import type { HitRows } from "../src/hit.js";
 import { renderMapScreen, type MapScreenFrame } from "../src/screens/map.js";

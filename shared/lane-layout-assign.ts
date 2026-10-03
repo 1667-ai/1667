@@ -1,4 +1,4 @@
-import type { Tag, NodeStub } from "../../shared/types.js";
+import type { Tag, NodeStub } from "./types.js";
 
 /** Doc "10e"'s safety net: a story that never abandons a line still gets a
  *  fixed-width gutter. */

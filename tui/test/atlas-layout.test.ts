@@ -3,7 +3,7 @@ import type { Tag, NodeStub, StoryNode, StoryPayload } from "../../shared/types.
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
 import { createAtlasLayout, type AtlasLayout } from "../src/atlas-layout.js";
 import { createDemoController } from "../src/demo.js";
-import { createPathLayout } from "../src/path-layout.js";
+import { createPathLayout } from "../../shared/path-layout.js";
 const NOW = 1_667_000_000_000;
 
 describe("atlas layout model", () => {

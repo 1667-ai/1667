@@ -14,7 +14,7 @@ import { recordHumanWords, saveConfig } from "./config.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { openMap } from "./map-actions.js";
 import { createNewStory } from "./library-actions.js";
-import { resolveRerouteTarget } from "./path-layout.js";
+import { resolveRerouteTarget } from "../../shared/path-layout.js";
 import {
   insertComposerText,
   setComposerText

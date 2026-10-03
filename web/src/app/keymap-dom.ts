@@ -8,6 +8,7 @@
  * types are imported, so nothing here pulls TUI runtime code (`@opentui/core`)
  * into the web bundle.
  */
+import type { MapView } from "../../../shared/map-model.js";
 import {
   resolveReferenceBinding,
   type ReferenceBinding,
@@ -64,6 +65,8 @@ export function keyEventFromDom(event: KeyboardEvent): ReferenceKeyEvent {
 // equivalent here.)
 const NAV_LANES: readonly ReferenceBindingLane[] = ["global", "nav-shifted", "nav-chord", "nav"];
 
+const MAP_LANES: readonly ReferenceBindingLane[] = ["global", "map"];
+
 /** Owner decision: ⌃U, ⌃D, ⌃P stay the browser's (page-up-in-history,
  * bookmark, print) — never bound here. The shared table's own `nav-chord`
  * entries for ⌃U/⌃D resolve to the very same `scroll-up`/`scroll-down`
@@ -92,6 +95,20 @@ export function resolveManuscriptBinding(event: KeyboardEvent): ReferenceBinding
   const key = keyEventFromDom(event);
   for (const lane of NAV_LANES) {
     const binding = resolveReferenceBinding(lane, key, "NAV");
+    if (binding !== null) return binding;
+  }
+  return null;
+}
+
+/** The story map's keys: the `global` lane (Esc closes), then the `map` lane,
+ * both in the TUI's `MAP` mode for the current view. ⌘ and ⌥ never resolve,
+ * and neither do the browser-reserved chords, for the same reasons as in
+ * `resolveManuscriptBinding`. */
+export function resolveMapBinding(event: KeyboardEvent, view: MapView): ReferenceBinding | null {
+  if (event.metaKey || event.altKey || isBrowserReservedChord(event)) return null;
+  const key = keyEventFromDom(event);
+  for (const lane of MAP_LANES) {
+    const binding = resolveReferenceBinding(lane, key, "MAP", view);
     if (binding !== null) return binding;
   }
   return null;

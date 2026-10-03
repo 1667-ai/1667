@@ -129,7 +129,8 @@ export function createLibraryActions(
         pushToast(store, errorMessage(error, { not_found: "That story is already gone." }));
       }
       const route = store.get().route;
-      if (route.kind === "story" && route.id === storyId) navigate({ kind: "library" });
+      // Replace, not push: Back must not return to the deleted story.
+      if (route.kind === "story" && route.id === storyId) navigate({ kind: "library" }, { replace: true });
       await refreshUnwrapped();
     }))
   };

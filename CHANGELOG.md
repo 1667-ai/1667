@@ -14,6 +14,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   write, refresh, or edit a chapter summary. Press `u` to undo a chapter break
   change.
 
+- **`1667 web` shows the map of a story.** Press `m`, or click the Map button,
+  to open the map. The map is a page with its own address. It shows the lines
+  of the story as a tree. Press `m` in the map to show one line as a path.
+  Press the arrow keys to move on the map. Press Enter to go to a part or to
+  switch to another line. Press Esc to close the map.
+
 ## 0.11.0-beta.6 - 2026-10-02
 
 - **The desktop app is removed.** Use `1667 web` to write in a browser on your

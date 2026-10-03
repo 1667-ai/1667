@@ -1,4 +1,4 @@
-import type { NodeStub } from "../../shared/types.js";
+import type { NodeStub } from "./types.js";
 
 /** Shared by `lane-layout.ts` and `atlas-layout.ts` — neither is the other's
  *  dependency for this. `cumulativeWords` is not itself about age, but it has

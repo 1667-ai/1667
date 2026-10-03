@@ -1,0 +1,79 @@
+/**
+ * The story map (`#/story/<id>/map`): a header like the story's, one
+ * scrolling listbox of rows with a lane gutter, a detail footer, and the stop
+ * bar. Rows are absolutely placed by `map/MapList.tsx`, so their heights are
+ * the tokens it reads: `--btn-sm` for a full row, `--s-3` for a fork or close
+ * row. No `content-visibility`: it broke keyboard scrolling.
+ */
+
+.story-actions { align-items: center; display: flex; gap: var(--s-1); }
+.map-header { flex-wrap: wrap; }
+.map-header .story-identity { min-width: 0; }
+.map-kicker { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-actions { margin-left: auto; }
+.map-views { display: inline-flex; gap: var(--s-1); }
+
+.map-list { flex: 1 1 0; min-height: 0; outline: none; overflow-x: hidden; overflow-y: auto; }
+.map-canvas { position: relative; }
+
+.map-row {
+  align-items: center; color: var(--ink); cursor: pointer; display: flex; font-size: var(--fs-ui);
+  gap: var(--s-2); left: 0; min-width: 0; padding: 0 var(--s-4) 0 var(--s-6); position: absolute; right: 0;
+}
+.map-row-thin { cursor: default; }
+.map-row[role="option"]:hover { background: var(--row-hover); }
+.map-row[aria-selected="true"], .map-row[aria-selected="true"]:hover {
+  background: var(--accent-soft); box-shadow: var(--bar-accent);
+}
+
+.map-gutter { flex: none; height: 100%; width: calc(var(--s-4) * var(--cols)); }
+.lane-line { fill: none; stroke: var(--faint); stroke-width: 1.5; }
+.lane-line-trunk { stroke: var(--accent); }
+.lane-dot { fill: var(--accent); }
+.lane-dot-end { fill: var(--dim); }
+.lane-ring { fill: none; stroke: var(--accent); stroke-width: 1.5; }
+.lane-hollow { fill: var(--bg); stroke: var(--dim); stroke-width: 1.5; }
+.lane-hollow-cold { stroke-dasharray: 2 2; }
+.lane-parked { fill: var(--dim); }
+.lane-more { fill: none; stroke: var(--dim); stroke-width: 1.5; }
+.lane-hit { fill: transparent; }
+
+.map-part-no { color: var(--dim); flex: none; font: var(--font-meta); min-width: 5ch; }
+.map-text {
+  color: var(--ink); flex: 1 1 0; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.map-line-name { font-weight: 600; }
+.map-dim { color: var(--dim); }
+.map-meta { color: var(--dim); flex: none; font: var(--font-meta); white-space: nowrap; }
+.map-chip {
+  border-radius: var(--r-pill); flex: 0 1 auto; font: var(--font-meta); max-width: 16ch; min-width: 0;
+  overflow: hidden; padding: 2px var(--s-2); text-overflow: ellipsis; white-space: nowrap;
+}
+.map-chip-tag { background: var(--accent-soft); color: var(--accent); }
+.map-chip-chapter { background: var(--summary-soft); color: var(--summary); }
+
+.map-sketches {
+  margin-left: calc(-1 * var(--s-2)); background: none; border: 0; border-radius: var(--r-sm); color: var(--dim); cursor: pointer;
+  font: inherit; height: var(--btn-sm); padding: 0 var(--s-2); transition: color 120ms ease, background 120ms ease;
+}
+.map-sketches:hover { background: var(--chip); color: var(--ink); }
+
+.map-footer {
+  align-items: center; background: var(--bg); border-top: var(--border); display: flex; flex: 0 0 auto;
+  gap: var(--s-4); min-height: 88px; padding: var(--s-3) var(--s-6);
+}
+.map-footer-text { display: flex; flex: 1; flex-direction: column; gap: var(--s-1); min-width: 0; }
+.map-footer-name { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.map-footer-preview {
+  -webkit-box-orient: vertical; -webkit-line-clamp: 2; color: var(--ink); display: -webkit-box;
+  font-size: var(--fs-ui); line-height: 1.4; min-height: 2.8em; overflow: hidden;
+}
+.map-footer-facts { color: var(--dim); font: var(--font-meta); }
+
+@media (max-width: 520px) {
+  .map-stats { display: none; }
+  .map-header { padding-inline: var(--s-4); }
+  .map-row { padding-left: var(--s-4); padding-right: var(--s-3); }
+  .map-footer { padding-inline: var(--s-4); }
+  .map-footer-facts { display: none; }
+}
