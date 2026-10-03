@@ -267,6 +267,11 @@ export function createStoryActions(
       // take switch already landed while this one was in flight.
       if (state.story.kind === "loaded" && state.story.payload.id === id
         && !isAtLeastVersion(payload, state.story.payload)) return state;
+      // A reload of the open story keeps a switch that is still in flight
+      // (the map reloads on open while a switch may already be running).
+      if (state.story.kind === "loaded" && state.story.payload.id === id) {
+        return { ...state, story: { ...state.story, payload } };
+      }
       return { ...state, story: loadedStoryState(payload, focusedPartId) };
     });
   }));

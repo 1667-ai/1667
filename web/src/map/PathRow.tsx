@@ -45,16 +45,19 @@ export const PathRow = memo(function PathRow(props: PathRowProps) {
   for (const [offset, cell] of row.cells.entries()) {
     const x = cellX(offset);
     const isCursor = cell.node.id === cursorId;
-    marks.push(<circle key={`hit-${cell.node.id}`} className="lane-hit" cx={x} cy={middle} r={7} data-node={cell.node.id} />);
-    if (isCursor) marks.push(<circle key={`ring-${cell.node.id}`} className="lane-ring" cx={x} cy={middle} r={5.5} />);
+    // The group carries the id, so a click on the visible dot or ring
+    // selects this take too.
     marks.push(
-      <circle
-        key={`dot-${cell.node.id}`}
-        className={cell.active ? "lane-dot" : cell.subtakes ? "lane-dot lane-dot-end" : "lane-hollow"}
-        cx={x}
-        cy={middle}
-        r={cell.active || cell.subtakes ? 3.5 : 3}
-      />
+      <g key={`take-${cell.node.id}`} data-node={cell.node.id}>
+        <circle className="lane-hit" cx={x} cy={middle} r={7} />
+        {isCursor ? <circle className="lane-ring" cx={x} cy={middle} r={5.5} /> : null}
+        <circle
+          className={cell.active ? "lane-dot" : cell.subtakes ? "lane-dot lane-dot-end" : "lane-hollow"}
+          cx={x}
+          cy={middle}
+          r={cell.active || cell.subtakes ? 3.5 : 3}
+        />
+      </g>
     );
   }
   const select = (event: MouseEvent<HTMLDivElement>): void => {
