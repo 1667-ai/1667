@@ -1,5 +1,5 @@
 import { useEffect, useLayoutEffect, useRef, useState, type KeyboardEvent } from "react";
-import { partActions, type PartActionId } from "../../../shared/part-actions.js";
+import { partActions } from "../../../shared/part-actions.js";
 import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
@@ -12,14 +12,16 @@ import {
   PART_UNAVAILABLE_TOAST,
   PART_WRITING_TOAST,
   partActionRefusal,
+  type WebPartActionId,
   STORY_LOCKED_TOAST,
   SUMMARY_RETAKE_TOAST,
   UNSAVED_TOAST
 } from "./part-policy.js";
+import { SUMMARY_LOCKED_TOAST } from "../app/run-lock.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";
 
 interface MenuItem {
-  readonly id: PartActionId;
+  readonly id: WebPartActionId;
   readonly label: string;
   /** The key that does the same thing, shown in the hover text. */
   readonly key: string;
@@ -37,6 +39,8 @@ const ITEMS: readonly MenuItem[] = [
   { id: "retake-with-prompt", label: "Retake with direction", key: "R", icon: ICONS.message },
   { id: "write", label: "Write", key: "w", icon: ICONS.penLine },
   { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
+  { id: "tag", label: "Tag line", key: "t", icon: ICONS.flag },
+  { id: "end-chapter", label: "End chapter here", key: "C", icon: ICONS.summary },
   { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash }
 ];
 
@@ -45,6 +49,7 @@ const ITEMS: readonly MenuItem[] = [
 const SHORT_REFUSAL: ReadonlyMap<string, string> = new Map([
   [STORY_LOCKED_TOAST, "Busy writing (Esc)"],
   [UNSAVED_TOAST, "Unsaved text"],
+  [SUMMARY_LOCKED_TOAST, "Busy summarizing (Esc)"],
   [PART_UNAVAILABLE_TOAST, "Not on this line"],
   [PART_SWITCHING_TOAST, "Take switching"],
   [PART_WRITING_TOAST, "Still writing"],
@@ -55,7 +60,11 @@ const SHORT_REFUSAL: ReadonlyMap<string, string> = new Map([
 
 function shortRefusal(refusal: string): string {
   // `generationBusyToast` names the other story: "Already writing in ….".
-  return SHORT_REFUSAL.get(refusal) ?? (refusal.startsWith("Already writing in ") ? "Busy writing (Esc)" : refusal);
+  const known = SHORT_REFUSAL.get(refusal);
+  if (known !== undefined) return known;
+  if (refusal.startsWith("Already writing in ")) return "Busy writing (Esc)";
+  if (refusal.startsWith("Already summarizing in ")) return "Busy summarizing (Esc)";
+  return refusal.endsWith("already ends here.") ? "Already ends here" : refusal;
 }
 
 /**
@@ -107,10 +116,11 @@ export function PartActionsMenu(
     wasOpen.current = open;
   }, [open]);
 
-  const available = new Set(partActions(part.node, isLeaf).map((action) => action.id));
+  const available = new Set<WebPartActionId>(partActions(part.node, isLeaf).map((action) => action.id));
+  available.add("end-chapter");
   const items = ITEMS.filter((item) => available.has(item.id));
 
-  const run = (id: PartActionId): void => {
+  const run = (id: WebPartActionId): void => {
     closedByItem.current = true;
     setOpen(false);
     actions.part.run(id, part.id);

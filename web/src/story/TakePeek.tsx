@@ -7,6 +7,7 @@ import {
   virtualRange
 } from "../../../shared/story-model.js";
 import { childrenOf } from "../../../shared/story-tree.js";
+import { StatusChip } from "../tags/StatusChip.js";
 import type { NodeStub, StoryPayload } from "../../../shared/types.js";
 
 export interface TakePeekProps {
@@ -93,11 +94,7 @@ export function TakePeek({ partId, payload, currentTakeIndex, disabled, onSwitch
         <span className="take-peek-heading">
           <span>Take {position}/{takes.length}{active ? " — reading" : ""}</span>
           {tag?.status === "Canon" && <span className="canon-mark" title="Canon">★</span>}
-          {tag !== null && (
-            <span className={`label-chip${tag.status.length > 0 ? ` label-${tag.status.toLowerCase()}` : ""}`}>
-              {tag.status.length > 0 ? tag.status : tag.name}
-            </span>
-          )}
+          {tag !== null && (tag.status.length > 0 ? <StatusChip status={tag.status} /> : <span className="label-chip">{tag.name}</span>)}
         </span>
         <span className="take-peek-snippet">{take.preview || "No prose yet."}</span>
         <span className={`take-peek-meta${continuation.parts === 0 ? " ends" : ""}`}>

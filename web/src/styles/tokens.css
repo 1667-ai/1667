@@ -75,6 +75,8 @@
   --hit: 32px;
   --dot: 8px;
   --dot-hit: 24px;
+  /* The story panel: docked at 1200 px and wider, a drawer below. */
+  --panel-w: 360px;
 
   /* Button heights. Variants change colour only. */
   --btn-sm: 28px;

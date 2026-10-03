@@ -2,7 +2,7 @@ import { STARTER_LOGO_TEXT } from "../../../shared/starter-vault.js";
 import { TAG_STATUSES } from "../../../shared/types.js";
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { tagStatusChoice } from "../tag-presentation.js";
-import { chapterWord } from "../chapter-model.js";
+import { chapterWord } from "../../../shared/chapter-labels.js";
 import type { KeyAction } from "../keys.js";
 import {
   createStoryViewModel,

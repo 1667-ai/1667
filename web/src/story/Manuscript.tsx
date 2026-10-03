@@ -1,5 +1,5 @@
-import { useMemo } from "react";
-import { createManuscriptModel, type ChapterSummaryRow, type StoryRow } from "../../../shared/manuscript-model.js";
+import { Fragment, useMemo } from "react";
+import { createManuscriptModel, type StoryRow } from "../../../shared/manuscript-model.js";
 import { createStoryIndex } from "../../../shared/story-model.js";
 import { takeIndex } from "../../../shared/story-tree.js";
 import type { StoryPayload } from "../../../shared/types.js";
@@ -7,7 +7,8 @@ import type { ManuscriptGeneration } from "../generation/state.js";
 import { StreamingPart } from "../generation/StreamingPart.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
 import { PartCard } from "./PartCard.js";
-import { SummaryBody } from "./SummaryBody.js";
+import { SummaryCard } from "../chapters/SummaryCard.js";
+import type { SummaryRun } from "../chapters/state.js";
 
 export interface ManuscriptProps {
   readonly payload: StoryPayload;
@@ -22,6 +23,8 @@ export interface ManuscriptProps {
    * in) this exact story, if any — `null` the rest of the time. See
    * `generation/state.ts`'s `manuscriptGenerationView`. */
   readonly generation: ManuscriptGeneration | null;
+  /** The chapter summary running in this story, if any. */
+  readonly summaryRun: SummaryRun | null;
   readonly onFocusPart: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
   readonly onSwitchTo: (partId: string, targetId: string) => void;
@@ -46,7 +49,7 @@ function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): reado
  * changes (every mutation and landed switch replaces it wholesale, so
  * reference equality is exactly the right memo key).
  */
-export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, menuRequest, generation, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
+export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, menuRequest, generation, summaryRun, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
   const model = useMemo(() => createManuscriptModel(payload), [payload]);
 
   const switchingAnchor = switching === null
@@ -66,12 +69,12 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
   // While this story is locked (a generation is writing into, or trying to
   // save into, it — `"unsaved"` does not lock), every take control is
   // disabled, not only the ones below a pending switch's own anchor.
-  const locked = generation !== null && generation.live;
+  const locked = (generation !== null && generation.live) || summaryRun !== null;
 
   return (
     <ol className="manuscript" aria-label="Manuscript">
-      <ChapterOneHeading chapters={model.chapters} />
-      {rows.map((row) => {
+      <ChapterOneHeading storyId={payload.id} chapters={model.chapters} />
+      {rows.map((row, index) => {
         if (row.kind === "part") {
           const isSwitchingAnchor = switching !== null && row.id === switching.partId;
           return (
@@ -95,8 +98,26 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
             />
           );
         }
-        if (row.kind === "chapter-divider") return <ChapterDivider key={row.id} row={row} />;
-        return <ChapterSummaryCard key={row.id} row={row} />;
+        if (row.kind === "chapter-divider") {
+          // The first summary of a chapter has no row yet: its placeholder
+          // sits where the card will be, just above the divider.
+          const placeholder = summaryRun !== null && summaryRun.breakId === row.break.id
+            && rows[index - 1]?.kind !== "chapter-summary";
+          return (
+            <Fragment key={row.id}>
+              {placeholder && <SummaryCard chapter={row.closingChapter} summary={null} running />}
+              <ChapterDivider storyId={payload.id} row={row} />
+            </Fragment>
+          );
+        }
+        return (
+          <SummaryCard
+            key={row.id}
+            chapter={row.chapter}
+            summary={row.summary}
+            running={summaryRun !== null && summaryRun.breakId === row.chapter.closedBy?.id}
+          />
+        );
       })}
       {generation !== null && generation.mode === "take" && (
         <StreamingPart
@@ -109,16 +130,5 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
         />
       )}
     </ol>
-  );
-}
-
-/** A chapter's compact context-reset summary — display only, never a
- * roving-tabIndex focus target (it is not a `part` row: nothing switches or
- * reads its position). Reuses `PartCard`'s legacy-summary body styling. */
-function ChapterSummaryCard({ row }: { readonly row: ChapterSummaryRow }) {
-  return (
-    <li aria-hidden="true">
-      <SummaryBody text={row.summary.text ?? ""} className="part" />
-    </li>
   );
 }

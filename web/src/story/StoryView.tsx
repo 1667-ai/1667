@@ -15,6 +15,7 @@ import { useBarClearance } from "../ui/bar-clearance.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
+import { StoryPanel } from "../panel/StoryPanel.js";
 import { PruneDialog } from "./PruneDialog.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { handleWritingKey } from "./writing-keys.js";
@@ -59,6 +60,7 @@ export function StoryView(
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
   const generation = useStore(store, (state) => state.generation);
+  const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
   // Primitives and stable references only: this view must not redraw on every
   // change to the editor's text or the menu's state.
   const editingPartId = useStore(store, (state) => (
@@ -188,6 +190,7 @@ export function StoryView(
         onToggleDirections={actions.story.toggleDirections}
         onOpenSidebar={onOpenSidebar}
       />
+      <div className="story-columns">
       <div className="story-main">
         <div className="story-scroll" ref={scrollRef}>
           <div className="story-body">
@@ -210,6 +213,7 @@ export function StoryView(
                   editingPartId={editingPartId}
                   menuRequest={menuRequest}
                   generation={generationView}
+                  summaryRun={summaryRun?.storyId === storyId ? summaryRun : null}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
                   onSwitchTo={actions.story.switchTakeTo}
@@ -218,10 +222,12 @@ export function StoryView(
           </div>
         </div>
         <div ref={barRef} className={`generation-bar generation-bar-compose${generation.kind === "unsaved" ? " generation-bar-unsaved" : ""}`}>
-          <Composer storyId={storyId} status={generationStatusText(generation, storyId)}>
+          <Composer storyId={storyId} status={generationStatusText(generation, storyId, summaryRun)}>
             <GenerationButtons onContinue={() => { if (actions.compose.submit(storyId)) focusCurrentPart(); }} />
           </Composer>
         </div>
+      </div>
+      <StoryPanel payload={payload} />
       </div>
       {deletePlan !== null && (
         <PruneDialog

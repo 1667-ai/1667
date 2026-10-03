@@ -16,6 +16,7 @@ import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
 import { catchAtBoundary, errorMessage, pushToast, runAction } from "../app/toasts.js";
 import { EDITOR_OPEN_TOAST, STORY_LOCKED_TOAST, belowPendingSwitch, editorBlocksChange } from "./part-policy.js";
+import { lockedToast } from "../app/run-lock.js";
 import { chapterJumpPartId, firstPartId, lastPartId, nextPartId } from "./focus-model.js";
 import { effectiveFocusedPartId, loadedStoryState, type StoryState } from "./state.js";
 
@@ -408,7 +409,7 @@ export function createStoryActions(
 
     switchTake: (partId, direction) => withOpenStory(store, (storyId, story) => {
       if (deps.isLocked(storyId)) {
-        pushToast(store, STORY_LOCKED_TOAST);
+        pushToast(store, lockedToast(store.get(), storyId));
         return;
       }
       if (belowPendingSwitch(story, partId)) return;
@@ -426,7 +427,7 @@ export function createStoryActions(
 
     switchTakeTo: (partId, targetId) => withOpenStory(store, (storyId, story) => {
       if (deps.isLocked(storyId)) {
-        pushToast(store, STORY_LOCKED_TOAST);
+        pushToast(store, lockedToast(store.get(), storyId));
         return;
       }
       if (belowPendingSwitch(story, partId)) return;

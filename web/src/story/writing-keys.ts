@@ -3,6 +3,7 @@ import type { PartActionId } from "../../../shared/part-actions.js";
 import type { ContentActions } from "../app/content-actions.js";
 import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { focusComposer } from "../compose/dom.js";
+import { handleStructureKey } from "./structure-keys.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
 
 /** The TUI key actions that are one part action each. */
@@ -22,8 +23,10 @@ const PART_ACTION_OF_KEY: Readonly<Record<string, PartActionId>> = {
  * hands it to `actions.part.run`, which asks the one policy. Returns whether
  * the key was handled.
  *
- * A held key never repeats an action: the first press acts, and the rest
- * are ignored. A focused button keeps Enter for its own click; `i` is not
+ * The structure keys (`t`, `C`, `c`, `u`; `structure-keys.ts`) are asked first.
+ *
+ * A held key never repeats an action: the first press acts, and the rest are
+ * ignored. A focused button keeps Enter for its own click; `i` is not
  * Enter, so it always reaches the composer.
  */
 export function handleWritingKey(
@@ -44,6 +47,7 @@ export function handleWritingKey(
     actions.editor.openWrite(null);
     return true;
   }
+  if (handleStructureKey(binding, story, actions)) return true;
   if (partId === null) return false;
   if (binding.action === "open-actions") {
     actions.part.openMenu(partId);

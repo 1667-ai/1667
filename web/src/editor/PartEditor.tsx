@@ -3,7 +3,7 @@ import { IS_MAC } from "../app/platform.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { focusCurrentPart } from "../story/focus-dom.js";
-import { editorDirty, editorTitle } from "./state.js";
+import { editorDirty, editorTitle, inPartSlot } from "./state.js";
 
 const MOD = IS_MAC ? "⌘" : "Ctrl+";
 const SHIFT = IS_MAC ? "⇧" : "Shift+";
@@ -36,7 +36,7 @@ export function PartEditor(
   }, [store]);
 
   if (editor === null) return null;
-  const summary = editor.mode !== "first" && editor.base.role === "summary";
+  const summary = inPartSlot(editor) && editor.base.role === "summary";
   const editing = editor.mode === "edit";
   const dirty = editorDirty(editor);
 
@@ -77,7 +77,9 @@ export function PartEditor(
         onChange={(event) => actions.editor.setText(event.target.value)}
       />
       {editor.overwriteArmed && (
-        <p className="part-editor-note" role="status">The part changed in another window. Save again to overwrite.</p>
+        <p className="part-editor-note" role="status">
+          The {editor.mode === "summary" ? "summary" : "part"} changed in another window. Save again to overwrite.
+        </p>
       )}
       {editor.discardArmed && (
         <p className="part-editor-note" role="status">Esc again discards your changes.</p>

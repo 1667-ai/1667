@@ -25,8 +25,14 @@ export interface Popover {
  * `library/StoryRow.tsx`'s row menu and `theme/ThemeControls.tsx`'s palette
  * picker.
  */
-export function usePopover(): Popover {
-  const [open, setOpen] = useState(false);
+export function usePopover(
+  controlled?: { readonly open: boolean; readonly setOpen: (open: boolean) => void }
+): Popover {
+  const [localOpen, setLocalOpen] = useState(false);
+  // A popover whose open state lives in the store (the tag popover, which `t`
+  // opens from anywhere) passes it in; both kinds close the same way.
+  const open = controlled?.open ?? localOpen;
+  const setOpen = controlled?.setOpen ?? setLocalOpen;
   const containerRef = useRef<HTMLDivElement>(null);
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -55,7 +61,7 @@ export function usePopover(): Popover {
       document.removeEventListener("mousedown", onPress);
       document.removeEventListener("keydown", onKey);
     };
-  }, [open]);
+  }, [open, setOpen]);
 
   return { open, setOpen, containerRef, popoverRef };
 }

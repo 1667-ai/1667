@@ -259,7 +259,7 @@ test("case 7: x opens the part menu; Escape closes it without stopping a backgro
   const labels = await menu.getByRole("menuitem").evaluateAll(
     (items) => items.map((item) => item.querySelector("span")?.textContent ?? "")
   );
-  expect(labels).toEqual(["Continue", "Direct", "Retake", "Retake with direction", "Write", "Edit", "Delete"]);
+  expect(labels).toEqual(["Continue", "Direct", "Retake", "Retake with direction", "Write", "Edit", "Tag line", "End chapter here", "Delete"]);
   await screenshot(page, "menu");
   await page.keyboard.press("Escape");
   await waitForCount(menu, 0);

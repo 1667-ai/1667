@@ -1,9 +1,8 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import { textHash, type StoryApi } from "../../../client/api.js";
-import { isExplicitMutationUnsent } from "../../../client/api-error.js";
-import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
+import { outcomeUnknown } from "../app/story-mutation.js";
 
 /**
  * The editor's API calls, with the conflict and unknown-outcome handling the
@@ -28,6 +27,15 @@ export type EditorSaveRequest =
       readonly storyId: string;
       readonly base: StoryNode;
       readonly patch: { instruction?: string; text?: string };
+    }
+  /** A chapter summary's text, changed in place. `expected` is the text the
+   * editor opened on (the server refuses the change if it moved). */
+  | {
+      readonly kind: "summary";
+      readonly storyId: string;
+      readonly summaryId: string;
+      readonly text: string;
+      readonly expected: string;
     }
   /** `w`: the writer's own take next to a part (`parentId` of that part). */
   | {
@@ -65,22 +73,6 @@ type Resolution =
 
 const CONFLICT_CODES: ReadonlySet<string | null> = new Set(["conflict", "revision_conflict"]);
 
-/** A failure that does not say whether the change was applied: the bridge
- * says the outcome is uncertain, the transport was lost, or the server says
- * so. This is checked before anything else: a bridge failure with an
- * uncertain outcome still carries a structured envelope, but that envelope is
- * not a verdict on the mutation. A plain structured failure is a verdict; an
- * unsent mutation is a verdict too. */
-function outcomeUnknown(error: unknown): boolean {
-  if (error instanceof WebBridgeTransportError && error.mutationOutcome === "uncertain") return true;
-  if (apiErrorCode(error) === "mutation_outcome_unknown") return true;
-  if (isExplicitMutationUnsent(error)) return false;
-  const structured = typeof error === "object" && error !== null
-    && typeof (error as { failure?: unknown }).failure === "object"
-    && (error as { failure?: unknown }).failure !== null;
-  return !structured;
-}
-
 export async function saveEditor(api: StoryApi, request: EditorSaveRequest): Promise<EditorSaveOutcome> {
   try {
     const payload = await send(api, request);
@@ -97,7 +89,7 @@ export async function saveEditor(api: StoryApi, request: EditorSaveRequest): Pro
       if (resolution.kind === "found") return { kind: "saved", payload: reloaded!, landedId: resolution.id };
       // Only a create can be written twice; an in-place edit sent again is
       // answered with a conflict if the first one landed.
-      if (resolution.kind === "unresolved" && request.kind !== "in-place") {
+      if (resolution.kind === "unresolved" && (request.kind === "fork" || request.kind === "write")) {
         return { kind: "unresolved", payload: reloaded, error };
       }
     }
@@ -131,6 +123,9 @@ async function send(api: StoryApi, request: EditorSaveRequest): Promise<StoryPay
   if (request.kind === "in-place") {
     return await retryWhenBusy(() => api.editNode(request.storyId, request.base, request.patch));
   }
+  if (request.kind === "summary") {
+    return await retryWhenBusy(() => api.editChapterSummary(request.storyId, request.summaryId, request.text, request.expected));
+  }
   return await retryWhenBusy(() => api.createNode(request.storyId, {
     parentId: request.parentId,
     ...(request.parentId === null ? { instruction: request.instruction } : {}),
@@ -152,6 +147,8 @@ async function landedIdOf(
   payload: StoryPayload
 ): Promise<string | null> {
   if (request.kind === "in-place") return request.base.id;
+  // A summary is not on the line: there is no part to focus.
+  if (request.kind === "summary") return null;
   const found = await findExactNewTake(api, request, payload);
   return found.kind === "found" ? found.id : null;
 }
@@ -168,6 +165,10 @@ async function resolveEarlierCall(
   request: EditorSaveRequest,
   reloaded: StoryPayload
 ): Promise<Resolution> {
+  if (request.kind === "summary") {
+    const node = reloaded.nodes.find((candidate) => candidate.id === request.summaryId);
+    return node?.text === request.text ? { kind: "found", id: node.id } : { kind: "absent" };
+  }
   if (request.kind === "in-place") {
     const node = reloaded.path.find((candidate) => candidate.id === request.base.id);
     if (node === undefined) return { kind: "absent" };
@@ -184,7 +185,7 @@ const MAX_CANDIDATES = 8;
 
 async function findExactNewTake(
   api: StoryApi,
-  request: Exclude<EditorSaveRequest, { kind: "in-place" }>,
+  request: Exclude<EditorSaveRequest, { kind: "in-place" | "summary" }>,
   payload: StoryPayload
 ): Promise<Resolution> {
   const parentId = parentOf(request);
