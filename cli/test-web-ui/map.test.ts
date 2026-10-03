@@ -100,7 +100,7 @@ test("case 1: m and the Map button open the map as its own page, the cursor "
   await openMapWithKey(page);
   expect(await page.locator(".part").count()).toBe(0);
   await page.getByRole("heading", { name: "Map" }).waitFor();
-  expect(await options(page).count()).toBeGreaterThanOrEqual(4);
+  expect((await options(page).count()) >= 4).toBeTrue();
   await waitForSelected(page, "C1:");
   await screenshot(page, "tree");
 
@@ -380,25 +380,25 @@ test("case 11: a large tree keeps the DOM small, parks overflow lines, scrolls w
 
   const stats = `${seeded.lines} lines · ${seeded.parts.toLocaleString("en-US")} parts · ${seeded.forks} forks`;
   expect(await poll(async () => ((await page.locator(".map-stats").textContent()) ?? "").includes(stats))).toBeTrue();
-  expect(await options(page).count()).toBeLessThanOrEqual(80);
+  expect((await options(page).count()) <= 80).toBeTrue();
   // The cursor starts at the end of the reading line; the fan sits near the top (part 21).
   await page.getByRole("listbox", { name: "Story map" }).evaluate((list) => { list.scrollTop = 560; });
   await page.waitForTimeout(500);
   await screenshot(page, "large-top");
   expect(await poll(async () => (await page.locator(".lane-parked").count()) > 0)).toBeTrue();
-  expect(await options(page).count()).toBeLessThanOrEqual(80);
+  expect((await options(page).count()) <= 80).toBeTrue();
   await screenshot(page, "large");
 
   const started = Date.now();
   for (let step = 0; step < 300; step += 1) await page.keyboard.press("ArrowUp");
-  expect(Date.now() - started).toBeLessThan(45_000);
+  expect((Date.now() - started) < 45_000).toBeTrue();
   const inView = await page.evaluate(() => {
     const list = document.querySelector('[role="listbox"]')!.getBoundingClientRect();
     const row = document.querySelector('[role="option"][aria-selected="true"]')?.getBoundingClientRect();
     return row !== undefined && row.top >= list.top - 1 && row.bottom <= list.bottom + 1;
   });
   expect(inView).toBeTrue();
-  expect(await options(page).count()).toBeLessThanOrEqual(80);
+  expect((await options(page).count()) <= 80).toBeTrue();
 
   // Across to the next lane lands on a branch end; Enter switches to it.
   await page.keyboard.press("ArrowRight");
@@ -410,7 +410,7 @@ test("case 11: a large tree keeps the DOM small, parks overflow lines, scrolls w
   const saved = await api.loadStory(seeded.storyId);
   const leaf = saved.path.at(-1)!;
   expect(leaf.text).toMatch(/^(Branch|Fan) \d+ tail/);
-  expect(saved.path.length).toBeGreaterThan(100);
+  expect((saved.path.length) > 100).toBeTrue();
 }, 240_000);
 
 test("case 12: a narrow window has no horizontal overflow in either view", async () => {
@@ -423,14 +423,14 @@ test("case 12: a narrow window has no horizontal overflow in either view", async
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
   const overflow = (): Promise<number> => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
-  expect(await overflow()).toBeLessThanOrEqual(0);
+  expect((await overflow()) <= 0).toBeTrue();
   expect(await page.evaluate(() => document.querySelector('[role="listbox"]')!.scrollWidth <= document.querySelector('[role="listbox"]')!.clientWidth)).toBeTrue();
   const close = await page.getByRole("button", { name: "Close map (Esc)" }).boundingBox();
-  expect(close!.x + close!.width).toBeLessThanOrEqual(375);
+  expect((close!.x + close!.width) <= 375).toBeTrue();
   await screenshot(page, "narrow-tree");
   await page.keyboard.press("m");
   await waitForCount(options(page), 3);
-  expect(await overflow()).toBeLessThanOrEqual(0);
+  expect((await overflow()) <= 0).toBeTrue();
   await screenshot(page, "narrow-path");
 }, 60_000);
 
