@@ -48,11 +48,11 @@ interface ActiveRequest {
   nextSequence: number;
   terminal: boolean;
   stoppedText: string;
-  /** Text held back while the delta credit window is full. Reasoning always
-   * precedes prose, as it does in the live stream. */
-  heldReasoning: string;
+  /** Text held back while the delta credit window is full, in arrival order.
+   * Adjacent text of the same channel is merged. */
+  held: HeldSegment[];
+  /** The running reasoning token total of the latest held reasoning. */
   heldReasoningTokens: number;
-  heldProse: string;
   /** Fires when the browser sends no ack for too long while text is held. */
   stallTimer: ReturnType<typeof setTimeout> | null;
   terminalTimer: ReturnType<typeof setTimeout> | null;
@@ -201,9 +201,8 @@ export class WebBridge {
       nextSequence: 0,
       terminal: false,
       stoppedText: "",
-      heldReasoning: "",
+      held: [],
       heldReasoningTokens: 0,
-      heldProse: "",
       stallTimer: null,
       terminalTimer: null
     };
@@ -272,16 +271,13 @@ export class WebBridge {
 
   private sendDelta(request: ActiveRequest, text: string): void {
     if (request.id === undefined) return;
-    request.heldProse += text;
+    holdText(request, "prose", text);
     this.flushHeld(request);
   }
 
   private sendReasoningDelta(request: ActiveRequest, delta: ReasoningDelta): void {
     if (request.id === undefined) return;
-    // Reasoning always arrives before prose; once prose is held, later
-    // reasoning keeps its place behind it only by being sent after it, so
-    // flush order is reasoning first. That matches the live stream.
-    request.heldReasoning += delta.text;
+    holdText(request, "reasoning", delta.text);
     request.heldReasoningTokens = delta.tokenCount;
     this.flushHeld(request);
   }
@@ -296,29 +292,13 @@ export class WebBridge {
         && request.unacknowledged.size >= WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BATCHES) {
         break;
       }
-      if (request.heldReasoning.length > 0) {
-        const sequence = request.nextSequence++;
-        request.unacknowledged.add(sequence);
-        const text = request.heldReasoning;
-        request.heldReasoning = "";
-        this.post({
-          type: "delta",
-          id,
-          sequence,
-          text,
-          reasoning: { tokenCount: request.heldReasoningTokens }
-        });
-        continue;
-      }
-      if (request.heldProse.length > 0) {
-        const sequence = request.nextSequence++;
-        request.unacknowledged.add(sequence);
-        const text = request.heldProse;
-        request.heldProse = "";
-        this.post({ type: "delta", id, sequence, text });
-        continue;
-      }
-      break;
+      const segment = request.held.shift();
+      if (segment === undefined) break;
+      const sequence = request.nextSequence++;
+      request.unacknowledged.add(sequence);
+      this.post(segment.kind === "reasoning"
+        ? { type: "delta", id, sequence, text: segment.text, reasoning: { tokenCount: request.heldReasoningTokens } }
+        : { type: "delta", id, sequence, text: segment.text });
     }
     this.guardLiveness(request);
   }
@@ -326,12 +306,11 @@ export class WebBridge {
   /** The abort is only a liveness guard: a browser that holds too much text
    * unsent, or that does not acknowledge anything for a long time. */
   private guardLiveness(request: ActiveRequest): void {
-    const held = request.heldReasoning.length + request.heldProse.length;
-    if (held === 0) {
+    if (request.held.length === 0) {
       clearStallTimer(request);
       return;
     }
-    const heldBytes = new TextEncoder().encode(request.heldReasoning + request.heldProse).byteLength;
+    const heldBytes = request.held.reduce((sum, segment) => sum + Buffer.byteLength(segment.text), 0);
     if (heldBytes > WEB_BRIDGE_MAX_UNACKNOWLEDGED_DELTA_BYTES) {
       this.abortStalled(request);
       return;
@@ -348,16 +327,19 @@ export class WebBridge {
     clearStallTimer(request);
     if (request.terminal) return;
     // The browser is gone or hung. Keep the text for the stopped result.
-    request.stoppedText += request.heldProse;
-    request.heldProse = "";
-    if (request.heldReasoning.length > 0) {
-      this.sendReasoningStopped(request, request.heldReasoning);
-    }
-    request.heldReasoning = "";
+    request.stoppedText += takeHeld(request, "prose");
+    const reasoning = takeHeld(request, "reasoning");
+    if (reasoning.length > 0) this.postReasoningStopped(request, reasoning);
     request.controller.abort();
   }
 
+  /** Reasoning that arrives after a Stop. Held reasoning came first, so it
+   * goes out ahead of it. */
   private sendReasoningStopped(request: ActiveRequest, text: string): void {
+    this.postReasoningStopped(request, takeHeld(request, "reasoning") + text);
+  }
+
+  private postReasoningStopped(request: ActiveRequest, text: string): void {
     if (request.id !== undefined) {
       this.post({ type: "reasoningStopped", id: request.id, text });
     }
@@ -437,6 +419,24 @@ export class WebBridge {
 /** No acknowledgement for this long, with text held back, means the browser
  * is hung or gone. A throttled but live tab acknowledges far sooner. */
 const WEB_BRIDGE_ACK_STALL_MS = 30_000;
+
+interface HeldSegment {
+  readonly kind: "reasoning" | "prose";
+  text: string;
+}
+
+function holdText(request: ActiveRequest, kind: HeldSegment["kind"], text: string): void {
+  const last = request.held.at(-1);
+  if (last !== undefined && last.kind === kind) last.text += text;
+  else request.held.push({ kind, text });
+}
+
+/** Removes and returns all held text of one channel, in order. */
+function takeHeld(request: ActiveRequest, kind: HeldSegment["kind"]): string {
+  const taken = request.held.filter((segment) => segment.kind === kind).map((segment) => segment.text).join("");
+  request.held = request.held.filter((segment) => segment.kind !== kind);
+  return taken;
+}
 
 function clearStallTimer(request: ActiveRequest): void {
   if (request.stallTimer !== null) {

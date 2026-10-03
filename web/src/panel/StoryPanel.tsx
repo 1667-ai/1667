@@ -69,11 +69,15 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
       const here = manuscriptModelOf(payload).parts.find((part) => part.id === focusedId)?.chapterNumber ?? 1;
       setCursor(Math.max(0, here - 1));
     }
-    // A field inside the panel (the fact editor's name) already took the
+    // A text field inside the panel (the fact editor's name) already took the
     // keyboard: a child's effect runs before this one, and the panel must not
-    // take it back.
+    // take it back. A clicked tab button keeps nothing: the panel's keys need
+    // the focus on the panel.
     const aside = asideRef.current;
-    if (aside !== null && !aside.contains(document.activeElement)) aside.focus();
+    const active = document.activeElement;
+    const fieldInside = aside !== null && active !== null && aside.contains(active)
+      && active.matches("input, textarea, select, [contenteditable='true']");
+    if (aside !== null && !fieldInside) aside.focus();
     // Only when the view changes: a later change to the story must not move the row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [requested, openSerial]);
