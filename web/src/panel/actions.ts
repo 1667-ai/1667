@@ -15,7 +15,10 @@ export function createPanelActions(store: Store<AppState>): PanelActions {
   const set = (view: PanelView | null): void =>
     store.set((state) => (state.panel.view === view ? state : { ...state, panel: { ...state.panel, view } }));
   return {
-    open: set,
+    open: (view) => store.set((state) => ({
+      ...state,
+      panel: { ...state.panel, view, openSerial: state.panel.openSerial + 1 }
+    })),
     close: () => set(null),
     toggleFactsDock: () => {
       const factsDocked = !store.get().panel.factsDocked;

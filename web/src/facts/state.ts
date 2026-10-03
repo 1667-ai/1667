@@ -98,11 +98,18 @@ export function factEditorDirty(editor: FactEditor): boolean {
 
 /** Everything the editor holds, as one text to copy. */
 export function factEditorCopyText(editor: FactEditor): string {
-  const { name, tag, keys, text } = editor.form;
+  const f = editor.form;
   const head = [
-    name.trim().length > 0 ? `Name: ${name.trim()}` : "",
-    tag.trim().length > 0 ? `Tag: ${tag.trim()}` : "",
-    keys.trim().length > 0 ? `Keys: ${keys.trim()}` : ""
-  ].filter((line) => line.length > 0);
-  return head.length === 0 ? text : `${head.join("\n")}\n\n${text}`;
+    ["Name", f.name.trim()],
+    ["Tag", f.tag.trim()],
+    ["Activation", f.activation],
+    ["Keys", f.keys.trim()],
+    ["Secondary keys", f.secondaryKeys.trim()],
+    ["Secondary mode", f.secondaryKeys.trim().length > 0 ? f.secondaryMode : ""],
+    ["Scan depth", f.scanDepth.trim()],
+    ["Chain", f.recursion],
+    ["Priority", f.priority],
+    ["Fact cap", f.budget.trim()]
+  ].filter(([, value]) => value!.length > 0).map(([label, value]) => `${label}: ${value}`);
+  return `${head.join("\n")}\n\n${f.text}`;
 }

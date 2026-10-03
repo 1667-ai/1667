@@ -143,14 +143,23 @@ test("case 2: New fact state picks a fact, saves a second state, and that state 
   const web = await spawnStatesWeb();
   const seeded = await seedForked(web);
   await seeded.api.createFact(seeded.storyId, { name: "The door", text: "The door is open." });
+  await seeded.api.createFact(seeded.storyId, { name: "The window", text: "The window is shut." });
   const page = await openStory(web, seeded.storyId);
+  // Facts is already open when the menu action starts the pick.
+  await page.keyboard.press("f");
+  await waitForCount(rows(page), 2);
   await part(page, "B1:").click();
   await waitForAttribute(part(page, "B1:"), "aria-current", "true");
 
   await (await openPartMenu(page, 2)).getByRole("menuitem", { name: "New fact state" }).click();
   await panel(page).getByText("Pick the fact for a new state at part 2.").waitFor();
   await screenshot(page, "7bc-fact-pick");
-  await rows(page).first().click();
+  // The picker has the keyboard: the arrows move its row and Enter picks it.
+  await page.keyboard.press("ArrowDown");
+  await waitForAttribute(rows(page).nth(1), "aria-current", "true");
+  await page.keyboard.press("ArrowUp");
+  await waitForAttribute(rows(page).first(), "aria-current", "true");
+  await page.keyboard.press("Enter");
   const body = editor(page).getByRole("textbox", { name: "Text" });
   await body.waitFor();
   expect(await body.inputValue()).toBe("The door is open.");

@@ -42,6 +42,7 @@ export const CHAPTER_ONE_NO_BREAK_TOAST = "Chapter One has no break to remove.";
 export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
   const { store, actions } = useAppContext();
   const requested = useStore(store, (state) => state.panel.view);
+  const openSerial = useStore(store, (state) => state.panel.openSerial);
   const factsDocked = useStore(store, (state) => state.panel.factsDocked);
   const docked = useDockedLayout();
   // A docked Facts view shows without being asked for; the drawer layout has
@@ -70,7 +71,7 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
     asideRef.current?.focus();
     // Only when the view changes: a later change to the story must not move the row.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [requested]);
+  }, [requested, openSerial]);
 
   if (view === null) return null;
   const hiddenByDock = requested === null;

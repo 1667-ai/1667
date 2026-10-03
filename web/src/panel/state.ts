@@ -9,6 +9,9 @@ export type PanelView = "chapters" | "facts";
 export interface PanelState {
   readonly view: PanelView | null;
   readonly factsDocked: boolean;
+  /** Raised by every request to open a view, so the panel takes the keyboard
+   * even when that view is already showing. */
+  readonly openSerial: number;
 }
 
 const DOCKED_KEY = "1667.web.factsDocked";
@@ -30,5 +33,5 @@ export function storeFactsDocked(docked: boolean): void {
 }
 
 export function initialPanelState(): PanelState {
-  return { view: null, factsDocked: readStoredFactsDocked() };
+  return { view: null, factsDocked: readStoredFactsDocked(), openSerial: 0 };
 }
