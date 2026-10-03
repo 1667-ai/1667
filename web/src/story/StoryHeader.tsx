@@ -21,7 +21,7 @@ export interface StoryHeaderProps {
  * field (that is write-side, later steps). */
 export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar }: StoryHeaderProps) {
   const { store, actions } = useAppContext();
-  const panelOpen = useStore(store, (state) => state.panel.view !== null);
+  const panelView = useStore(store, (state) => state.panel.view);
   const words = payload.path.reduce((total, node) => total + countWords(node.text), 0);
 
   return (
@@ -38,16 +38,19 @@ export function StoryHeader({ payload, showDirections, onToggleDirections, onOpe
         </span>
       </div>
       <div className="story-actions">
-        <button
-          type="button"
-          className="icon-btn"
-          aria-pressed={panelOpen}
-          title="Chapters (c)"
-          aria-label="Chapters (c)"
-          onClick={() => (panelOpen ? actions.panel.close() : actions.panel.open("chapters"))}
-        >
-          <Icon path={ICONS.summary} />
-        </button>
+        {(["chapters", "facts"] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            className="icon-btn"
+            aria-pressed={panelView === view}
+            title={view === "chapters" ? "Chapters (c)" : "Facts (f)"}
+            aria-label={view === "chapters" ? "Chapters (c)" : "Facts (f)"}
+            onClick={() => (panelView === view ? actions.panel.close() : actions.panel.open(view))}
+          >
+            <Icon path={view === "chapters" ? ICONS.summary : ICONS.facts} />
+          </button>
+        ))}
         <button
           type="button"
           className="btn btn-ghost btn-small"

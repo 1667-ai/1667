@@ -1,0 +1,65 @@
+/**
+ * The Facts view in the story panel (#409 step 7b and 7c): list head, rows,
+ * and the editor. The panel shell, rows and `.seg` control are in `panel.css`.
+ */
+
+.facts-view { display: flex; flex-direction: column; min-height: 100%; }
+.facts-head { display: flex; flex-direction: column; gap: var(--s-2); padding: 0 var(--s-2) var(--s-3); }
+.facts-summary { align-items: center; display: flex; gap: var(--s-2); justify-content: space-between; }
+.facts-count { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.facts-budget { color: var(--dim); }
+.facts-scopes { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.facts-filters { display: flex; gap: var(--s-2); }
+.facts-filters .facts-input { flex: 1; min-width: 0; }
+.facts-filters .facts-tag-select { flex: 0 0 40%; }
+.facts-pick {
+  align-items: center; background: var(--accent-soft); border-radius: var(--r-md); color: var(--accent);
+  display: flex; font-size: var(--fs-small); gap: var(--s-2); justify-content: space-between;
+  margin: 0 var(--s-2) var(--s-2); padding: var(--s-2) var(--s-3);
+}
+.facts-foot { margin-top: auto; padding-left: var(--s-2); padding-right: var(--s-2); }
+
+.facts-input {
+  background: var(--bg); border: var(--border); border-radius: var(--r-md); color: var(--ink);
+  font-family: var(--ui); font-size: var(--fs-ui); height: var(--btn-md); outline: none; padding: 0 var(--s-3);
+  transition: border-color 120ms ease, box-shadow 120ms ease; width: 100%;
+}
+.facts-input:focus { border-color: var(--accent); box-shadow: var(--focus); }
+.facts-input:disabled { opacity: var(--disabled-opacity); }
+.facts-textarea { field-sizing: content; height: auto; line-height: 1.5; max-height: 40vh; min-height: 6lh; padding: var(--s-2) var(--s-3); resize: none; }
+
+.fact-row { flex-direction: row; }
+.fact-row.dormant .panel-row-title { color: var(--dim); }
+.fact-row-body {
+  color: var(--dim); font-size: var(--fs-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fact-row-meta { align-items: center; display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.fact-row-scope { color: var(--dim); }
+
+.facts-editor { display: flex; flex-direction: column; gap: var(--s-3); padding: 0 var(--s-2) var(--s-4); }
+.facts-editor-title { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.facts-field { display: flex; flex-direction: column; gap: var(--s-1); }
+.facts-label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.facts-note { color: var(--dim); font-size: var(--fs-small); margin: 0; }
+.facts-more { align-self: flex-start; }
+.facts-more[aria-expanded="true"] { color: var(--ink); }
+.facts-more-fields { display: flex; flex-direction: column; gap: var(--s-3); }
+.facts-editor-actions { display: flex; flex-wrap: wrap; gap: var(--s-2); }
+.facts-delete { margin-left: auto; }
+
+.fact-states { display: flex; flex-direction: column; gap: var(--s-2); }
+.fact-state-list { list-style: none; margin: 0; padding: 0; }
+.fact-state-row {
+  align-items: center; border-radius: var(--r-sm); display: flex; gap: var(--s-2); min-height: var(--btn-md);
+  padding: 0 var(--s-1) 0 var(--s-2);
+}
+.fact-state-row.editing { background: var(--accent-soft); box-shadow: var(--bar-accent); }
+.fact-state-anchor { color: var(--accent); flex: none; font: var(--font-meta); }
+.fact-state-text {
+  flex: 1; font-size: var(--fs-small); min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.fact-state-flag { color: var(--dim); flex: none; font: var(--font-meta); }
+.fact-state-adders { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+
+.facts-editor .seg { display: flex; }
+.facts-editor .seg-btn { flex: 1; }

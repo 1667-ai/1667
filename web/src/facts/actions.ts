@@ -41,6 +41,8 @@ export interface FactEditorActions {
   openState(stateId: string): void;
   setField(field: FactFormField, value: string): void;
   save(): Promise<void>;
+  /** Puts every field back to what the editor opened on. */
+  revert(): void;
   /** Escape and Cancel: a clean editor closes; a changed one asks for a
    * second press first. */
   requestClose(): void;
@@ -364,6 +366,10 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
     )),
 
     save,
+
+    revert: () => update((editor) => (
+      editor.saving ? editor : { ...editor, form: editor.base, overwriteArmed: false, discardArmed: false }
+    )),
 
     requestClose: () => {
       const editor = store.get().facts.editor;
