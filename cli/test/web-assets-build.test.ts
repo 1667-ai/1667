@@ -18,5 +18,5 @@ test("the served app script is the production build and stays small", async () =
     expect(source).not.toContain("Download the React DevTools");
     gzipBytes += gzipSync(asset.body).byteLength;
   }
-  expect(gzipBytes).toBeLessThanOrEqual(SCRIPT_BUDGET_GZIP_BYTES);
+  expect(gzipBytes <= SCRIPT_BUDGET_GZIP_BYTES).toBeTrue();
 }, 120_000);
