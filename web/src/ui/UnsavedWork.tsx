@@ -5,7 +5,7 @@ import { pushToast } from "../app/toasts.js";
 import { unsavedWork } from "../app/unsaved-work.js";
 
 /**
- * Lists the writing that lives only in this page — a changed editor, unsent
+ * Lists the writing that lives only in this page — a changed editor, a changed fact, unsent
  * composer text — on the screens that replace or cover the story, each with a
  * Copy button. Renders nothing when there is none.
  */
@@ -13,7 +13,8 @@ export function UnsavedWork() {
   const { store } = useAppContext();
   const editor = useStore(store, (state) => state.editor);
   const compose = useStore(store, (state) => state.compose);
-  const items = useMemo(() => unsavedWork(editor, compose), [editor, compose]);
+  const facts = useStore(store, (state) => state.facts);
+  const items = useMemo(() => unsavedWork(editor, compose, facts), [editor, compose, facts]);
   if (items.length === 0) return null;
   return (
     <section className="unsaved-work" aria-label="Unsaved work">
@@ -44,5 +45,6 @@ export function useHasUnsavedWork(): boolean {
   const { store } = useAppContext();
   const editor = useStore(store, (state) => state.editor);
   const compose = useStore(store, (state) => state.compose);
-  return useMemo(() => unsavedWork(editor, compose).length > 0, [editor, compose]);
+  const facts = useStore(store, (state) => state.facts);
+  return useMemo(() => unsavedWork(editor, compose, facts).length > 0, [editor, compose, facts]);
 }
