@@ -41,6 +41,12 @@ function open(payload: StoryPayload, apiOptions: Parameters<typeof fakeApi>[0] =
   return { store, fake, actions };
 }
 
+function factsOf(store: ReturnType<typeof open>["store"]): StoryFact[] {
+  const story = store.get().story;
+  assert.equal(story.kind, "loaded");
+  return story.kind === "loaded" ? story.payload.facts : [];
+}
+
 function editorOf(store: ReturnType<typeof open>["store"]) {
   return store.get().facts.editor;
 }
@@ -71,7 +77,7 @@ test("a create whose answer was lost is kept as pending; the next Save finds it 
   await actions.facts.save();
   assert.equal(fake.calls.filter((name) => name === "createFact").length, 1);
   assert.equal(editorOf(store), null);
-  assert.equal(store.get().story.kind === "loaded" && store.get().story.payload.facts.length, 1);
+  assert.equal(factsOf(store).length, 1);
 });
 
 test("a pending create that left nothing behind is sent again by the next Save", async () => {
@@ -190,5 +196,5 @@ test("a new state whose answer was lost is found by the reload and counted once"
   await actions.facts.save();
   assert.equal(fake.calls.filter((name) => name === "createFactState").length, 1);
   assert.equal(editorOf(store), null);
-  assert.equal(store.get().story.kind === "loaded" && store.get().story.payload.facts[0]!.states.length, 2);
+  assert.equal(factsOf(store)[0]!.states.length, 2);
 });
