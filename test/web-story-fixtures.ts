@@ -1,6 +1,6 @@
 import type { ContinueTarget, StoryApi, StreamCallbacks } from "../client/api.js";
 import { ApiFailureError } from "../client/api-error.js";
-import type { WebBridgeTransport } from "../client/web-bridge-transport.js";
+import { WebBridgeTransportError, type WebBridgeTransport } from "../client/web-bridge-transport.js";
 import type { CreateNodeRequest, NodeStub, StoryNode, StoryPathNode, StoryPayload } from "../shared/types.js";
 import type { ConnectionState } from "../web/src/app/connection.js";
 import { createContentActions, type ContentActions } from "../web/src/app/content-actions.js";
@@ -131,6 +131,15 @@ export function plainFailure(code: string, message: string, status = 409): ApiFa
 
 export function providerFailure(message: string): ApiFailureError {
   return plainFailure("provider_failure", message, 422);
+}
+
+/** A failure that does not say whether the call went through. */
+export function lostAnswer(): WebBridgeTransportError {
+  return new WebBridgeTransportError(
+    { kind: "plain", code: "provider_failure", message: "unsure", status: 500 } as ConstructorParameters<typeof ApiFailureError>[0],
+    "uncertain",
+    undefined
+  );
 }
 
 export interface ContinueCall {

@@ -1,7 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { ApiFailureError } from "../client/api-error.js";
-import { WebBridgeTransportError } from "../client/web-bridge-transport.js";
 import type { StoryPayload } from "../shared/types.js";
 import {
   STORY_ID,
@@ -10,6 +8,7 @@ import {
   deferred,
   fakeApi,
   linearPayload,
+  lostAnswer,
   plainFailure,
   providerFailure,
   storeOpenOn,
@@ -34,14 +33,6 @@ function open(payload: StoryPayload, apiOptions: Parameters<typeof fakeApi>[0] =
   store.set((state) => ({ ...state, connection: connectedState(fake.api) }));
   const { actions } = createActionsForStore(store);
   return { store, fake, actions };
-}
-
-function lostAnswer(): WebBridgeTransportError {
-  return new WebBridgeTransportError(
-    { kind: "plain", code: "provider_failure", message: "unsure", status: 500 } as ConstructorParameters<typeof ApiFailureError>[0],
-    "uncertain",
-    undefined
-  );
 }
 
 function openPayload(store: ReturnType<typeof open>["store"]): StoryPayload {
