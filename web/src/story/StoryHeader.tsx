@@ -1,5 +1,8 @@
 import { countWords } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { useAppContext } from "../app/context.js";
+import { useStore } from "../app/store.js";
+import { Icon, ICONS } from "../ui/icons.js";
 import { LineChip } from "../tags/LineChip.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 
@@ -17,6 +20,8 @@ export interface StoryHeaderProps {
  * placeholder) — the title is a plain heading here, never an editable
  * field (that is write-side, later steps). */
 export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar }: StoryHeaderProps) {
+  const { store, actions } = useAppContext();
+  const panelOpen = useStore(store, (state) => state.panel.view !== null);
   const words = payload.path.reduce((total, node) => total + countWords(node.text), 0);
 
   return (
@@ -33,6 +38,16 @@ export function StoryHeader({ payload, showDirections, onToggleDirections, onOpe
         </span>
       </div>
       <div className="story-actions">
+        <button
+          type="button"
+          className="icon-btn"
+          aria-pressed={panelOpen}
+          title="Chapters (c)"
+          aria-label="Chapters (c)"
+          onClick={() => (panelOpen ? actions.panel.close() : actions.panel.open("chapters"))}
+        >
+          <Icon path={ICONS.summary} />
+        </button>
         <button
           type="button"
           className="btn btn-ghost btn-small"

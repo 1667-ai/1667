@@ -314,3 +314,72 @@ test("case 9: removing a break takes its summary; u brings back the break, its t
   expect(saved.chapterBreaks[0]!.title).toBe("Second");
   expect(saved.nodes.some((node) => node.chapterBreakId === saved.chapterBreaks[0]!.id)).toBeTrue();
 }, 90_000);
+
+test("case 10: c opens the chapters panel; its keys move, jump, rename, summarize, and remove; Esc closes", async () => {
+  const web = await spawnChapterWeb();
+  const seeded = await seedClosedChapter(web, "Panel Keys");
+  const page = await openStory(web, seeded.storyId, "Panel Keys");
+  await page.setViewportSize({ width: 1400, height: 800 });
+  await part(page, "C:").click();
+  await waitForAttribute(part(page, "C:"), "aria-current", "true");
+
+  await page.keyboard.press("c");
+  const panel = page.getByRole("complementary", { name: "Chapters" });
+  await panel.waitFor();
+  const rows = panel.getByRole("listitem");
+  await waitForCount(rows, 2);
+  // The row of the chapter being read is selected.
+  expect(await rows.nth(1).getAttribute("aria-current")).toBe("true");
+  await screenshot(page, "7a-panel");
+
+  await page.keyboard.press("ArrowUp");
+  await waitForAttribute(rows.nth(0), "aria-current", "true");
+  await page.keyboard.press("Enter");
+  await waitForAttribute(part(page, "A:"), "aria-current", "true");
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("e");
+  await page.getByRole("textbox", { name: "Chapter title" }).waitFor();
+  await page.keyboard.press("ArrowRight");
+  await page.keyboard.type(" act");
+  await page.keyboard.press("Enter");
+  expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).chapterBreaks[0]!.title === "Second act")).toBeTrue();
+
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("r");
+  expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).nodes.some((node) => node.chapterBreakId === seeded.breakId), 30_000)).toBeTrue();
+  await panel.getByText("✓ stands in").waitFor();
+
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Shift+D");
+  await page.getByText("Chapter break removed. u undoes.").waitFor();
+  await waitForCount(rows, 1);
+  expect((await seeded.api.loadStory(seeded.storyId)).chapterBreaks).toHaveLength(0);
+
+  await page.keyboard.press("Escape");
+  await waitForCount(panel, 0);
+  expect(await poll(() => part(page, "A:").evaluate((element) => element === document.activeElement))).toBeTrue();
+}, 90_000);
+
+test("case 11: below 1200 px the panel is a drawer; Enter jumps and closes it; Esc closes it", async () => {
+  const web = await spawnChapterWeb();
+  const seeded = await seedClosedChapter(web, "Panel Drawer");
+  const page = await openStory(web, seeded.storyId, "Panel Drawer");
+  await page.setViewportSize({ width: 700, height: 800 });
+
+  await page.getByRole("button", { name: "Chapters (c)" }).click();
+  const panel = page.getByRole("complementary", { name: "Chapters" });
+  await panel.waitFor();
+  await page.getByRole("button", { name: "Close chapters" }).waitFor({ state: "attached" });
+  await screenshot(page, "7a-panel-drawer");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Enter");
+  await waitForCount(panel, 0);
+  await waitForAttribute(part(page, "A:"), "aria-current", "true");
+  expect(await poll(() => part(page, "A:").evaluate((element) => element === document.activeElement))).toBeTrue();
+
+  await page.keyboard.press("c");
+  await panel.waitFor();
+  await page.keyboard.press("Escape");
+  await waitForCount(panel, 0);
+}, 90_000);

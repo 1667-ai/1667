@@ -15,6 +15,7 @@ import { useBarClearance } from "../ui/bar-clearance.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
+import { StoryPanel } from "../panel/StoryPanel.js";
 import { PruneDialog } from "./PruneDialog.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { handleWritingKey } from "./writing-keys.js";
@@ -189,6 +190,7 @@ export function StoryView(
         onToggleDirections={actions.story.toggleDirections}
         onOpenSidebar={onOpenSidebar}
       />
+      <div className="story-columns">
       <div className="story-main">
         <div className="story-scroll" ref={scrollRef}>
           <div className="story-body">
@@ -224,6 +226,8 @@ export function StoryView(
             <GenerationButtons onContinue={() => { if (actions.compose.submit(storyId)) focusCurrentPart(); }} />
           </Composer>
         </div>
+      </div>
+      <StoryPanel payload={payload} />
       </div>
       {deletePlan !== null && (
         <PruneDialog

@@ -39,6 +39,13 @@ export function ChapterTitle(
     inputRef.current?.scrollIntoView({ block: "nearest" });
   }, [editing]);
 
+  // The input leaves the page when the rename ends: the keyboard goes back to
+  // the part, or to the panel that holds the row.
+  const restoreFocus = (): void => {
+    if (origin === "manuscript") focusCurrentPart();
+    else document.querySelector<HTMLElement>(".story-panel")?.focus();
+  };
+
   if (rename === null) {
     return (
       <button
@@ -57,19 +64,19 @@ export function ChapterTitle(
     if (event.key === "Enter") {
       event.preventDefault();
       void actions.chapters.saveRename().then(() => {
-        if (store.get().chapters.rename === null && origin === "manuscript") focusCurrentPart();
+        if (store.get().chapters.rename === null) restoreFocus();
       });
     } else if (event.key === "Escape") {
       event.preventDefault();
       actions.chapters.cancelRename();
-      if (origin === "manuscript") focusCurrentPart();
+      restoreFocus();
     }
   };
 
   return (
     <input
       ref={inputRef}
-      className="chapter-title-input"
+      className={`chapter-title-input${origin === "panel" ? " panel-rename" : ""}`}
       data-owns-keys
       aria-label="Chapter title"
       placeholder={placeholder}
