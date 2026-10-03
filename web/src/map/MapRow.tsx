@@ -54,7 +54,7 @@ function LaneGutter({ row, laneCount, overflow, height }: {
       parts.push(<path key={`f${lane}`} className="lane-line" d={`M${from} ${middle}H${to}V${height}`} />);
     }
   }
-  if (row.parked > 0 || row.lane === -1 || (row.kind === "fork" && row.parkedCount > 0)) {
+  if (row.lane !== -1 && (row.parked > 0 || (row.kind === "fork" && row.parkedCount > 0))) {
     const x = laneX(-1, laneCount);
     for (const dx of [-4, 0, 4]) parts.push(<circle key={`p${dx}`} className="lane-parked" cx={x + dx} cy={middle} r={1} />);
   }

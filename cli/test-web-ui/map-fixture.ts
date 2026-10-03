@@ -34,7 +34,9 @@ export async function seedLargeStory(api: StoryApi): Promise<LargeStory> {
   const trunk = imported.path.map((node) => node.id);
   const branch = async (parentId: string, name: string): Promise<void> => {
     const opening = await api.createNode(storyId, { text: `${name} opening part.`, parentId });
-    await api.createNode(storyId, { text: `${name} tail of the branch.`, parentId: opening.path.at(-1)!.id });
+    // A node off the reading line does not move the line: find it by its text.
+    const openingId = opening.nodes.find((node) => node.parentId === parentId && node.preview.startsWith(name))!.id;
+    await api.createNode(storyId, { text: `${name} tail of the branch.`, parentId: openingId });
   };
   for (let index = 0; index < BRANCHES; index += 1) {
     await branch(trunk[index * 10 + 5]!, `Branch ${index + 1}`);
@@ -43,7 +45,7 @@ export async function seedLargeStory(api: StoryApi): Promise<LargeStory> {
     await api.createNode(storyId, { text: `Sketch ${index + 1} of a road not taken.`, parentId: trunk[index * 40 + 12]! });
   }
   for (let index = 0; index < FAN; index += 1) {
-    await branch(trunk[450]!, `Fan ${index + 1}`);
+    await branch(trunk[20]!, `Fan ${index + 1}`);
   }
   // The reading line is the trunk again (the last branch switched away).
   await api.switchLine(storyId, trunk.at(-1)!);

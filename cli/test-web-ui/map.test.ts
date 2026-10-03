@@ -371,9 +371,7 @@ test("case 11: a large tree keeps the DOM small, parks overflow lines, scrolls w
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
   const api = await openInspectionApi(web);
-  const t0 = Date.now();
   const seeded = await seedLargeStory(api);
-  console.log("SEEDED", Date.now() - t0);
   const page = await openTestPage(await sharedBrowser());
   await openStoryPage(page, web, seeded.storyId);
   await page.locator(".part").first().waitFor();
@@ -383,13 +381,16 @@ test("case 11: a large tree keeps the DOM small, parks overflow lines, scrolls w
   const stats = `${seeded.lines} lines · ${seeded.parts.toLocaleString("en-US")} parts · ${seeded.forks} forks`;
   expect(await poll(async () => ((await page.locator(".map-stats").textContent()) ?? "").includes(stats))).toBeTrue();
   expect(await options(page).count()).toBeLessThanOrEqual(80);
-  expect(await page.locator(".lane-parked").count()).toBeGreaterThan(0);
+  // The cursor starts at the end of the reading line; the fan sits near the top (part 21).
+  await page.getByRole("listbox", { name: "Story map" }).evaluate((list) => { list.scrollTop = 560; });
+  await page.waitForTimeout(500);
+  await screenshot(page, "large-top");
+  expect(await poll(async () => (await page.locator(".lane-parked").count()) > 0)).toBeTrue();
+  expect(await options(page).count()).toBeLessThanOrEqual(80);
   await screenshot(page, "large");
 
-  console.log("OPENED", Date.now() - t0);
   const started = Date.now();
-  for (let step = 0; step < 300; step += 1) await page.keyboard.press("ArrowDown");
-  console.log("PRESSED", Date.now() - started);
+  for (let step = 0; step < 300; step += 1) await page.keyboard.press("ArrowUp");
   expect(Date.now() - started).toBeLessThan(45_000);
   const inView = await page.evaluate(() => {
     const list = document.querySelector('[role="listbox"]')!.getBoundingClientRect();
@@ -408,7 +409,7 @@ test("case 11: a large tree keeps the DOM small, parks overflow lines, scrolls w
   await page.locator(".part").first().waitFor();
   const saved = await api.loadStory(seeded.storyId);
   const leaf = saved.path.at(-1)!;
-  expect(leaf.preview).toMatch(/^(Branch|Fan) \d+ tail/);
+  expect(leaf.text).toMatch(/^(Branch|Fan) \d+ tail/);
   expect(saved.path.length).toBeGreaterThan(100);
 }, 240_000);
 
@@ -447,6 +448,9 @@ test("case 13: tag and chapter chips show on the rows", async () => {
   expect(await options(page).filter({ hasText: "C1:" }).textContent()).toContain("Main route");
   expect(await options(page).filter({ hasText: "Other route" }).count()).toBe(1);
   await screenshot(page, "chips");
+  await page.emulateMedia({ colorScheme: "dark" });
+  await screenshot(page, "chips-dark");
+  await page.emulateMedia({ colorScheme: "light" });
   await page.keyboard.press("m");
   await waitForCount(options(page), 3);
   expect(await options(page).filter({ hasText: "B1:" }).textContent()).toContain("§ The Door");

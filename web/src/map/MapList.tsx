@@ -23,9 +23,11 @@ export interface MapListProps {
 export function MapList({ label, count, thin, activeIndex, activeDomId, focusToken, renderRow }: MapListProps) {
   const { listRef, first, last, offsets, ensureVisible } = useVirtualRows(count, thin);
 
+  // Only a cursor that moved (or whose row moved) scrolls the list: a reload
+  // of the same story must not pull the reader back from where they scrolled.
   useLayoutEffect(() => {
     ensureVisible(activeIndex);
-  }, [activeIndex, offsets, ensureVisible]);
+  }, [activeIndex, ensureVisible]);
 
   useEffect(() => {
     listRef.current?.focus({ preventScroll: true });
