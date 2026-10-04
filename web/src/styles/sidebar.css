@@ -332,3 +332,7 @@
     animation: rise 150ms ease both;
   }
 }
+
+/* New story and Import side by side (#409 step 10i). */
+.sidebar-new { align-items: center; display: flex; gap: var(--s-2); }
+.sidebar-new .btn-block { flex: 1; min-width: 0; width: auto; }
