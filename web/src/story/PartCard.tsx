@@ -5,6 +5,7 @@ import type { StoryPart } from "../../../shared/manuscript-model.js";
 import { resolveTakeTarget } from "../../../shared/story-model.js";
 import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { AsideMark } from "../aside/AsideMark.js";
 import { PartEditor } from "../editor/PartEditor.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
@@ -253,6 +254,7 @@ function PartCardImpl({
             </>
           )}
           <FactAnchorMark payload={payload} partId={part.id} />
+          <AsideMark payload={payload} part={part} />
           <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
         {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}

@@ -1,4 +1,5 @@
 import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
+import { initialAsideState, type AsideState } from "../aside/state.js";
 import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import type { EditorState } from "../editor/state.js";
@@ -69,6 +70,8 @@ export interface AppState {
   /** The settings page (#409 step 9b): the loaded settings, the draft, and the
    * write-only keys. See `settings/state.ts`. */
   readonly settings: SettingsState;
+  /** Aside, the non-canon chat about a take (#409 step 10d). See `aside/state.ts`. */
+  readonly aside: AsideState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** The notice log, oldest first. See `app/notices.ts`. */
@@ -100,6 +103,7 @@ export function initialAppState(
     facts: initialFactsState(),
     panel: initialPanelState(),
     settings: initialSettingsState(),
+    aside: initialAsideState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     notices: [],

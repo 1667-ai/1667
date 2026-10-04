@@ -38,9 +38,9 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
   const activeId = route.kind === "story" ? route.id : null;
   const visible = filterAndSort(stories, query);
   const searchRef = useRef<HTMLInputElement>(null);
-  // Esc stops whichever run exists: a generation, or a chapter summary.
+  // Esc stops whichever run exists: a generation, a chapter summary, or an Aside answer.
   const stopGeneration = useCallback(
-    () => actions.generation.stop() || actions.chapters.stopSummary(),
+    () => actions.generation.stop() || actions.chapters.stopSummary() || actions.aside.stop(),
     [actions]
   );
   useKeymap({ searchRef, stopGeneration, openOverlay: actions.overlay.open });
