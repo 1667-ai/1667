@@ -8,6 +8,7 @@ import {
   type ServerResponse
 } from "node:http";
 import { listenLoopback } from "../server/loopback-listen.js";
+import { ownedLoopbackHttpSupportedOn } from "../shared/provider-transport-capability.js";
 import type { ReadingPositions } from "../shared/reading-position.js";
 import {
   WEB_BRIDGE_SUBPROTOCOL,
@@ -203,7 +204,16 @@ const ROUTES: readonly Route[] = [
     handle: (context) => ({
       status: 200,
       contentType: "application/json; charset=utf-8",
-      body: JSON.stringify({ project: context.projectLabel, version: context.version })
+      body: JSON.stringify({
+        project: context.projectLabel,
+        version: context.version,
+        // The server's platform decides whether plain-HTTP local providers
+        // are supported, so the browser reads it here, not from its own.
+        ownedLoopbackHttp: ownedLoopbackHttpSupportedOn(
+          process.platform,
+          typeof process.getuid === "function"
+        )
+      })
     })
   },
   readingPositionsGetRoute,

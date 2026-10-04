@@ -28,6 +28,9 @@ export interface WebBridgeStorage {
 export interface WebBridgeStatus {
   readonly project: string;
   readonly version: string;
+  /** Whether the server's platform supports plain-HTTP local providers. The
+   * server always sends it; it is optional so a test status can omit it. */
+  readonly ownedLoopbackHttp?: boolean;
 }
 
 export type ConnectWebBridgeOutcome =
