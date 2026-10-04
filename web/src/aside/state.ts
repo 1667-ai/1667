@@ -1,5 +1,6 @@
 import type { AsideAnchorView } from "../../../shared/aside-hop-model.js";
 import type { AsideAnchor } from "../../../shared/aside-anchor.js";
+import type { PlacementPick } from "./placement.js";
 import type { AsideSessionResponse } from "../../../shared/aside-transport.js";
 
 /**
@@ -77,6 +78,15 @@ export interface AsideConfirm {
   readonly turnIndex: number;
 }
 
+/** "Insert into story": the answer waits while the writer picks a place. */
+export interface AsidePlacement {
+  readonly storyId: string;
+  readonly answer: string;
+  readonly pick: PlacementPick;
+  /** True while the create call runs. */
+  readonly placing: boolean;
+}
+
 export interface AsideState {
   readonly surface: AsideSurface | null;
   /** The unsent question of each story. */
@@ -86,10 +96,11 @@ export interface AsideState {
   readonly unsaved: readonly AsideUnsaved[];
   readonly run: AsideRun | null;
   readonly confirm: AsideConfirm | null;
+  readonly placement: AsidePlacement | null;
 }
 
 export function initialAsideState(): AsideState {
-  return { surface: null, drafts: {}, retakes: {}, unsaved: [], run: null, confirm: null };
+  return { surface: null, drafts: {}, retakes: {}, unsaved: [], run: null, confirm: null, placement: null };
 }
 
 export function currentSession(surface: AsideSurface): AsideSessionResponse | null {

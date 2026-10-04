@@ -5,6 +5,7 @@ import { registerScreenKeys } from "../app/keymap.js";
 import { navigate, openMap, openSettings } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
+import { PlacementBanner } from "../aside/PlacementBar.js";
 import { PartEditor } from "../editor/PartEditor.js";
 import { Composer } from "../compose/Composer.js";
 import { EditorRecovery } from "../editor/EditorRecovery.js";
@@ -65,6 +66,7 @@ export function StoryView(
   const typewriter = useStore(store, (state) => state.reading.typewriter);
   const generation = useStore(store, (state) => state.generation);
   const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
+  const placementPick = useStore(store, (state) => (state.aside.placement?.storyId === storyId ? state.aside.placement.pick : null));
   // Primitives and stable references only: this view must not redraw on every
   // change to the editor's text or the menu's state.
   const editingPartId = useStore(store, (state) => (
@@ -209,6 +211,7 @@ export function StoryView(
       />
       <div className="story-columns">
       <div className="story-main">
+        <PlacementBanner storyId={storyId} />
         <div className={`story-scroll${typewriter ? " story-scroll-typewriter" : ""}`} ref={scrollRef}>
           <div className="story-body">
             {editorOffLine && <EditorRecovery />}
@@ -231,6 +234,7 @@ export function StoryView(
                   menuRequest={menuRequest}
                   generation={generationView}
                   summaryRun={summaryRun?.storyId === storyId ? summaryRun : null}
+                  placement={placementPick}
                   onFocusPart={actions.story.focusPart}
                   onSwitch={actions.story.switchTake}
                   onSwitchTo={actions.story.switchTakeTo}

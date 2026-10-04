@@ -63,6 +63,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   a session. A part that has Aside sessions shows a speech mark. The `[` and `]`
   keys go to the next part that has sessions.
 
+- **`1667 web` can use an Aside answer.** Press Enter on an answer, or click
+  Use. You can copy the answer, insert it into the composer at the caret,
+  insert it into the story, or insert it as a new Fact. When you insert it into
+  the story, you choose a place with the arrow keys or a click. Nothing is
+  written until you press Enter. Press Esc to cancel.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line

@@ -6,7 +6,7 @@ import type { ContentActions } from "../app/content-actions.js";
  * session, `r` retakes the last answer, `R` retakes it with an edited
  * question, `D` deletes the turn, Backspace resets to it, `n` starts a
  * session, `[` and `]` go to the next anchor with sessions, `g` goes to the
- * take, `i` goes to the question box, Esc stops a running answer or closes.
+ * take, Enter opens the Use menu of the turn, `i` goes to the question box, Esc stops a running answer or closes.
  * The question box and the confirm dialog handle their own keys.
  */
 export function handleAsideKey(
@@ -35,6 +35,12 @@ export function handleAsideKey(
     case "ArrowUp": handled(); aside.moveTurn(-1); return;
     case "ArrowRight": handled(); aside.cycleSession(1); return;
     case "ArrowLeft": handled(); aside.cycleSession(-1); return;
+    case "Enter":
+      // A focused button gives Enter its own meaning.
+      if (target instanceof HTMLButtonElement) return;
+      handled();
+      event.currentTarget.querySelector<HTMLButtonElement>(".aside-use-trigger")?.click();
+      return;
     case "r": handled(); void aside.retake(); return;
     case "R": handled(); aside.startRetake(); return;
     case "D": handled(); aside.requestConfirm("delete"); return;
