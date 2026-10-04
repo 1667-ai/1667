@@ -46,6 +46,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   a session. A part that has Aside sessions shows a speech mark. The `[` and `]`
   keys go to the next part that has sessions.
 
+- **`1667 web` can use an Aside answer.** Press Enter on an answer, or click
+  Use. You can copy the answer, insert it into the composer at the caret,
+  insert it into the story, or insert it as a new Fact. When you insert it into
+  the story, you choose a place with the arrow keys or a click. Nothing is
+  written until you press Enter. Press Esc to cancel.
+
 - **The advanced settings of `1667 web` have sampling, starter profiles, and
   story lists.** The sampling section has the sampling numbers and the lists for
   stop sequences, logit bias, phrase bias, banned strings, and DRY breakers.
