@@ -213,6 +213,27 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
   }
 }
 
+/**
+ * The toast deleting a take of the map is refused with, or `null`. The map's
+ * path view can stand on a take that is not on the reading line, which the
+ * part policy does not know; a take on the line asks the part policy.
+ */
+export function nodeDeleteRefusal(state: AppState, nodeId: string): string | null {
+  const story = state.story;
+  if (state.route.kind !== "story" || story.kind !== "loaded" || story.payload.id !== state.route.id) {
+    return PART_UNAVAILABLE_TOAST;
+  }
+  if (story.payload.path.some((node) => node.id === nodeId)) return partActionRefusal(state, nodeId, "prune");
+  if (!story.payload.nodes.some((node) => node.id === nodeId)) return PART_UNAVAILABLE_TOAST;
+  if (state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
+  const storyId = story.payload.id;
+  if ((state.generation.kind !== "idle" && state.generation.storyId === storyId)
+    || state.chapters.summaryRun?.storyId === storyId) {
+    return runBusyToast(state, storyId);
+  }
+  return null;
+}
+
 /** Why a fact action of the part menu is refused. Opening an editor changes
  * nothing yet, so only a fact editor with unsaved changes and a missing fact
  * (for a new state or an end) refuse; the end changes the story at once. */

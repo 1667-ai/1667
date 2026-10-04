@@ -1,5 +1,6 @@
 import { memo, type CSSProperties, type MouseEvent } from "react";
 import type { PathRow as PathLayoutRow } from "../../../shared/path-layout.js";
+import { WritingChip } from "./MapChips.js";
 
 const CELL = 16;
 /** Room for up to five sibling takes plus a "more" mark on each side. */
@@ -19,6 +20,8 @@ export interface PathRowProps {
   readonly size: number;
   readonly domId: string;
   readonly chapter: string | null;
+  /** The id of the take being written (or the leaf an append grows). */
+  readonly streamId: string | null;
   readonly onSelect: (index: number, nodeId: string | null) => void;
   readonly onAct: (index: number) => void;
 }
@@ -30,7 +33,7 @@ function cellX(offset: number): number {
 /** One row of the cursor's line: the part's number and text, with its sibling
  * takes drawn as marks in the gutter. */
 export const PathRow = memo(function PathRow(props: PathRowProps) {
-  const { row, index, top, height, selected, cursorId, position, size, domId, chapter } = props;
+  const { row, index, top, height, selected, cursorId, position, size, domId, chapter, streamId } = props;
   const shownCell = row.cells.find((cell) => cell.node.id === cursorId)
     ?? row.cells.find((cell) => cell.node.id === row.pathNode.id)
     ?? null;
@@ -52,7 +55,7 @@ export const PathRow = memo(function PathRow(props: PathRowProps) {
         <circle className="lane-hit" cx={x} cy={middle} r={7} />
         {isCursor ? <circle className="lane-ring" cx={x} cy={middle} r={5.5} /> : null}
         <circle
-          className={cell.active ? "lane-dot" : cell.subtakes ? "lane-dot lane-dot-end" : "lane-hollow"}
+          className={cell.node.id === streamId ? "lane-dot lane-dot-writing" : cell.active ? "lane-dot" : cell.subtakes ? "lane-dot lane-dot-end" : "lane-hollow"}
           cx={x}
           cy={middle}
           r={cell.active || cell.subtakes ? 3.5 : 3}
@@ -89,6 +92,7 @@ export const PathRow = memo(function PathRow(props: PathRowProps) {
       </svg>
       <span className="map-part-no">¶ {row.depth}</span>
       <span className="map-text">{shown.preview.replace(/\s+/g, " ").trim()}</span>
+      {streamId !== null && row.cells.some((cell) => cell.node.id === streamId) && <WritingChip />}
       {shownCell?.tag != null && <span className="map-chip map-chip-tag" title={shownCell.tag.name}>{shownCell.tag.name}</span>}
       {chapter !== null && <span className="map-chip map-chip-chapter" title={`Chapter: ${chapter}`}>§ {chapter}</span>}
       {counter !== null && <span className="map-meta">{counter}</span>}

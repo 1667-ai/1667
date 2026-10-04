@@ -15,7 +15,7 @@ import { errorMessage, pushToast } from "../app/toasts.js";
 import { STORY_RELOADED_TOAST, type StoryActions } from "./actions.js";
 import { copyStoryText } from "./copy.js";
 import { createDeletePlan } from "./delete-plan.js";
-import { partActionRefusal, type WebPartActionId } from "./part-policy.js";
+import { nodeDeleteRefusal, partActionRefusal, type WebPartActionId } from "./part-policy.js";
 import { openPart } from "./state.js";
 
 export interface PartCommandDependencies {
@@ -38,6 +38,9 @@ export interface PartCommands {
   copyLine(): void;
   /** `x`: opens this part's `···` menu. */
   openMenu(partId: string): void;
+  /** The map's `D`: asks to delete a take of the story, on the reading line or
+   * not. */
+  askDeleteNode(nodeId: string): void;
   cancelDelete(): void;
   confirmDelete(): Promise<void>;
 }
@@ -50,6 +53,19 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
     const target = openPart(store.get(), partId);
     if (target === null) return;
     const plan = createDeletePlan(target.story.payload, partId);
+    if (plan === null) return;
+    setUi((ui) => ({ ...ui, deletePlan: plan, deleting: false }));
+  }
+
+  function askDeleteNode(nodeId: string): void {
+    const state = store.get();
+    const refusal = nodeDeleteRefusal(state, nodeId);
+    if (refusal !== null) {
+      pushToast(store, refusal);
+      return;
+    }
+    if (state.story.kind !== "loaded") return;
+    const plan = createDeletePlan(state.story.payload, nodeId);
     if (plan === null) return;
     setUi((ui) => ({ ...ui, deletePlan: plan, deleting: false }));
   }
@@ -117,6 +133,8 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       setUi((ui) => ({ ...ui, menuRequest: { partId, serial: (ui.menuRequest?.serial ?? 0) + 1 } }));
     },
 
+    askDeleteNode,
+
     cancelDelete: () => setUi((ui) => (ui.deleting ? ui : { ...ui, deletePlan: null })),
 
     confirmDelete: async () => {
@@ -124,7 +142,7 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       const plan = state.partUi.deletePlan;
       if (plan === null || state.partUi.deleting) return;
       // The writer confirmed some time after asking: ask the policy again.
-      const refusal = partActionRefusal(state, plan.nodeId, "prune");
+      const refusal = nodeDeleteRefusal(state, plan.nodeId);
       if (refusal !== null) {
         pushToast(store, refusal);
         return;
@@ -132,12 +150,13 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       if (state.story.kind !== "loaded" || state.connection.kind !== "connected") return;
       const path = state.story.payload.path;
       const index = path.findIndex((node) => node.id === plan.nodeId);
+      const onLine = index >= 0;
       const previousId = index > 0 ? path[index - 1]!.id : null;
       const api = state.connection.api;
       setUi((ui) => ({ ...ui, deleting: true }));
       const finish = (payload: StoryPayload): void => {
         // Focus lands on the part above, or on the new first part.
-        const focusId = previousId !== null && payload.path.some((node) => node.id === previousId)
+        const focusId = !onLine ? undefined : previousId !== null && payload.path.some((node) => node.id === previousId)
           ? previousId
           : payload.path[0]?.id;
         deps.story.adoptPayload(plan.storyId, payload, {

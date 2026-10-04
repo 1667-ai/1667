@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **The map of `1667 web` has a mass view and a Fact lens.** Press `m` to
+  change the view from path to tree to mass. In the mass view, press `s` to
+  change the order. In the tree view, press `f` to see one Fact on the map. Press
+  Tab to see the next Fact. In the path view, press `D` to delete a take and
+  press `t` to tag its line. While a generation writes, the map marks the part
+  that it writes.
+
 - **`1667 web` can search the text of your stories.** Press `/` to open the
   search. Type at least two characters. Press Tab to search all stories, and
   press Ctrl+S to match case. Press Enter to go to a hit.
