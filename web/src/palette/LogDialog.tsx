@@ -11,7 +11,8 @@ export function LogDialog({ onClose }: { readonly onClose: () => void }) {
   const newestFirst = [...notices].reverse();
   return (
     <Modal onCancel={onClose} ariaLabel="Notice log" className="info-modal">
-      <h2>Log</h2>
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+      <h2 tabIndex={-1} autoFocus>Log</h2>
       {newestFirst.length === 0
         ? <p className="modal-status">Nothing yet.</p>
         : (

@@ -7,7 +7,8 @@ export function KeysDialog({ onClose }: { readonly onClose: () => void }) {
   const sections = useMemo(() => keysHelpSections(), []);
   return (
     <Modal onCancel={onClose} ariaLabel="Keyboard shortcuts" className="info-modal">
-      <h2>Keys</h2>
+      {/* eslint-disable-next-line jsx-a11y/no-autofocus */}
+      <h2 tabIndex={-1} autoFocus>Keys</h2>
       <div className="keys-grid">
         {sections.map((section) => (
           <section key={section.title} className="keys-section" aria-label={section.title}>
