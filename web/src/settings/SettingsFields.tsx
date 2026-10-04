@@ -421,3 +421,40 @@ export function Section({ title, children }: { readonly title: string; readonly 
 export function sectionAnchor(title: string): string {
   return `settings-section-${title.toLowerCase().replace(/[^a-z0-9]+/gu, "-")}`;
 }
+
+/** A list as lines in one field. A refused text stays with its reason. */
+export function LinesRow(
+  { label, value, refused, disabled, hint, tone, placeholder, onChange }: {
+    readonly label: string;
+    readonly value: string;
+    readonly refused: { readonly text: string; readonly reason: string } | undefined;
+    readonly disabled: boolean;
+    readonly hint?: ReactNode;
+    readonly tone?: "ready" | "warning";
+    readonly placeholder?: string;
+    readonly onChange: (text: string) => void;
+  }
+) {
+  const id = useId();
+  const labelId = `${id}-label`;
+  const text = useTypedText(value, refused?.text);
+  const rows = Math.min(8, Math.max(2, text.shown.split("\n").length + 1));
+  return (
+    <Row label={label} labelId={labelId} hint={hint} error={refused?.reason ?? null} tone={tone}>
+      <div className="field settings-field">
+        <textarea
+          aria-labelledby={labelId}
+          className="settings-lines"
+          rows={rows}
+          value={text.shown}
+          disabled={disabled}
+          placeholder={placeholder}
+          spellCheck={false}
+          onChange={(event) => { text.type(event.currentTarget.value); onChange(event.currentTarget.value); }}
+          onBlur={text.done}
+          onKeyDown={leaveFieldOnEscape}
+        />
+      </div>
+    </Row>
+  );
+}
