@@ -11,9 +11,6 @@ export interface StoryHeaderProps {
   readonly payload: StoryPayload;
   readonly showDirections: boolean;
   readonly onToggleDirections: () => void;
-  /** `z`: the focused part stays centered. */
-  readonly typewriter: boolean;
-  readonly onToggleTypewriter: () => void;
   /** Opens the Library drawer (only shown below the drawer breakpoint). */
   readonly onOpenSidebar: () => void;
   /** Opens the story map. */
@@ -25,7 +22,7 @@ export interface StoryHeaderProps {
  * (`web/src/styles/story.css` already carries them, from step 3's
  * placeholder) — the title is a plain heading here, never an editable
  * field (that is write-side, later steps). */
-export function StoryHeader({ payload, showDirections, onToggleDirections, typewriter, onToggleTypewriter, onOpenSidebar, onOpenMap }: StoryHeaderProps) {
+export function StoryHeader({ payload, showDirections, onToggleDirections, onOpenSidebar, onOpenMap }: StoryHeaderProps) {
   const { store, actions } = useAppContext();
   const panelView = useStore(store, (state) => state.panel.view);
   const words = useMemo(
@@ -70,16 +67,6 @@ export function StoryHeader({ payload, showDirections, onToggleDirections, typew
             <Icon path={view === "chapters" ? ICONS.summary : ICONS.facts} />
           </button>
         ))}
-        <button
-          type="button"
-          className="icon-btn"
-          aria-pressed={typewriter}
-          title={typewriter ? "Typewriter mode on (z)" : "Typewriter mode (z)"}
-          aria-label="Typewriter mode (z)"
-          onClick={onToggleTypewriter}
-        >
-          <Icon path={ICONS.alignCenter} />
-        </button>
         <button
           type="button"
           className="btn btn-ghost btn-small"

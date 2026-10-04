@@ -203,8 +203,6 @@ export function StoryView(
         payload={payload}
         showDirections={showDirections}
         onToggleDirections={actions.story.toggleDirections}
-        typewriter={typewriter}
-        onToggleTypewriter={actions.story.toggleTypewriter}
         onOpenSidebar={onOpenSidebar}
         onOpenMap={() => openMap(storyId)}
       />

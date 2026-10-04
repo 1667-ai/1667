@@ -124,11 +124,11 @@ test("case 2: z keeps the focused part centered while moving, and it is remember
     const view = scroll.getBoundingClientRect();
     return Math.abs((part.top + part.bottom) / 2 - (view.top + view.bottom) / 2);
   });
-  const toggle = page.getByRole("button", { name: "Typewriter mode (z)" });
+  const on = page.locator(".story-scroll-typewriter");
 
   await part(page, "Part 5:").click();
   await page.keyboard.press("z");
-  expect(await toggle.getAttribute("aria-pressed")).toBe("true");
+  await on.waitFor();
   expect(await poll(async () => (await centerOffset()) < 24)).toBeTrue();
   await page.keyboard.press("ArrowDown");
   expect(await poll(async () => (await part(page, "Part 6:").getAttribute("aria-current")) === "true")).toBeTrue();
@@ -141,7 +141,7 @@ test("case 2: z keeps the focused part centered while moving, and it is remember
 
   await page.reload();
   await page.getByRole("heading", { name: "Typewriter Keys" }).waitFor();
-  expect(await poll(async () => (await toggle.getAttribute("aria-pressed")) === "true")).toBeTrue();
+  await on.waitFor();
   expect(await poll(async () => (await centerOffset()) < 24)).toBeTrue();
 });
 
