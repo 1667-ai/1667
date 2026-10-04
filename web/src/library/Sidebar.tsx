@@ -41,7 +41,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
     () => actions.generation.stop() || actions.chapters.stopSummary(),
     [actions]
   );
-  useKeymap({ searchRef, stopGeneration });
+  useKeymap({ searchRef, stopGeneration, openOverlay: actions.overlay.open });
 
   return (
     <>

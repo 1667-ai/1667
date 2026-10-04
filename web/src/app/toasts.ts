@@ -1,5 +1,6 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { AppState, Toast } from "./state.js";
+import { recordNotice } from "./notices.js";
 import type { Store } from "./store.js";
 
 const TOAST_LIFETIME_MS = 6_000;
@@ -9,6 +10,7 @@ export function pushToast(store: Store<AppState>, message: string): void {
   const id = `toast-${(nextToastId += 1)}`;
   const toast: Toast = { id, message };
   store.set((state) => ({ ...state, toasts: [...state.toasts, toast] }));
+  recordNotice(store, "toast", message);
   setTimeout(() => dismissToast(store, id), TOAST_LIFETIME_MS);
 }
 

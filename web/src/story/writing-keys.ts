@@ -15,6 +15,11 @@ const PART_ACTION_OF_KEY: Readonly<Record<string, PartActionId>> = {
   "prune": "prune"
 };
 
+/** The key actions this file handles; keys help lists only handled actions. */
+export const WRITING_KEY_ACTIONS: readonly string[] = [
+  "compose", "regenerate", "retake-with-prompt", "write", "edit", "prune", "open-actions"
+];
+
 /**
  * The writing keys of the manuscript: the TUI's `r`, `R`, `w`, `e`, `x`, `D`,
  * and Enter / `i`. `StoryView.tsx` calls this for every binding it does not
