@@ -3,7 +3,8 @@ import { rememberedLeafId } from "../../../shared/story-model.js";
 import { useAppContext } from "../app/context.js";
 import { activatesOnEnterOrSpace, resolveMapBinding } from "../app/keymap-dom.js";
 import { pushKeyLayer } from "../app/keymap.js";
-import { closeMap } from "../app/router.js";
+import { closeMap, openStoryPage } from "../app/router.js";
+import { pushToast } from "../app/toasts.js";
 import { useStore } from "../app/store.js";
 import { GenerationBar } from "../generation/GenerationBar.js";
 import { Icon, ICONS } from "../ui/icons.js";
@@ -111,6 +112,15 @@ export function StoryMap({ storyId, onOpenSidebar }: { readonly storyId: string;
     if (actions.story.switchLine(id)) setAwaiting(id);
   }, [actions]);
 
+  const openRecords = useCallback(() => {
+    const current = latest.current;
+    if (current.payload === null || current.cursorId === null || !current.payload.nodes.some((node) => node.id === current.cursorId)) {
+      pushToast(store, "no take to inspect here");
+      return;
+    }
+    openStoryPage(storyId, { kind: "records", nodeId: current.cursorId });
+  }, [store, storyId]);
+
   const toggleView = useCallback(() => {
     const current = latest.current;
     if (current.cursorId !== null) setCursor(current.cursorId);
@@ -153,11 +163,11 @@ export function StoryMap({ storyId, onOpenSidebar }: { readonly storyId: string;
       const context: MapKeyContext = {
         view: current.view, payload: current.payload, tree: current.tree, path: current.path,
         cursorId: current.cursorId, showSketches: current.showSketches,
-        setCursor, toggleView, toggleSketches, act: () => act(), close
+        setCursor, toggleView, toggleSketches, act: () => act(), close, openRecords
       };
       return handleMapKey(binding, context);
     }
-  }), [act, close, toggleSketches, toggleView]);
+  }), [act, close, openRecords, toggleSketches, toggleView]);
 
   // A switch from the map lands (or fails) asynchronously: the map closes
   // once the line runs through the node, and stays put on a failure.

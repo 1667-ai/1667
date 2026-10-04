@@ -7,7 +7,7 @@ import { MAX_GENERATION_RECORD_TEXT_CHARS, type ResolvedGenerationRecord } from 
 import { textHash } from "../src/api.js";
 import { handleKey, initialState } from "../src/app.js";
 import type { AppSource } from "../src/app.js";
-import { generationRecordPipelineRows } from "../src/generation-record-pipeline.js";
+import { generationRecordPipelineRows } from "../../shared/generation-record-pipeline.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";

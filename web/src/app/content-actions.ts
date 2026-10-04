@@ -6,6 +6,7 @@ import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createFactActions, type FactActions } from "../facts/index.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
+import { createThoughtActions, type ThoughtActions } from "../inspect/thoughts.js";
 import { createLibraryActions, type LibraryActions } from "../library/actions.js";
 import { createChapterActions, type ChapterActions } from "../chapters/actions.js";
 import { createNotesActions, type NotesActions } from "../notes/actions.js";
@@ -32,6 +33,7 @@ export interface ContentActions {
   readonly aside: AsideActions & AsideUseActions;
   readonly facts: FactActions;
   readonly notes: NotesActions;
+  readonly thoughts: ThoughtActions;
   readonly settings: SettingsActions;
 }
 
@@ -76,8 +78,9 @@ export function createContentActions(
   const facts = createFactActions(store, { story, panel });
   const aside = { ...createAsideActions(store, { story, panel }), ...createAsideUseActions(store, { story, compose, facts, panel }) };
   const notes = createNotesActions(store, { story });
+  const thoughts = createThoughtActions(store);
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
   const settings = createSettingsActions(store);
-  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, notes, settings };
+  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, notes, settings, thoughts };
 }
 

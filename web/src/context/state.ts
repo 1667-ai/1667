@@ -1,5 +1,5 @@
 import type { PromptTokenCountAnswer } from "../../../shared/prompt-token-count-lane.js";
-import type { NextRequestEstimate } from "../../../shared/request-projection.js";
+import type { NextRequestContext, NextRequestEstimate } from "../../../shared/request-projection.js";
 import type { GenerationRuntimeState } from "../../../shared/runtime-settings.js";
 
 /**
@@ -20,6 +20,10 @@ export interface ContextRuntime {
 export interface ProjectionSnapshot {
   readonly storyId: string;
   readonly estimate: NextRequestEstimate;
+  /** What the request is: a Continue, or the retake of a part. */
+  readonly operation: NextRequestContext["operation"];
+  /** The model the request goes to. */
+  readonly model: string;
   /** Likely response tokens that become context after this request. */
   readonly growthTokens: number;
   readonly contextWindow: number | null;

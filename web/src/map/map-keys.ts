@@ -17,12 +17,14 @@ export interface MapKeyContext {
   readonly toggleSketches: () => void;
   readonly act: () => void;
   readonly close: () => void;
+  /** Opens the generation records of the cursor's take. */
+  readonly openRecords: () => void;
 }
 
 /** The key actions `handleMapKey` handles; keys help lists only handled actions. */
 export const MAP_KEY_ACTIONS: readonly string[] = [
   "cancel", "cycle-map-view", "toggle-sketches", "toggle-path-takes", "apply",
-  "focus-next", "focus-previous", "take-next", "take-previous"
+  "focus-next", "focus-previous", "take-next", "take-previous", "open-records"
 ];
 
 /** The map's keys, after `keymap-dom.ts` resolved them through the TUI's MAP
@@ -35,6 +37,7 @@ export function handleMapKey(binding: ReferenceBinding, ctx: MapKeyContext): boo
     case "toggle-sketches":
     case "toggle-path-takes": ctx.toggleSketches(); return true;
     case "apply": ctx.act(); return true;
+    case "open-records": ctx.openRecords(); return true;
     case "focus-next":
     case "focus-previous": {
       if (ctx.cursorId === null) return true;

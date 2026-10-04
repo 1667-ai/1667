@@ -9,22 +9,38 @@
  * That already held before this router existed (verified by inspection, not
  * changed): a `#/story/<id>` hash is never mistaken for a token carrier.
  */
+/** A full page of a story other than its own page and the map: the next
+ * request, and a take's generation records and token probabilities. */
+export type StoryPage =
+  | { readonly kind: "request" }
+  | { readonly kind: "records"; readonly nodeId: string }
+  | { readonly kind: "probs"; readonly nodeId: string };
+
 export type Route =
   | { readonly kind: "library" }
   | { readonly kind: "settings" }
-  | { readonly kind: "story"; readonly id: string; readonly map?: true };
+  | { readonly kind: "story"; readonly id: string; readonly map?: true; readonly page?: StoryPage };
+
+/** True on the story's own page: not its map, not an inspector page. */
+export function isStoryPage(route: Route): route is Extract<Route, { kind: "story" }> {
+  return route.kind === "story" && route.map !== true && route.page === undefined;
+}
 
 const STORY_PREFIX = "#/story/";
-const MAP_SUFFIX = "/map";
 const SETTINGS_HASH = "#/settings";
 
 export function parseRoute(hash: string): Route {
   if (hash === SETTINGS_HASH) return { kind: "settings" };
   if (hash.startsWith(STORY_PREFIX)) {
-    const rest = hash.slice(STORY_PREFIX.length);
-    const map = rest.endsWith(MAP_SUFFIX);
-    const id = decodeURIComponent(map ? rest.slice(0, -MAP_SUFFIX.length) : rest);
-    if (id.length > 0) return map ? { kind: "story", id, map: true } : { kind: "story", id };
+    const [rawId = "", section, rawNode] = hash.slice(STORY_PREFIX.length).split("/");
+    const id = decodeURIComponent(rawId);
+    if (id.length === 0) return { kind: "library" };
+    if (section === "map" && rawNode === undefined) return { kind: "story", id, map: true };
+    if (section === "request" && rawNode === undefined) return { kind: "story", id, page: { kind: "request" } };
+    if ((section === "records" || section === "probs") && rawNode !== undefined && rawNode.length > 0) {
+      return { kind: "story", id, page: { kind: section, nodeId: decodeURIComponent(rawNode) } };
+    }
+    return { kind: "story", id };
   }
   return { kind: "library" };
 }
@@ -36,7 +52,10 @@ export function currentRoute(): Route {
 export function routeHash(route: Route): string {
   if (route.kind === "library") return "#/";
   if (route.kind === "settings") return SETTINGS_HASH;
-  return `${STORY_PREFIX}${encodeURIComponent(route.id)}${route.map === true ? MAP_SUFFIX : ""}`;
+  const story = `${STORY_PREFIX}${encodeURIComponent(route.id)}`;
+  if (route.map === true) return `${story}/map`;
+  if (route.page === undefined) return story;
+  return route.page.kind === "request" ? `${story}/request` : `${story}/${route.page.kind}/${encodeURIComponent(route.page.nodeId)}`;
 }
 
 /** Goes to `route` as a new history entry, so Back returns here. `replace`
@@ -62,6 +81,27 @@ export function openMap(storyId: string): void {
 export function closeMap(storyId: string): void {
   if (mapOpenedFrom === storyId) {
     mapOpenedFrom = null;
+    history.back();
+    return;
+  }
+  navigate({ kind: "story", id: storyId }, { replace: true });
+}
+
+/** The story whose page this tab left to open an inspector page: the entry
+ * below it is that page, so closing the inspector steps back to it. */
+let pageOpenedFrom: string | null = null;
+
+/** Opens an inspector page (Back closes it). */
+export function openStoryPage(storyId: string, page: StoryPage): void {
+  pageOpenedFrom = storyId;
+  navigate({ kind: "story", id: storyId, page });
+}
+
+/** Closes an inspector page: back one entry when it was opened from the
+ * story in this tab, else a replacement, so Back never reopens it. */
+export function closeStoryPage(storyId: string): void {
+  if (pageOpenedFrom === storyId) {
+    pageOpenedFrom = null;
     history.back();
     return;
   }
@@ -94,6 +134,7 @@ export function listenForRouteChanges(onChange: (route: Route) => void): () => v
   const handler = (): void => {
     const route = currentRoute();
     if (route.kind !== "story" || route.id !== mapOpenedFrom) mapOpenedFrom = null;
+    if (route.kind !== "story" || route.id !== pageOpenedFrom) pageOpenedFrom = null;
     settingsHasPageBelow = route.kind === "settings";
     onChange(route);
   };

@@ -84,6 +84,8 @@ function project(inputs: Inputs): ProjectionSnapshot {
   return {
     storyId: inputs.storyId,
     estimate,
+    operation: context.operation,
+    model: runtime.model,
     growthTokens: estimateResponseGrowthTokens({
       payload: inputs.payload,
       maxOutputTokens: runtime.maxTokens,
@@ -113,7 +115,10 @@ export function createContextActions(store: Store<AppState>): ContextActions {
     storyId: () => store.get().context.projection?.storyId ?? "",
     route: () => store.get().context.runtime?.route ?? "",
     providerBusy: () => providerBusy(store.get()),
-    requestViewerOpen: () => false,
+    requestViewerOpen: () => {
+      const route = store.get().route;
+      return route.kind === "story" && route.page?.kind === "request";
+    },
     project: () => {
       const projection = store.get().context.projection;
       return {
