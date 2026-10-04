@@ -1,5 +1,6 @@
 import { useRef, type KeyboardEvent, type ReactNode } from "react";
 import { useAppContext } from "../app/context.js";
+import { ContextMeter } from "../context/ContextMeter.js";
 import { resolveComposeBinding } from "../app/keymap-dom.js";
 import { useStore } from "../app/store.js";
 import { focusCurrentPart } from "../story/focus-dom.js";
@@ -56,6 +57,11 @@ export function Composer(
       return;
     }
     const chord = resolveComposeBinding(event.nativeEvent);
+    if (chord?.action === "toggle-context-meter") {
+      event.preventDefault();
+      actions.context.toggleExpanded();
+      return;
+    }
     if (chord?.action === "history-previous" || chord?.action === "history-next") {
       event.preventDefault();
       actions.compose.historyMove(storyId, chord.action === "history-previous" ? -1 : 1);
@@ -80,9 +86,12 @@ export function Composer(
     <div className="composer">
       <div className="composer-head">
         <span className="composer-target">{head}</span>
-        {status !== null && status.length > 0
-          ? <span className="generation-status">{status}</span>
-          : <span className="composer-hint">Enter to send · Shift+Enter new line</span>}
+        <span className="composer-head-end">
+          {status !== null && status.length > 0
+            ? <span className="generation-status">{status}</span>
+            : <span className="composer-hint">Enter to send · Shift+Enter new line</span>}
+          <ContextMeter storyId={storyId} />
+        </span>
       </div>
       <div className="composer-row">
         <textarea

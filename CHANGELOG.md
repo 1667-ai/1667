@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` shows how much the next request holds.** The composer bar shows
+  the size of the next request and the context window. Click it to see the
+  parts of the request: voice, facts, recent text, summary, and note. On a Mac,
+  press Control+G to open and close it. Each Fact shows if the next request
+  sends it, if it did not match, or if the request drops it. The chapter table
+  shows which chapters the next request holds.
+
 - **`1667 web` can search the text of your stories.** Press `/` to open the
   search. Type at least two characters. Press Tab to search all stories, and
   press Ctrl+S to match case. Press Enter to go to a hit.

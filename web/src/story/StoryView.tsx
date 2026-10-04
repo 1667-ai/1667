@@ -166,6 +166,7 @@ export function StoryView(
       case "scroll-down": return scrollBy(container, pageScrollDistance(container));
       case "open-library": navigate({ kind: "library" }); return true;
       case "open-settings": openSettings(); return true;
+      case "toggle-context-meter": actions.context.toggleExpanded(); return true;
       case "open-map":
         if (current.story.payload.nodes.length === 0) pushToast(store, NOTHING_TO_MAP_TOAST);
         else openMap(storyId);
