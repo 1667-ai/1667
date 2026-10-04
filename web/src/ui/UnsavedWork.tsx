@@ -17,7 +17,8 @@ export function UnsavedWork() {
   const notes = useStore(store, (state) => state.notes);
   const settings = useStore(store, (state) => state.settings);
   const aside = useStore(store, (state) => state.aside);
-  const items = useMemo(() => unsavedWork(editor, compose, facts, notes, settings, aside), [editor, compose, facts, notes, settings, aside]);
+  const storyLists = useStore(store, (state) => state.storyListDrafts);
+  const items = useMemo(() => unsavedWork(editor, compose, facts, notes, settings, aside, storyLists), [editor, compose, facts, notes, settings, aside, storyLists]);
   if (items.length === 0) return null;
   return (
     <section className="unsaved-work" aria-label="Unsaved work">
@@ -57,5 +58,6 @@ export function useHasUnsavedWork(): boolean {
   const notes = useStore(store, (state) => state.notes);
   const settings = useStore(store, (state) => state.settings);
   const aside = useStore(store, (state) => state.aside);
-  return useMemo(() => unsavedWork(editor, compose, facts, notes, settings, aside).length > 0, [editor, compose, facts, notes, settings, aside]);
+  const storyLists = useStore(store, (state) => state.storyListDrafts);
+  return useMemo(() => unsavedWork(editor, compose, facts, notes, settings, aside, storyLists).length > 0, [editor, compose, facts, notes, settings, aside, storyLists]);
 }

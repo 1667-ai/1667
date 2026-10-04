@@ -14,6 +14,7 @@ import { initialNotesState, type NotesState } from "../notes/state.js";
 import { initialPanelState, type PanelState } from "../panel/state.js";
 import { initialTagsState, type TagsState } from "../tags/state.js";
 import { initialSettingsState, type SettingsState } from "../settings/state.js";
+import type { StoryListDrafts } from "../settings/story-lists.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
@@ -82,6 +83,8 @@ export interface AppState {
   /** The settings page (#409 step 9b): the loaded settings, the draft, and the
    * write-only keys. See `settings/state.ts`. */
   readonly settings: SettingsState;
+  /** Unsaved text of the story lists on the settings page. See `settings/story-lists.ts`. */
+  readonly storyListDrafts: StoryListDrafts;
   /** Aside, the non-canon chat about a take (#409 step 10d). See `aside/state.ts`. */
   readonly aside: AsideState;
   readonly reading: ReadingPreferences;
@@ -118,6 +121,7 @@ export function initialAppState(
     panel: initialPanelState(),
     notes: initialNotesState(),
     settings: initialSettingsState(),
+    storyListDrafts: {},
     aside: initialAsideState(),
     reading: { showDirections: readStoredShowDirections(), typewriter: readStoredTypewriter() },
     toasts: [],
