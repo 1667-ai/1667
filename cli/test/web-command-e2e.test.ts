@@ -43,11 +43,11 @@ function helpOutput(args: readonly string[]): string {
 
 test("`1667 web --help` describes the web UI and no longer calls it experimental; `1667 --help` lists web", () => {
   const webHelp = helpOutput(["web", "--help"]);
-  expect(webHelp).not.toMatch(/experimental/i);
+  expect(/experimental/i.test(webHelp)).toBeFalse();
   expect(webHelp).toContain("docs/web.md");
   expect(webHelp).toContain("Ctrl+P");
   expect(webHelp).toContain("--no-open");
-  expect(helpOutput(["--help"])).toMatch(/^ {2}web {10,}\S/m);
+  expect(/^ {2}web {10,}\S/m.test(helpOutput(["--help"]))).toBeTrue();
 }, 60_000);
 
 test("the printed URL carries the token in the fragment, never the query string", async () => {

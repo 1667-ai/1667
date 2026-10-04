@@ -5,8 +5,7 @@
  * command it belongs to and the front page stays a map. */
 
 export const HELP = `1667 — a full-screen terminal environment for writing fiction
-Usage: 1667 [options]
-       1667 <command> [options]
+Usage: 1667 [options] | 1667 <command> [options]
 
 Commands:
   init             Make a project in this directory
