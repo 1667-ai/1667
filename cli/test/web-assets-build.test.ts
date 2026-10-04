@@ -7,7 +7,8 @@ import { loadWebAssets } from "../src/web-assets.js";
  * production build. */
 // The settings page (step 9b) brings the shared settings draft core into the
 // bundle: the provider table, the capability rules and the draft reducers.
-const SCRIPT_BUDGET_GZIP_BYTES = 190 * 1024;
+// Aside (steps 10d and 10e) adds the panel view, its actions and the use menu.
+const SCRIPT_BUDGET_GZIP_BYTES = 200 * 1024;
 
 test("the served app script is the production build and stays small", async () => {
   expect(process.env.NODE_ENV).toBe("test");
