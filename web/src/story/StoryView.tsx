@@ -19,6 +19,7 @@ import { Manuscript } from "./Manuscript.js";
 import { StoryPanel } from "../panel/StoryPanel.js";
 import { PruneDialog } from "./PruneDialog.js";
 import { StoryHeader } from "./StoryHeader.js";
+import { NOTHING_TO_MAP_TOAST } from "./reading-keys.js";
 import { handleWritingKey } from "./writing-keys.js";
 import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
 
@@ -38,8 +39,6 @@ function liveRegionText(story: Extract<StoryState, { kind: "loaded" }>, generati
   if (generationView !== null && generationView.live) return generationView.statusLabel;
   return story.announcement ?? "";
 }
-
-const NOTHING_TO_MAP_TOAST = "Nothing to map yet.";
 
 /** Roughly one prose line at the default size — `⇧↑`/`⇧↓`'s nudge. */
 const LINE_SCROLL_PX = 60;

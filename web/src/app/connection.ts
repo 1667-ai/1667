@@ -11,6 +11,8 @@ import {
   createReadingPositionSync,
   type ReadingPositionSync
 } from "../story/reading-position-sync.js";
+import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.js";
+import { recordNotice } from "./notices.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
 
@@ -35,6 +37,20 @@ export type ConnectionState =
       readonly readingPositions: ReadingPositionSync;
     }
   | { readonly kind: "closed"; readonly message: string };
+
+let everConnected = false;
+
+/** Writes each recovery warning to the notice log, once per mutation. */
+function recordRecoveryWarnings(store: Store<AppState>, warnings: readonly BridgeRecoveryWarning[]): void {
+  for (const warning of warnings) {
+    recordNotice(
+      store,
+      "recovery",
+      `Recovery warning: ${warning.method} (${warning.resolution}): ${warning.error.message}`,
+      warning.mutationId
+    );
+  }
+}
 
 /**
  * Starts one connection attempt and returns a disposer (review fix A1).
@@ -74,10 +90,12 @@ export function connect(store: Store<AppState>, onConnected: () => void): () => 
       onRecoveryWarnings: (warnings) => {
         if (disposed) return;
         store.set((state) => ({ ...state, recoveryWarnings: warnings }));
+        recordRecoveryWarnings(store, warnings);
       },
       onClose: (error) => {
         if (disposed) return;
         store.set((state) => ({ ...state, connection: { kind: "closed", message: error.message } }));
+        recordNotice(store, "connection", `Connection closed: ${error.message}`);
       }
     });
     if (outcome.kind === "connected") transport = outcome.transport;
@@ -97,6 +115,7 @@ export function connect(store: Store<AppState>, onConnected: () => void): () => 
         ...state,
         connection: { kind: "failed", message: outcome.error.message }
       }));
+      recordNotice(store, "connection", `Connection failed: ${outcome.error.message}`);
       return;
     }
     const api = storyApiFromWorkerTransport(outcome.transport);
@@ -112,6 +131,9 @@ export function connect(store: Store<AppState>, onConnected: () => void): () => 
       },
       recoveryWarnings: outcome.recoveryWarnings
     }));
+    recordRecoveryWarnings(store, outcome.recoveryWarnings);
+    if (everConnected) recordNotice(store, "connection", "Reconnected.");
+    everConnected = true;
     onConnected();
   }
 }

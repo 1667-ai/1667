@@ -8,6 +8,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **The map of `1667 web` opens in the path view.** The path view shows the
   line that you read, part by part. Press `m` to show the tree view.
 
+- **`1667 web` has a command palette, a keys list, and a notice log.** Press `:`
+  to open the command palette. Type to find a command, and press Enter to run
+  it. Press `?` to see the keys that the page uses. Press `!` to see the
+  messages that the app showed in this tab. Press Esc to close each of them.
+
 - **`1667 web` has a settings page.** Press `,` or click the gear in the
   sidebar to open it. You can choose the provider, the base URL, the API key,
   the model, and the context size. You can also write the Default Author Brief

@@ -75,9 +75,14 @@ const MAP_LANES: readonly ReferenceBindingLane[] = ["global", "map"];
  * `app/keymap.ts` merely doesn't implement every action) keeps the
  * exclusion explicit even if a later step adds a command palette. */
 function isBrowserReservedChord(event: KeyboardEvent): boolean {
-  if (!event.ctrlKey) return false;
-  const key = event.key.toLowerCase();
-  return key === "u" || key === "d" || key === "p";
+  return event.ctrlKey && RESERVED_CHORD_KEYS.includes(event.key.toLowerCase());
+}
+
+const RESERVED_CHORD_KEYS: readonly string[] = ["u", "d", "p"];
+
+/** The same exclusion for a table row, so keys help never lists a chord the web leaves to the browser. */
+export function isBrowserReservedBinding(binding: ReferenceBinding): boolean {
+  return binding.ctrl === true && RESERVED_CHORD_KEYS.includes(binding.name);
 }
 
 /** Tries the lanes a plain (no ⌘, no ⌥) keypress can resolve through, in
@@ -98,6 +103,13 @@ export function resolveManuscriptBinding(event: KeyboardEvent): ReferenceBinding
     if (binding !== null) return binding;
   }
   return null;
+}
+
+/** `:`, `?` and `!` open the palette, keys help and notice log from the story
+ * page, the map and the Library alike: plain keys only, read from the NAV table. */
+export function resolveOverlayBinding(event: KeyboardEvent): ReferenceBinding | null {
+  if (event.metaKey || event.altKey || event.ctrlKey) return null;
+  return resolveReferenceBinding("nav", keyEventFromDom(event), "NAV");
 }
 
 /** The story map's keys: the `global` lane (Esc closes), then the `map` lane,

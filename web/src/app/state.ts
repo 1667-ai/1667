@@ -15,6 +15,20 @@ import type { ThemeMode } from "../theme/themes.js";
 import type { ConnectionState } from "./connection.js";
 import type { Route } from "./router.js";
 
+/** What the notice log (`!`) records: every toast, every connection change
+ * and every recovery warning, kept for this tab only. */
+export interface Notice {
+  readonly id: number;
+  /** Client wall-clock time (ms) the message first appeared. */
+  readonly at: number;
+  readonly channel: "toast" | "connection" | "recovery";
+  readonly text: string;
+  /** Records one message once, however often it is reported. */
+  readonly key?: string;
+}
+
+export type OverlayKind = "palette" | "keys" | "log";
+
 export interface Toast {
   readonly id: string;
   readonly message: string;
@@ -57,6 +71,10 @@ export interface AppState {
   readonly settings: SettingsState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
+  /** The notice log, oldest first. See `app/notices.ts`. */
+  readonly notices: readonly Notice[];
+  /** The one open dialog of the command palette, keys help, or notice log. */
+  readonly overlay: OverlayKind | null;
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
   readonly theme: ThemeMode | null;
   readonly palette: string;
@@ -84,6 +102,8 @@ export function initialAppState(
     settings: initialSettingsState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
+    notices: [],
+    overlay: null,
     theme,
     palette
   };

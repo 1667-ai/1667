@@ -1,4 +1,5 @@
 import type { FlushScheduler } from "../generation/stream-buffer.js";
+import { createOverlayActions, type OverlayActions } from "../palette/actions.js";
 import { createThemeActions, type ThemeActions } from "../theme/actions.js";
 import { createContentActions, type ContentActions } from "./content-actions.js";
 import type { AppState } from "./state.js";
@@ -16,6 +17,7 @@ export interface AppActionDependencies {
 
 export interface AppActions extends ContentActions {
   readonly theme: ThemeActions;
+  readonly overlay: OverlayActions;
   readonly reconnect: () => void;
 }
 
@@ -26,6 +28,7 @@ export function createAppActions(store: Store<AppState>, deps: AppActionDependen
   return {
     ...createContentActions(store, deps),
     theme: createThemeActions(store),
+    overlay: createOverlayActions(store),
     reconnect: deps.reconnect
   };
 }
