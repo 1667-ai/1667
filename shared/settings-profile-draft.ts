@@ -1,11 +1,11 @@
 import type {
   SettingsRoutePurpose
-} from "../../shared/settings-v2-types.js";
-import type { SettingsDocumentV5 as SettingsDocumentV2 } from "../../shared/settings-v5-types.js";
-import type { GenerationReasoningV5 } from "../../shared/settings-v5-reasoning.js";
-import { updateSettingsDocumentV5 } from "../../shared/settings-document-update.js";
-import { resolveSettingsProfile } from "../../shared/settings-route.js";
-import type { GenerationSettings } from "../../shared/types.js";
+} from "./settings-v2-types.js";
+import type { SettingsDocumentV5 as SettingsDocumentV2 } from "./settings-v5-types.js";
+import type { GenerationReasoningV5 } from "./settings-v5-reasoning.js";
+import { updateSettingsDocumentV5 } from "./settings-document-update.js";
+import { resolveSettingsProfile } from "./settings-route.js";
+import type { GenerationSettings } from "./types.js";
 
 const MAX_PROFILES = 64;
 const MAX_PROFILE_NAME_SCALARS = 256;

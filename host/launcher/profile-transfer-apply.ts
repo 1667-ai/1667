@@ -9,7 +9,7 @@ import {
   duplicateSettingsProfile,
   renameImportedSettingsProfile,
   uniqueSettingsProfileName
-} from "./settings-profile-draft.js";
+} from "../../shared/settings-profile-draft.js";
 
 /** Duplicate a selected profile, choose a unique imported name, then fit it. */
 export function applyProfileTransfer(
