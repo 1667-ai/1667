@@ -17,7 +17,7 @@ import {
   currentImageInputCapability,
   imageInputRefusalMessage,
   IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE
-} from "./image-input-runtime.js";
+} from "../../shared/image-input-runtime.js";
 import type { ResolvedKey } from "./keys.js";
 import type { ImageAttachPrompt, RuntimeState } from "./state.js";
 

@@ -98,7 +98,7 @@ export function StoryMap({ storyId, onOpenSidebar }: { readonly storyId: string;
   const runParent = useStore(store, (state) => (isGenerationActive(state.generation) ? state.generation.parentId : null));
   const runInstruction = useStore(store, (state) => (isGenerationActive(state.generation) ? state.generation.instruction : ""));
   const run = useMemo<MapRun | null>(() => (
-    runGenId === null || runMode === null
+    runGenId === null || runMode === null || runMode === "rewrite"
       ? null
       : { genId: runGenId, mode: runMode, appendTo: runAppendTo, parentId: runParent, instruction: runInstruction }
   ), [runGenId, runMode, runAppendTo, runParent, runInstruction]);

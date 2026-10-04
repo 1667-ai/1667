@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
@@ -11,7 +11,8 @@ import { Overlays } from "./palette/Overlays.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
-import { StoryMap } from "./map/StoryMap.js";
+// The map is a page of its own: it loads when it is opened.
+const StoryMap = lazy(async () => ({ default: (await import("./map/StoryMap.js")).StoryMap }));
 import { SettingsPage } from "./settings/SettingsPage.js";
 import { StoryView } from "./story/StoryView.js";
 import {
@@ -101,7 +102,7 @@ function Shell() {
           ? <SettingsPage onOpenSidebar={openSidebar} />
           : route.kind === "story"
           ? (route.map === true
-            ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
+            ? <Suspense fallback={<p className="story-empty">Loading…</p>}><StoryMap storyId={route.id} onOpenSidebar={openSidebar} /></Suspense>
             : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
           : (
             <>

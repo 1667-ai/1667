@@ -1,4 +1,10 @@
-import type { RewriteDestination, StoryNode, StoryPayload, TextRange } from "../../shared/types.js";
+import type { RewriteDestination, StoryPayload } from "../../shared/types.js";
+import {
+  NO_SELECTION_MESSAGE,
+  resolveRewriteRange,
+  type RewriteTarget,
+  type RewriteTargetError
+} from "../../shared/rewrite-target.js";
 import { rewriteStreamDigest } from "../../shared/rewrite-partial-contract.js";
 import type { ActionTask } from "./action-runtime.js";
 import type { AppSource } from "./app.js";
@@ -26,18 +32,6 @@ import {
 } from "./stream-text.js";
 import { canRewriteSelection, type StorySelectionSpan } from "./selection-projection.js";
 
-export interface RewriteTarget extends TextRange {
-  readonly node: StoryNode;
-  readonly expected: string;
-}
-
-export interface RewriteTargetError {
-  readonly error: string;
-}
-
-const NO_SELECTION_MESSAGE = "highlight story text before rewriting it";
-const STALE_SELECTION_MESSAGE = "the story changed · highlight it again";
-
 /** Pure and independent of `state.actions` so both the part-actions menu
  * (bound to a menu-opened part) and the command palette (bound only to a
  * captured selection) can resolve the same target from their own inputs. */
@@ -50,28 +44,6 @@ export function resolveRewriteTarget(
   const span = spans[0]!;
   if (span.key !== `${partId}:text`) return { error: NO_SELECTION_MESSAGE };
   return resolveRewriteRange(payload, partId, span.start, span.end, span.text.slice(span.start, span.end));
-}
-
-/** The staleness check behind `resolveRewriteTarget`, factored out so the
- * open-composer path and the send-time re-check can share it. A span only
- * exists at the moment a selection is captured; by send time the composer
- * has kept nothing but these three values (see `PromptIntent`'s `rewrite`
- * case), so re-validation calls this directly instead of reconstructing one. */
-function resolveRewriteRange(
-  payload: StoryPayload,
-  partId: string,
-  start: number,
-  end: number,
-  expected: string
-): RewriteTarget | RewriteTargetError {
-  const node = payload.path.find((candidate) => candidate.id === partId);
-  if (node === undefined) return { error: NO_SELECTION_MESSAGE };
-  // Recompute against the live node rather than trusting the captured range:
-  // the story can change under a highlighted passage between the moment the
-  // selection was made and the moment the writer confirms the rewrite.
-  const live = node.text.slice(start, end);
-  if (live !== expected) return { error: STALE_SELECTION_MESSAGE };
-  return { node, start, end, expected: live };
 }
 
 /** The palette captures a selection independent of any menu-bound part, so

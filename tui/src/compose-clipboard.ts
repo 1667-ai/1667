@@ -3,7 +3,7 @@ import type { BackendActionContext } from "./action-context.js";
 import { readClipboardContent } from "./clipboard.js";
 import { insertComposerText, type ComposerState } from "./composer-model.js";
 import { attachDraftImage, draftImagesFor, MAX_DRAFT_IMAGES } from "./draft-image.js";
-import { currentImageInputCapability, imageInputRefusalMessage } from "./image-input-runtime.js";
+import { currentImageInputCapability, imageInputRefusalMessage } from "../../shared/image-input-runtime.js";
 import { imageAttachmentLabel } from "../../shared/image-attachment.js";
 import { imageClipboardEntryPointOpen } from "../../shared/image-input-release.js";
 import { sanitizePastedText } from "./keys.js";

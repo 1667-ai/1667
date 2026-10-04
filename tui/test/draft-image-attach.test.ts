@@ -13,7 +13,7 @@ import type { AppSource } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { draftImagesFor } from "../src/draft-image.js";
 import { openImageAttach, imageAttachAction } from "../src/image-attach-actions.js";
-import { IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE, IMAGE_INPUT_UNKNOWN_MESSAGE } from "../src/image-input-runtime.js";
+import { IMAGE_INPUT_ENTRY_POINTS_CLOSED_MESSAGE, IMAGE_INPUT_UNKNOWN_MESSAGE } from "../../shared/image-input-runtime.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import type { RuntimeState } from "../src/state.js";
 

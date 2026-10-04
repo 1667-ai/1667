@@ -24,6 +24,8 @@ export const ICONS = {
   message: "M20 15a2 2 0 0 1-2 2H8l-4 4V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2Z",
   flag: "M5 21V4 M5 5h11l-2 4 2 4H5",
   summary: "M4 6h16 M4 12h10 M4 18h7",
+  paste: "M9 4h6a1 1 0 0 1 1 1v2H8V5a1 1 0 0 1 1-1Z M8 5H6a2 2 0 0 0-2 2v12a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7a2 2 0 0 0-2-2h-2 M9 13h6 M9 17h4",
+  image: "M5 4h14a1 1 0 0 1 1 1v14a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V5a1 1 0 0 1 1-1Z M8.5 9a.5.5 0 1 0 0 1 .5.5 0 1 0 0-1Z M4 16l5-5 4 4 3-3 4 4",
   facts: "M9 6h11 M9 12h11 M9 18h11 M4 6h.01 M4 12h.01 M4 18h.01",
   arrowUp: "M12 19V5 M6 11l6-6 6 6",
   arrowDown: "M12 5v14 M6 13l6 6 6-6",

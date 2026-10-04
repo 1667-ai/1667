@@ -1,5 +1,6 @@
 import type { DraftHandle } from "../generation/actions.js";
-import type { StoryComposeDraft } from "./state.js";
+import { MAX_DRAFT_IMAGES, type DraftImage } from "../images/draft-image.js";
+import type { RewriteDraft, StoryComposeDraft } from "./state.js";
 
 /** What a draft handle may read and write of one story's composer. */
 export interface DraftHost {
@@ -18,9 +19,17 @@ export interface DraftHost {
  * - `clear` empties the box only when it still holds exactly the restored
  *   text, so a text the writer changed since is never wiped.
  */
-export function createDirectDraft(host: DraftHost, text: string): DraftHandle {
+/** Puts the images of a failed send back in front of any the writer attached
+ * since. The images are never lost, so this does not wait for the box. */
+function restoreImages(host: DraftHost, images: readonly DraftImage[]): void {
+  if (images.length === 0) return;
+  host.write((draft) => ({ ...draft, images: [...images, ...draft.images].slice(0, MAX_DRAFT_IMAGES) }));
+}
+
+export function createDirectDraft(host: DraftHost, text: string, images: readonly DraftImage[] = []): DraftHandle {
   return {
     restore: () => {
+      restoreImages(host, images);
       const current = host.read().direct;
       if (current.length > 0 && current !== text) return false;
       if (current.length === 0) host.write((draft) => ({ ...draft, direct: text }));
@@ -44,14 +53,21 @@ export function createDirectDraft(host: DraftHost, text: string): DraftHandle {
  */
 export function createRetakeDraft(
   host: DraftHost,
-  retake: { readonly nodeId: string; readonly text: string },
-  directAtSend: string
+  retake: { readonly nodeId: string; readonly text: string; readonly rewrite?: RewriteDraft },
+  directAtSend: string,
+  images: readonly DraftImage[] = []
 ): DraftHandle {
   return {
     restore: () => {
+      restoreImages(host, images);
       const current = host.read();
       if (current.retake !== null || current.direct !== directAtSend) return false;
-      host.write((draft) => ({ ...draft, retake: { nodeId: retake.nodeId, text: retake.text } }));
+      host.write((draft) => ({
+        ...draft,
+        retake: retake.rewrite === undefined
+          ? { nodeId: retake.nodeId, text: retake.text }
+          : { nodeId: retake.nodeId, text: retake.text, rewrite: retake.rewrite }
+      }));
       return true;
     },
     clear: () => {

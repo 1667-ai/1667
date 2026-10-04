@@ -1,4 +1,4 @@
-import { useEffect, useRef } from "react";
+import { Suspense, lazy, useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
@@ -19,6 +19,9 @@ import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
 import { StoryPanel } from "../panel/StoryPanel.js";
 import { PruneDialog } from "./PruneDialog.js";
+
+// The prune review opens rarely: it loads when asked for.
+const PruneUnusedDialog = lazy(async () => ({ default: (await import("./PruneUnusedDialog.js")).PruneUnusedDialog }));
 import { StoryHeader } from "./StoryHeader.js";
 import { NOTHING_TO_MAP_TOAST } from "./reading-keys.js";
 import { centerPart } from "./typewriter.js";
@@ -81,6 +84,9 @@ export function StoryView(
     state.partUi.deletePlan !== null && state.partUi.deletePlan.storyId === storyId ? state.partUi.deletePlan : null
   ));
   const deleting = useStore(store, (state) => state.partUi.deleting);
+  const unusedPlan = useStore(store, (state) => (
+    state.partUi.unusedPlan !== null && state.partUi.unusedPlan.storyId === storyId ? state.partUi.unusedPlan : null
+  ));
   const scrollRef = useRef<HTMLDivElement>(null);
   const barRef = useBarClearance();
   const focusedPartId = story !== null && story.kind === "loaded" ? effectiveFocusedPartId(story) : null;
@@ -258,6 +264,16 @@ export function StoryView(
           onCancel={actions.part.cancelDelete}
           onDelete={() => void actions.part.confirmDelete()}
         />
+      )}
+      {unusedPlan !== null && (
+        <Suspense fallback={null}>
+          <PruneUnusedDialog
+            plan={unusedPlan}
+            deleting={deleting}
+            onCancel={actions.part.cancelPruneUnused}
+            onDelete={() => void actions.part.confirmPruneUnused()}
+          />
+        </Suspense>
       )}
       <div role="status" className="sr-only">{liveRegionText(story, generationView)}</div>
     </div>

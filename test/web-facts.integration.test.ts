@@ -166,7 +166,7 @@ test("a save while a summary runs is refused and the draft stays", async () => {
     ...state,
     chapters: {
       ...state.chapters,
-      summaryRun: { storyId: STORY_ID, storyTitle: "Test Story", breakId: "br1", chapterNumber: 1, refresh: false, phase: "running" }
+      summaryRun: { storyId: STORY_ID, storyTitle: "Test Story", breakId: "br1", chapterNumber: 1, refresh: false, phase: "running", text: "" }
     }
   }));
 

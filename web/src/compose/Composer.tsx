@@ -1,4 +1,10 @@
-import { useRef, type KeyboardEvent, type ReactNode } from "react";
+import { Suspense, lazy, useEffect, useRef, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { imageInputEntryPointsOpen } from "../../../shared/image-input-release.js";
+import { imageInputRefusalMessage } from "../../../shared/image-input-runtime.js";
+// The thumbnails load with the first attached image.
+const ImageChips = lazy(async () => ({ default: (await import("../images/ImageChips.js")).ImageChips }));
+import { Icon, ICONS } from "../ui/icons.js";
+import { useRequestSignal } from "../ui/useRequestSignal.js";
 import { useAppContext } from "../app/context.js";
 import { ContextMeter } from "../context/ContextMeter.js";
 import { resolveComposeBinding } from "../app/keymap-dom.js";
@@ -7,6 +13,12 @@ import { focusCurrentPart } from "../story/focus-dom.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { continuationTargetLabel } from "./target.js";
 import { composeDraftOf, isBrowsingHistory, visibleComposeText } from "./state.js";
+
+/** The start of a rewritten passage, for the head of the composer. */
+function excerptOf(text: string): string {
+  const flat = text.replace(/\s+/g, " ").trim();
+  return flat.length > 40 ? `${flat.slice(0, 39)}…` : flat;
+}
 
 /**
  * The Direct composer (#409 step 6), the TUI's `i` box: a one-line textarea
@@ -30,14 +42,37 @@ export function Composer(
   const story = useStore(store, (state) => (state.story.kind === "loaded" && state.story.payload.id === storyId ? state.story : null));
   const browsing = isBrowsingHistory(draft);
   const fieldRef = useRef<HTMLTextAreaElement>(null);
+  const fileRef = useRef<HTMLInputElement>(null);
+  const imageInput = useStore(store, (state) => state.compose.imageInput);
+  const attachSerial = useStore(store, (state) => state.compose.attachSerial);
+  // Whether the route takes an image comes from the settings: asked when the
+  // composer opens, so coming back from the settings page sees a new answer.
+  useEffect(() => { void actions.compose.refreshImageInput(); }, [actions]);
+  useRequestSignal(attachSerial, () => fileRef.current?.click());
+  const rewriting = draft.retake?.rewrite !== undefined;
+  const attachRefusal = !imageInputEntryPointsOpen()
+    ? "Image input is not available"
+    : rewriting
+      ? "An image cannot go with a rewrite"
+      : imageInput === null
+        ? "Checking image support"
+        : imageInput.support === "supported" ? null : imageInputRefusalMessage(imageInput);
+  const onDrop = (event: DragEvent<HTMLDivElement>): void => {
+    if (!event.dataTransfer.types.includes("Files")) return;
+    event.preventDefault();
+    void actions.compose.attachImages(storyId, [...event.dataTransfer.files]);
+  };
 
   const text = visibleComposeText(draft);
   const retakeNumber = story !== null && draft.retake !== null
     ? story.payload.path.findIndex((node) => node.id === draft.retake?.nodeId) + 1
     : 0;
+  const excerpt = draft.retake?.rewrite === undefined ? "" : excerptOf(draft.retake.rewrite.expected);
   const head = draft.retake === null
     ? (story === null ? "" : continuationTargetLabel(story.payload, effectiveFocusedPartId(story), text))
-    : (retakeNumber > 0 ? `Retake part ${retakeNumber} — new direction` : "Retake — that part is no longer on the line");
+    : draft.retake.rewrite !== undefined
+      ? (retakeNumber > 0 ? `Rewrite “${excerpt}” in part ${retakeNumber} — instruction` : "Rewrite — that part is no longer on the line")
+      : (retakeNumber > 0 ? `Retake part ${retakeNumber} — new direction` : "Retake — that part is no longer on the line");
 
   /** Hands the keyboard back to the manuscript. */
   const leave = (): void => {
@@ -88,7 +123,7 @@ export function Composer(
   };
 
   return (
-    <div className="composer">
+    <div className="composer" onDragOver={(event) => { if (event.dataTransfer.types.includes("Files")) event.preventDefault(); }} onDrop={onDrop}>
       <div className="composer-head">
         <span className="composer-target">{head}</span>
         <span className="composer-head-end">
@@ -98,14 +133,39 @@ export function Composer(
           <ContextMeter storyId={storyId} />
         </span>
       </div>
+      {draft.images.length > 0 && <Suspense fallback={null}><ImageChips storyId={storyId} images={draft.images} /></Suspense>}
       <div className="composer-row">
+        <input
+          ref={fileRef}
+          type="file"
+          className="composer-file"
+          accept="image/png,image/jpeg,image/webp"
+          multiple
+          tabIndex={-1}
+          aria-hidden="true"
+          onChange={(event) => {
+            const files = [...(event.target.files ?? [])];
+            event.target.value = "";
+            void actions.compose.attachImages(storyId, files);
+          }}
+        />
+        <button
+          type="button"
+          className="icon-btn composer-attach"
+          aria-label="Attach image"
+          title={attachRefusal ?? "Attach image"}
+          disabled={attachRefusal !== null}
+          onClick={() => fileRef.current?.click()}
+        >
+          <Icon path={ICONS.image} />
+        </button>
         <textarea
           ref={fieldRef}
           className="composer-field"
           rows={1}
           value={text}
-          placeholder={draft.retake === null ? "What happens next?" : "How should this part go instead?"}
-          aria-label={draft.retake === null ? "What happens next?" : "New direction for the retake"}
+          placeholder={draft.retake === null ? "What happens next?" : rewriting ? "How should this passage change?" : "How should this part go instead?"}
+          aria-label={draft.retake === null ? "What happens next?" : rewriting ? "Instruction for the rewrite" : "New direction for the retake"}
           aria-keyshortcuts="Enter"
           spellCheck
           onChange={(event) => actions.compose.setText(storyId, event.target.value)}
