@@ -22,6 +22,8 @@ import {
   sectionAnchor,
   TextInputRow
 } from "./SettingsFields.js";
+import { ThisStorySection } from "./ThisStorySection.js";
+import { settingsStory } from "../app/router.js";
 import { SamplingSection } from "./SamplingSection.js";
 import {
   ConnectionAdvancedRows,
@@ -214,7 +216,8 @@ function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; r
     : "Allows plain HTTP for a server you control. Turn it on for a local or LAN server.";
 
   const prompts = WRITING_PROMPT_FIELD_DEFINITIONS.filter((definition) => advanced || definition.view === "simple");
-  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing"];
+  const storyId = settingsStory();
+  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing", ...(storyId === null ? [] : ["This story"])];
   const showPlainHttp = advanced ? !dryRun : plainHttp;
   return (
     <div className="settings-scroll">
@@ -332,6 +335,7 @@ function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; r
               <SamplingSection loaded={loaded} />
               <ThoughtsSection loaded={loaded} />
               <RoutingSection loaded={loaded} />
+              {storyId !== null && <ThisStorySection loaded={loaded} storyId={storyId} />}
             </>
           )}
         </div>
