@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { nextRequestContext } from "../src/request-context.js";
-import { nextRequestEstimate } from "../src/request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 import { buildRailModel } from "../src/rail.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";

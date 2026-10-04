@@ -7,6 +7,7 @@ import { loadWebAssets } from "../src/web-assets.js";
  * production build. */
 // The settings page (step 9b) brings the shared settings draft core into the
 // bundle: the provider table, the capability rules and the draft reducers.
+// The context meter (step 10f) brings the request projection into the bundle.
 // Temporary headroom while features land; step 10m splits the routes and
 // brings the first-load budget back down.
 const SCRIPT_BUDGET_GZIP_BYTES = 230 * 1024;

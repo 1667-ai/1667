@@ -1,6 +1,7 @@
 import { createAsideActions, type AsideActions } from "../aside/actions.js";
 import { createAsideUseActions, type AsideUseActions } from "../aside/use-actions.js";
 import { createComposeActions, type ComposeActions } from "../compose/actions.js";
+import { createContextActions, type ContextActions } from "../context/actions.js";
 import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createFactActions, type FactActions } from "../facts/index.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
@@ -23,6 +24,7 @@ export interface ContentActions {
   readonly generation: GenerationActions;
   readonly part: PartCommands;
   readonly compose: ComposeActions;
+  readonly context: ContextActions;
   readonly editor: EditorActions;
   readonly tags: TagsActions;
   readonly chapters: ChapterActions;
@@ -66,6 +68,7 @@ export function createContentActions(
     ...(deps.createScheduler === undefined ? {} : { createScheduler: deps.createScheduler })
   });
   const compose = createComposeActions(store, { story, generation });
+  const context = createContextActions(store);
   const editor = createEditorActions(store, { story });
   const tags = createTagActions(store, { story });
   const chapters = createChapterActions(store, { story });
@@ -75,6 +78,6 @@ export function createContentActions(
   const notes = createNotesActions(store, { story });
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
   const settings = createSettingsActions(store);
-  return { library, story, generation, part, compose, editor, tags, chapters, panel, aside, facts, notes, settings };
+  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, notes, settings };
 }
 

@@ -9,6 +9,7 @@
  * into the web bundle.
  */
 import type { MapView } from "../../../shared/map-model.js";
+import { IS_MAC } from "./platform.js";
 import {
   resolveReferenceBinding,
   type ReferenceBinding,
@@ -67,7 +68,7 @@ const NAV_LANES: readonly ReferenceBindingLane[] = ["global", "nav-shifted", "na
 
 const MAP_LANES: readonly ReferenceBindingLane[] = ["global", "map"];
 
-/** Owner decision: ⌃U, ⌃D, ⌃P stay the browser's (page-up-in-history,
+/** Owner decision: ⌃U, ⌃D, ⌃P (and ⌃G, ⌃R off a Mac) stay the browser's (page-up-in-history,
  * bookmark, print) — never bound here. The shared table's own `nav-chord`
  * entries for ⌃U/⌃D resolve to the very same `scroll-up`/`scroll-down`
  * actions plain PageUp/PageDown do, and its `global` entry for ⌃P resolves
@@ -78,7 +79,9 @@ function isBrowserReservedChord(event: KeyboardEvent): boolean {
   return event.ctrlKey && RESERVED_CHORD_KEYS.includes(event.key.toLowerCase());
 }
 
-const RESERVED_CHORD_KEYS: readonly string[] = ["u", "d", "p"];
+/** ⌃G (find next) and ⌃R (reload) are the browser's too, except on a Mac,
+ * where the browser's shortcut key is ⌘ and ⌃ is free for the app. */
+const RESERVED_CHORD_KEYS: readonly string[] = IS_MAC ? ["u", "d", "p"] : ["u", "d", "p", "g", "r"];
 
 /** The same exclusion for a table row, so keys help never lists a chord the web leaves to the browser. */
 export function isBrowserReservedBinding(binding: ReferenceBinding): boolean {
@@ -131,7 +134,7 @@ export function resolveMapBinding(event: KeyboardEvent, view: MapView): Referenc
  * lane is tried, in the `COMPOSE` mode. ⌘ and ⌥ never resolve, for the same
  * reason they never do in `resolveManuscriptBinding`. */
 export function resolveComposeBinding(event: KeyboardEvent): ReferenceBinding | null {
-  if (event.metaKey || event.altKey) return null;
+  if (event.metaKey || event.altKey || isBrowserReservedChord(event)) return null;
   return resolveReferenceBinding("compose-chord", keyEventFromDom(event), "COMPOSE");
 }
 

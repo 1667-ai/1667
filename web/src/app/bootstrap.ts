@@ -55,6 +55,7 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
     actions,
     start: () => {
       disposeConnection = connect(store, onConnected);
+      const stopContext = actions.context.start();
       const stopRouting = listenForRouteChanges((route) => {
         store.set((state) => ({ ...state, route }));
       });
@@ -95,6 +96,7 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
       addEventListener("beforeunload", onBeforeUnload);
       return () => {
         disposeConnection();
+        stopContext();
         stopRouting();
         document.removeEventListener("visibilitychange", onVisible);
         document.removeEventListener("visibilitychange", onHidden);

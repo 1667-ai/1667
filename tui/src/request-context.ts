@@ -1,7 +1,7 @@
 import type { StoryPayload } from "../../shared/types.js";
 import { draftImagesFor } from "./draft-image.js";
 import { createStoryViewModel, rowPart, type StoryViewModel } from "./model.js";
-import type { NextRequestContext } from "./request-projection.js";
+import type { NextRequestContext } from "../../shared/request-projection.js";
 import type { StoryScreenState } from "./state.js";
 import { streamHasSubstantiveText } from "./stream-text.js";
 

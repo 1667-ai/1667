@@ -7,6 +7,7 @@
 .generation-bar-compose { align-items: stretch; }
 .composer { display: flex; flex: 1; flex-direction: column; gap: var(--s-2); min-width: 0; }
 .composer-head { align-items: baseline; display: flex; gap: var(--s-3); justify-content: space-between; min-height: var(--s-4); }
+.composer-head-end { align-items: center; display: flex; gap: var(--s-3); }
 .composer-target { color: var(--dim); font: var(--font-meta); }
 .composer-row { align-items: flex-end; display: flex; gap: var(--s-3); }
 .composer-field {

@@ -23,7 +23,7 @@ import { panelHorizontalGeometry } from "../src/screens/overlay.js";
 import { renderPanels } from "../src/screens/panels.js";
 import { createStoryViewModel, lastPartRowIndex } from "../src/model.js";
 import { plainLine, visibleWidth, type FrameLine } from "../src/screens/story/frame.js";
-import { nextRequestEstimate } from "../src/request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 
 describe("grouped command palette model", () => {
   test("covers every Settings row and Sampling focus stop exactly once", () => {

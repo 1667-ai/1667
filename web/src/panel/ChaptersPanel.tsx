@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { chapterDisplayTitle, extentLabel } from "../../../shared/chapter-labels.js";
 import { type StoryChapter } from "../../../shared/manuscript-model.js";
 import { manuscriptModelOf } from "../story/manuscript-model.js";
@@ -7,6 +7,7 @@ import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { ChapterTitle } from "../chapters/ChapterTitle.js";
+import { chapterRequestNote, useRequestEstimate } from "../context/status.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { Icon, ICONS } from "../ui/icons.js";
 
@@ -38,6 +39,11 @@ export function ChaptersPanel(
     state.story.kind === "loaded" ? effectiveFocusedPartId(state.story) : null
   ));
   const chapters = manuscriptModelOf(payload).chapters;
+  const estimate = useRequestEstimate(payload.id);
+  const requestByNumber = useMemo(
+    () => new Map((estimate?.chapters ?? []).map((chapter) => [chapter.number, chapter] as const)),
+    [estimate]
+  );
   const [selectedRow, setSelectedRow] = useState<HTMLElement | null>(null);
 
   useEffect(() => { selectedRow?.scrollIntoView({ block: "nearest" }); }, [selectedRow, cursor]);
@@ -48,6 +54,7 @@ export function ChaptersPanel(
         const here = focusedPartId !== null && chapter.parts.some((part) => part.id === focusedPartId);
         const selected = index === cursor;
         const state = summaryState(chapter, run !== null && run.storyId === payload.id && run.breakId === chapter.closedBy?.id);
+        const requestNote = estimate === null ? null : chapterRequestNote(requestByNumber.get(chapter.number));
         const isRenaming = renaming !== undefined && renaming === chapter.openingBreakId;
         return (
           <li
@@ -80,6 +87,7 @@ export function ChaptersPanel(
                 {extentLabel(chapter)} · ~{formatTokens(chapter.rawTokens)} tokens
               </span>
               <span className={`panel-row-state${state.tone}`}>{state.text}</span>
+              {requestNote !== null && <span className={`panel-row-request${requestNote.tone === "" ? "" : ` ${requestNote.tone}`}`}>{requestNote.text}</span>}
             </div>
             {selected && (
               <div className="panel-row-actions" onClick={(event) => event.stopPropagation()}>
