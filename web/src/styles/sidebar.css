@@ -1,7 +1,7 @@
 /**
  * Ported from `~/source/storytavern/web/src/sidebar.css`: `.sidebar`,
  * `.brand*`, `.theme-*`, `.story-list*`, `.story-item*`. `.sidebar-settings`
- * is dropped — there is no settings screen yet. `.sidebar-search` and
+ * (the gear, `settings.css`) opens the settings page. `.sidebar-search` and
  * `.story-item-menu*` are new, for this app's search box and per-row menu
  * (StoryTavern has neither), styled to match the ported rules around them.
  */

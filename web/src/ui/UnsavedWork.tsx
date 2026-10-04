@@ -14,26 +14,32 @@ export function UnsavedWork() {
   const editor = useStore(store, (state) => state.editor);
   const compose = useStore(store, (state) => state.compose);
   const facts = useStore(store, (state) => state.facts);
-  const items = useMemo(() => unsavedWork(editor, compose, facts), [editor, compose, facts]);
+  const settings = useStore(store, (state) => state.settings);
+  const items = useMemo(() => unsavedWork(editor, compose, facts, settings), [editor, compose, facts, settings]);
   if (items.length === 0) return null;
   return (
     <section className="unsaved-work" aria-label="Unsaved work">
       {items.map((item) => (
         <div key={item.id} className="unsaved-work-item">
           <span className="unsaved-work-label">{item.label}</span>
-          <textarea className="unsaved-work-text" readOnly rows={2} aria-label={item.label} value={item.text} />
-          <button
-            type="button"
-            className="btn"
-            title="Copy text"
-            onClick={() => {
-              navigator.clipboard.writeText(item.text).catch(() => {
-                pushToast(store, "Could not copy the text. Select it and copy it by hand.");
-              });
-            }}
-          >
-            Copy
-          </button>
+          {/* Settings with no changed prompt (a key, a provider) have no text to copy. */}
+          {item.text.length > 0 && (
+            <>
+              <textarea className="unsaved-work-text" readOnly rows={2} aria-label={item.label} value={item.text} />
+              <button
+                type="button"
+                className="btn"
+                title="Copy text"
+                onClick={() => {
+                  navigator.clipboard.writeText(item.text).catch(() => {
+                    pushToast(store, "Could not copy the text. Select it and copy it by hand.");
+                  });
+                }}
+              >
+                Copy
+              </button>
+            </>
+          )}
         </div>
       ))}
     </section>
@@ -46,5 +52,6 @@ export function useHasUnsavedWork(): boolean {
   const editor = useStore(store, (state) => state.editor);
   const compose = useStore(store, (state) => state.compose);
   const facts = useStore(store, (state) => state.facts);
-  return useMemo(() => unsavedWork(editor, compose, facts).length > 0, [editor, compose, facts]);
+  const settings = useStore(store, (state) => state.settings);
+  return useMemo(() => unsavedWork(editor, compose, facts, settings).length > 0, [editor, compose, facts, settings]);
 }

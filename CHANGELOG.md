@@ -8,6 +8,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 - **The map of `1667 web` opens in the path view.** The path view shows the
   line that you read, part by part. Press `m` to show the tree view.
 
+- **`1667 web` has a settings page.** Press `,` or click the gear in the
+  sidebar to open it. You can choose the provider, the base URL, the API key,
+  the model, and the context size. You can also write the Default Author Brief
+  and the Default Continue direction. The page keeps the API key on the
+  computer and never shows it again. Press Ctrl+S or Cmd+S to save. Press Esc
+  to close the page. An unsaved draft stays when you leave the page.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line

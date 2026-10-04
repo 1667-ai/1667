@@ -8,6 +8,7 @@ import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
 import { initialPanelState, type PanelState } from "../panel/state.js";
 import { initialTagsState, type TagsState } from "../tags/state.js";
+import { initialSettingsState, type SettingsState } from "../settings/state.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
@@ -51,6 +52,9 @@ export interface AppState {
   readonly facts: FactsState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
+  /** The settings page (#409 step 9b): the loaded settings, the draft, and the
+   * write-only keys. See `settings/state.ts`. */
+  readonly settings: SettingsState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** `null` theme means "follow the OS" — see `theme/apply.ts`. */
@@ -77,6 +81,7 @@ export function initialAppState(
     tags: initialTagsState(),
     facts: initialFactsState(),
     panel: initialPanelState(),
+    settings: initialSettingsState(),
     reading: { showDirections: readStoredShowDirections() },
     toasts: [],
     theme,
