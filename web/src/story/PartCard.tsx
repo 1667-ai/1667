@@ -7,6 +7,7 @@ import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { AsideMark } from "../aside/AsideMark.js";
 import { PartEditor } from "../editor/PartEditor.js";
+import { ThoughtBlock } from "../inspect/ThoughtBlock.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
 import { isClickSelectionCollapsed } from "./focus-dom.js";
@@ -271,6 +272,7 @@ function PartCardImpl({
           <AsideMark payload={payload} part={part} />
           <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
+        {node.reasoning === true && !editing && <ThoughtBlock storyId={payload.id} partId={part.id} version={node.text.length} streaming={continuation !== null} />}
         {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}
         {!editing && showDirections && node.instruction.length > 0 && (
           <div className="part-instruction">{node.instruction}</div>

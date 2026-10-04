@@ -57,14 +57,7 @@ export function removeDraftImageAt(composer: ComposerState, index: number): read
   return next;
 }
 
-/** `418 KiB`, `2.3 MiB` - the composer's draft-image rows and the request
- *  viewer's image blocks both show a byte length this way. */
-export function formatImageBytes(byteLength: number): string {
-  const kib = byteLength / 1024;
-  if (kib < 1_000) return `${Math.max(1, Math.round(kib))} KiB`;
-  const mib = kib / 1024;
-  return `${mib.toFixed(mib < 10 ? 1 : 0)} MiB`;
-}
+export { formatImageBytes } from "../../shared/request-document-model.js";
 
 /** The ordered `{leaseId, objectId}` pairs a generation request carries.
  *  The shape matches `DraftImageReference` in `shared/image-attachment.ts`,

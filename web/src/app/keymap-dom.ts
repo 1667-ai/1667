@@ -129,8 +129,7 @@ export function resolveMapBinding(event: KeyboardEvent, view: MapView): Referenc
   return null;
 }
 
-/** The composer's chords (⌃↑ / ⌃↓ history, and the ⌃R / ⌃G keys that resolve
- * but do nothing on the web). Plain keys type, so only the `compose-chord`
+/** The composer's chords (⌃↑ / ⌃↓ history, and ⌃G / ⌃R on a Mac). Plain keys type, so only the `compose-chord`
  * lane is tried, in the `COMPOSE` mode. ⌘ and ⌥ never resolve, for the same
  * reason they never do in `resolveManuscriptBinding`. */
 export function resolveComposeBinding(event: KeyboardEvent): ReferenceBinding | null {

@@ -41,15 +41,15 @@ export interface MapKeyContext {
   /** `D` and `t` in the path view. */
   readonly askDelete: () => void;
   readonly tagLine: () => void;
-  /** `h`: the generation records. Not wired until the records viewer is. */
-  readonly openRecords?: () => void;
+  /** Opens the generation records of the cursor's take. */
+  readonly openRecords: () => void;
 }
 
 /** The key actions `handleMapKey` handles; keys help lists only handled actions. */
 export const MAP_KEY_ACTIONS: readonly string[] = [
   "cancel", "cycle-map-view", "toggle-sketches", "toggle-path-takes", "apply",
   "focus-next", "focus-previous", "take-next", "take-previous",
-  "map-hide-lanes", "map-follow", "map-cycle-sort", "open-fact-lens", "prune", "tag"
+  "map-hide-lanes", "map-follow", "map-cycle-sort", "open-fact-lens", "prune", "tag", "open-records"
 ];
 
 /** The map's keys, after `keymap-dom.ts` resolved them through the TUI's MAP

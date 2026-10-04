@@ -4,10 +4,10 @@ import type {
   GenerationRecordKind,
   GenerationRecordPromptBlockKind,
   ResolvedGenerationRecord
-} from "../../shared/generation-record.js";
-import { humanEditIsMeaningful } from "../../shared/human-edit.js";
-import type { PromptOperation, PromptRole } from "../../shared/prompt-plan.js";
-import type { NodeStub, StoryNode } from "../../shared/types.js";
+} from "./generation-record.js";
+import { humanEditIsMeaningful } from "./human-edit.js";
+import type { PromptOperation, PromptRole } from "./prompt-plan.js";
+import type { NodeStub, StoryNode } from "./types.js";
 
 /**
  * Pure read model for the Generation Record Viewer (RECORD mode): flattens a

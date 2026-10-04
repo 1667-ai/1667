@@ -16,7 +16,7 @@ import {
   pipelineCharacterCount,
   visibleEntryCount,
   type GenerationRecordPipelineRow
-} from "../generation-record-pipeline.js";
+} from "../../../shared/generation-record-pipeline.js";
 import {
   messageDocumentRows,
   noticeSection,

@@ -1,5 +1,5 @@
 import { focusComposer } from "../compose/dom.js";
-import { openMap } from "../app/router.js";
+import { isStoryPage, openMap } from "../app/router.js";
 import { pushToast } from "../app/toasts.js";
 import { registerCommands, type CommandContext, type PaletteCommand } from "../palette/registry.js";
 import type { WebPartActionId } from "./part-policy.js";
@@ -9,13 +9,13 @@ import { effectiveFocusedPartId } from "./state.js";
 /** The focused part when the story's own page (not the map, not the Library) is open and loaded. */
 function focusedPart(context: CommandContext): string | null {
   const { route, story } = context.state;
-  if (route.kind !== "story" || route.map === true || story.kind !== "loaded" || story.payload.id !== route.id) return null;
+  if (!isStoryPage(route) || story.kind !== "loaded" || story.payload.id !== route.id) return null;
   return effectiveFocusedPartId(story);
 }
 
 function onStoryPage(context: CommandContext): boolean {
   const { route, story } = context.state;
-  return route.kind === "story" && route.map !== true && story.kind === "loaded" && story.payload.id === route.id;
+  return isStoryPage(route) && story.kind === "loaded" && story.payload.id === route.id;
 }
 
 /** A command that is one part action on the focused part; the one policy refuses it with a toast. */

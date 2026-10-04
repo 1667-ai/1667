@@ -215,3 +215,13 @@ function parseJsonObject(raw: string): Record<string, unknown> {
     throw new TokenProbabilityFormatError("Invalid JSON in token probabilities", { cause: error });
   }
 }
+
+/** Every displayed probability is derived from the stored logprob, never
+ *  itself stored — the clamp only guards the floating-point edge where a
+ *  logprob at or near 0 exponentiates a hair past 1. */
+export function probabilityOf(logprob: number): number {
+  const value = Math.exp(logprob);
+  if (value < 0) return 0;
+  if (value > 1) return 1;
+  return value;
+}

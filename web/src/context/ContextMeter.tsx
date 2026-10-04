@@ -10,7 +10,7 @@ import {
   type ContextMeterModel
 } from "../../../shared/rail-model.js";
 import { useAppContext } from "../app/context.js";
-import { openSettings } from "../app/router.js";
+import { openSettings, openStoryPage } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { usePopover } from "../ui/usePopover.js";
 import { currentCount, type ProjectionSnapshot } from "./state.js";
@@ -138,6 +138,14 @@ export function ContextMeter({ storyId }: { readonly storyId: string }) {
                 {model.growthTokens > 0 && ` · response +~${formatTokensScaled(model.growthTokens)}`}
               </p>
             )}
+          <button
+            type="button"
+            className="btn btn-ghost btn-small context-view"
+            title={`View next request${IS_MAC ? " (⌃R)" : ""}`}
+            onClick={() => { actions.context.setExpanded(false); openStoryPage(storyId, { kind: "request" }); }}
+          >
+            View next request
+          </button>
           {severity === "over" && <p className="context-note context-note-danger">summarize or drop a fact</p>}
           {dropNotice !== null && <p className="context-note context-note-warn">{dropNotice}</p>}
           {model.chapterNotice !== null && <p className="context-note">{model.chapterNotice}</p>}

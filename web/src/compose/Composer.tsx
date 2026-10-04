@@ -8,6 +8,7 @@ import { useRequestSignal } from "../ui/useRequestSignal.js";
 import { useAppContext } from "../app/context.js";
 import { ContextMeter } from "../context/ContextMeter.js";
 import { resolveComposeBinding } from "../app/keymap-dom.js";
+import { openStoryPage } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { focusCurrentPart } from "../story/focus-dom.js";
 import { effectiveFocusedPartId } from "../story/state.js";
@@ -100,6 +101,11 @@ export function Composer(
     if (chord?.action === "toggle-context-meter") {
       event.preventDefault();
       actions.context.toggleExpanded();
+      return;
+    }
+    if (chord?.action === "open-request") {
+      event.preventDefault();
+      openStoryPage(storyId, { kind: "request" });
       return;
     }
     if (chord?.action === "history-previous" || chord?.action === "history-next") {

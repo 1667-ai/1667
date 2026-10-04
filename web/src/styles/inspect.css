@@ -1,0 +1,66 @@
+/**
+ * The inspector pages (#409 step 10g): the next request, a take's generation
+ * records, and its token probabilities. They sit in the map's page frame.
+ */
+
+.story-inspect { outline: none; }
+.inspect-body { display: flex; flex: 1; flex-direction: column; gap: var(--s-3); min-height: 0; overflow-y: auto; padding: var(--s-4) var(--s-6); }
+.request-route { color: var(--dim); font: var(--font-meta); margin: 0; overflow-wrap: anywhere; }
+
+.request-doc { display: flex; flex-direction: column; gap: var(--s-3); }
+.request-notes { background: var(--accent-soft); border-radius: var(--r-md); padding: var(--s-2) var(--s-4); }
+.request-notes-label { color: var(--accent); font: var(--font-meta); letter-spacing: var(--ls-label); margin: 0 0 var(--s-1); text-transform: uppercase; }
+.request-notes ul { color: var(--ink); font-size: var(--fs-small); margin: 0; padding-left: var(--s-4); }
+.request-empty { color: var(--dim); font-size: var(--fs-ui); margin: 0; }
+.request-messages { display: flex; flex-direction: column; gap: var(--s-2); list-style: none; margin: 0; padding: 0; }
+.request-message { background: var(--surface); border: var(--border); border-radius: var(--r-md); cursor: pointer; padding: var(--s-2) var(--s-4) var(--s-3); }
+.request-message.selected { background: var(--accent-soft); box-shadow: var(--bar-accent); }
+.request-message-head { align-items: baseline; display: flex; font: var(--font-meta); gap: var(--s-3); }
+.request-message-number { color: var(--faint); }
+.request-message-role { color: var(--accent); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.request-message-label { color: var(--dim); flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.request-message-figure { color: var(--ink); }
+.request-message-extra { color: var(--accent); font: var(--font-meta); margin: var(--s-1) 0 0; }
+.request-message-body {
+  color: var(--ink); font-family: var(--prose); font-size: var(--fs-body); line-height: 1.5; margin: var(--s-2) 0 0;
+  overflow-wrap: anywhere; white-space: pre-wrap;
+}
+
+.record-events { align-items: center; display: flex; gap: var(--s-2); }
+.record-event-list { display: flex; flex: 1; gap: var(--s-2); list-style: none; margin: 0; overflow-x: auto; padding: 0; }
+.record-event {
+  background: var(--chip); border: 0; border-radius: var(--r-sm); color: var(--dim); cursor: pointer; display: flex; flex-direction: column;
+  font-size: var(--fs-small); gap: 2px; min-height: var(--btn-md); padding: var(--s-1) var(--s-3); text-align: left; white-space: nowrap;
+}
+.record-event[aria-current="true"] { background: var(--accent-soft); box-shadow: var(--bar-accent); color: var(--ink); }
+.record-event-time { font: var(--font-meta); }
+
+.probs-text {
+  background: var(--surface); border: var(--border); border-radius: var(--r-md); font-family: var(--prose); font-size: var(--prose-size);
+  line-height: 1.78; margin: 0; max-height: 40vh; overflow-y: auto; padding: var(--s-3) var(--s-4); white-space: pre-wrap;
+}
+.probs-mark { background: var(--accent); border-radius: var(--r-xs); color: var(--accent-ink); }
+.probs-alternatives { display: flex; flex-direction: column; gap: var(--s-2); }
+.probs-toolbar { align-items: center; display: flex; justify-content: space-between; }
+.probs-heading { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.probs-buttons { align-items: center; display: flex; gap: var(--s-1); }
+.probs-rows { display: flex; flex-direction: column; gap: 2px; list-style: none; margin: 0; padding: 0; }
+.probs-row {
+  align-items: center; border-radius: var(--r-sm); cursor: pointer; display: grid; gap: var(--s-3);
+  grid-template-columns: minmax(80px, 160px) 64px minmax(60px, 1fr) 72px auto; padding: var(--s-1) var(--s-3);
+}
+.probs-row[aria-current="true"] { background: var(--accent-soft); box-shadow: var(--bar-accent); }
+.probs-row-collapsed { display: block; }
+.probs-token { font-family: var(--mono); font-size: var(--fs-small); overflow-wrap: anywhere; white-space: pre-wrap; }
+.probs-percent, .probs-logprob { color: var(--dim); font: var(--font-meta); text-align: right; }
+.probs-bar { background: var(--chip); border-radius: var(--r-pill); display: block; height: var(--s-1); overflow: hidden; }
+.probs-bar > span { background: var(--accent); display: block; height: 100%; }
+.probs-sampled { color: var(--accent); font: var(--font-meta); }
+.probs-empty { color: var(--ink); font-size: var(--fs-ui); }
+
+.thought { margin: var(--s-1) 0 var(--s-2); }
+.thought-toggle { background: transparent; border: 0; color: var(--faint); cursor: pointer; font: var(--font-meta); letter-spacing: var(--ls-label); padding: 0; text-transform: uppercase; }
+.thought-toggle:hover, .thought-toggle[aria-expanded="true"] { color: var(--dim); }
+.thought-body { border-left: 2px solid var(--line); margin-top: var(--s-1); padding-left: var(--s-3); }
+.thought-text { color: var(--dim); font-family: var(--prose); font-size: var(--fs-body); font-style: italic; line-height: 1.6; margin: 0; white-space: pre-wrap; }
+.thought-note { color: var(--faint); font: var(--font-meta); margin: 0; }
