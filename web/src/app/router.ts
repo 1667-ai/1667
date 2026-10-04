@@ -114,8 +114,23 @@ export function closeStoryPage(storyId: string): void {
  * so Back never reopens it. */
 let settingsHasPageBelow = false;
 
+/** The story the writer came from, while settings is open on top of it: the
+ * settings page offers the story's own sampling lists for it. A page opened by
+ * its address, or from the Library, has none. */
+let storyBelowSettings: string | null = null;
+
+function noteStoryRoute(route: Route): void {
+  if (route.kind === "story") storyBelowSettings = route.id;
+  else if (route.kind === "library") storyBelowSettings = null;
+}
+
+export function settingsStory(): string | null {
+  return storyBelowSettings;
+}
+
 /** Opens the settings page (Back closes it). */
 export function openSettings(): void {
+  noteStoryRoute(currentRoute());
   if (currentRoute().kind === "settings") return;
   settingsHasPageBelow = true;
   navigate({ kind: "settings" });
@@ -136,6 +151,7 @@ export function listenForRouteChanges(onChange: (route: Route) => void): () => v
     if (route.kind !== "story" || route.id !== mapOpenedFrom) mapOpenedFrom = null;
     if (route.kind !== "story" || route.id !== pageOpenedFrom) pageOpenedFrom = null;
     settingsHasPageBelow = route.kind === "settings";
+    noteStoryRoute(route);
     onChange(route);
   };
   addEventListener("hashchange", handler);

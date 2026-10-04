@@ -36,7 +36,9 @@ import {
 } from "../../../shared/settings-profile-fields.js";
 import { useAppContext } from "../app/context.js";
 import { pushToast } from "../app/toasts.js";
-import { profileNames } from "./advanced-model.js";
+import { Icon, ICONS } from "../ui/icons.js";
+import { usePopover } from "../ui/usePopover.js";
+import { profileNames, STARTER_NAMES } from "./advanced-model.js";
 import { isSubscriptionDraft } from "./model.js";
 import { Row, Section, SelectRow, TextInputRow, ToggleRow } from "./SettingsFields.js";
 import type { LoadedSettings } from "./state.js";
@@ -82,7 +84,7 @@ export function ProfileRows({ loaded }: { readonly loaded: LoadedSettings }) {
         onSelect={(id) => { setArmed(null); actions.settings.selectProfile(id); }}
       />
       <Row label="Profile actions" labelId="settings-profile-actions-label">
-        <div className="settings-input-line" role="group" aria-label="Profile actions">
+        <div className="settings-input-line settings-wrap" role="group" aria-label="Profile actions">
           <button
             type="button"
             className="btn btn-small"
@@ -92,6 +94,7 @@ export function ProfileRows({ loaded }: { readonly loaded: LoadedSettings }) {
           >
             New profile
           </button>
+          <StarterButton disabled={locked} />
           <button
             type="button"
             className="btn btn-small"
@@ -125,6 +128,44 @@ export function ProfileRows({ loaded }: { readonly loaded: LoadedSettings }) {
         onChange={actions.settings.renameProfile}
       />
     </>
+  );
+}
+
+/** A new profile from a starter: the starter's values, fitted to the
+ * provider of the selected profile. */
+function StarterButton({ disabled }: { readonly disabled: boolean }) {
+  const { actions } = useAppContext();
+  const { open, setOpen, containerRef } = usePopover();
+  return (
+    <div className="settings-popover-wrap" ref={containerRef}>
+      <button
+        type="button"
+        className="btn btn-small"
+        title="Add a profile from a starter"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        disabled={disabled}
+        onClick={() => setOpen(!open)}
+      >
+        From starter
+        <Icon path={ICONS.chevronDown} />
+      </button>
+      {open && (
+        <div className="menu settings-menu" role="menu" aria-label="Starter profiles">
+          {STARTER_NAMES.map((name, index) => (
+            <button
+              key={name}
+              type="button"
+              role="menuitem"
+              className="menu-item"
+              onClick={() => { actions.settings.createProfileFromStarter(index); setOpen(false); }}
+            >
+              {name}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
   );
 }
 

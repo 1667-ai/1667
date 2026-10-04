@@ -523,7 +523,7 @@ test("case 3b: the advanced view shows the extra sections and a section list, an
   await openAdvancedSettings(page);
 
   expect(await page.getByRole("heading", { level: 2 }).allTextContents()).toEqual(
-    ["Display", "Prompts", "Connection", "Model", "Generation", "Thoughts", "Routing"]
+    ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing"]
   );
   for (const label of ["Rewrite guidance", "Title guidance", "Summary guidance", "Aside guidance", "Temperature", "Max tokens"]) {
     await page.getByLabel(label, { exact: true }).waitFor();
@@ -723,4 +723,132 @@ test("case 12e: an edit of a duplicated profile does not reach the original", as
   const original = Object.values(saved.profiles).find((profile) => profile.name !== "Copy of default")!;
   expect(saved.connections[saved.models[copy.modelId]!.connectionId]!.timeouts.idleMs).toBe(45_000);
   expect(saved.connections[saved.models[original.modelId]!.connectionId]!.timeouts.idleMs).not.toBe(45_000);
+}, 120_000);
+
+test("case 13: sampling knobs show why they are off, and a server that takes them saves them", async () => {
+  const fake = await fakeModelServer();
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+
+  // Dry-run takes no sampling: each knob says why.
+  expect(await page.getByLabel("Top p", { exact: true }).isDisabled()).toBeTrue();
+  expect(await page.getByLabel("Stop sequences", { exact: true }).isDisabled()).toBeTrue();
+  expect(await page.getByRole("heading", { name: "Sampling", level: 2 }).count()).toBe(1);
+
+  await configureFakeServer(page, fake);
+  expect(await page.getByLabel("Top p", { exact: true }).isDisabled()).toBeFalse();
+  await page.getByLabel("Top p", { exact: true }).fill("0.9");
+  await page.getByLabel("Stop sequences", { exact: true }).fill("###\nTHE END");
+  await page.getByLabel("Top p", { exact: true }).fill("5");
+  await page.getByText(/must be/).first().waitFor();
+  expect(await saveButton(page).isDisabled()).toBeTrue();
+  await page.getByLabel("Top p", { exact: true }).fill("0.9");
+  await saveWithKeyboard(page);
+
+  const saved = (await settingsOf(api)).document!;
+  const profile = saved.profiles[saved.routing.default]!;
+  expect(profile.sampling?.topP).toBe(0.9);
+  expect(profile.sampling?.stop).toEqual(["###", "THE END"]);
+}, 120_000);
+
+test("case 13b: a starter profile is added as a new profile and saved", async () => {
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await page.getByRole("button", { name: "From starter" }).click();
+  await page.getByRole("menuitem", { name: "conservative", exact: true }).click();
+  await page.getByText(/Added "conservative" with \d+ of \d+ values/).waitFor();
+  expect(await page.getByLabel("Profile name", { exact: true }).inputValue()).toBe("conservative");
+  await saveWithKeyboard(page);
+  const saved = (await settingsOf(api)).document!;
+  expect(Object.values(saved.profiles).some((profile) => profile.name === "conservative")).toBeTrue();
+  expect(Object.keys(saved.profiles).length).toBe(2);
+}, 90_000);
+
+test("case 13c: a story's own phrase bias is saved for the story from the settings page", async () => {
+  const { api, page } = await openLibrary();
+  const forked = await seedForkedStory(api);
+  await page.reload();
+  await page.getByRole("button", { name: /^Forked Story/ }).click();
+  await page.getByRole("heading", { name: "Forked Story", level: 1 }).waitFor();
+  await page.keyboard.press(",");
+  await page.getByRole("group", { name: "Settings view" }).getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+
+  await page.getByLabel("Phrase bias", { exact: true }).last().fill("delve: -50\nmoreover: -20");
+  await page.getByRole("button", { name: "Save phrase bias for this story" }).click();
+  await page.getByText("Phrase bias saved for this story").waitFor();
+  expect((await api.loadStory(forked.storyId)).phraseBias).toEqual([
+    { phrase: "delve", weight: -50 },
+    { phrase: "moreover", weight: -20 }
+  ]);
+
+  // A line that does not read phrase: weight is refused, and Save stays off.
+  await page.getByLabel("Phrase bias", { exact: true }).last().fill("delve");
+  await page.getByText(/must read/).waitFor();
+  expect(await page.getByRole("button", { name: "Save phrase bias for this story" }).isDisabled()).toBeTrue();
+
+  // From the Library the section is not there.
+  await page.keyboard.press("Escape");
+  await page.keyboard.press("Escape");
+}, 120_000);
+
+test("case 13d: a stop sequence that is a newline survives an edit of another entry", async () => {
+  const fake = await fakeModelServer();
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await configureFakeServer(page, fake);
+  const stop = page.getByLabel("Stop sequences", { exact: true });
+  await stop.fill("\\n\n:");
+  await saveWithKeyboard(page);
+  const profileOf = async () => {
+    const document = (await settingsOf(api)).document!;
+    return document.profiles[document.routing.default]!;
+  };
+  expect((await profileOf()).sampling?.stop).toEqual(["\n", ":"]);
+
+  expect(await stop.inputValue()).toBe("\\n\n:");
+  await stop.fill("\\n\n;");
+  await saveWithKeyboard(page);
+  expect((await profileOf()).sampling?.stop).toEqual(["\n", ";"]);
+}, 120_000);
+
+test("case 13e: a refused name of another profile still blocks Save", async () => {
+  const { page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  await page.getByLabel("Profile name", { exact: true }).fill("Default");
+  await page.getByText("profile names must be unique").waitFor();
+  await page.getByRole("button", { name: /^Profile / }).click();
+  await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  await page.getByLabel("Temperature", { exact: true }).fill("0.5");
+  await saveBar(page).getByText(/Fix 1 field/).waitFor();
+  expect(await saveButton(page).isDisabled()).toBeTrue();
+}, 90_000);
+
+test("case 13f: unsaved story lists stay when the view changes, and Esc leaves the field", async () => {
+  const { api, page } = await openLibrary();
+  await seedForkedStory(api);
+  await page.reload();
+  await page.getByRole("button", { name: /^Forked Story/ }).click();
+  await page.getByRole("heading", { name: "Forked Story", level: 1 }).waitFor();
+  await page.keyboard.press(",");
+  const view = page.getByRole("group", { name: "Settings view" });
+  await view.getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+  const field = page.getByLabel("Banned strings", { exact: true }).last();
+  await field.fill("however");
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe("TEXTAREA");
+  expect(page.url()).toContain("settings");
+
+  await view.getByRole("button", { name: "Simple" }).click();
+  await view.getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+  expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");
+
+  await page.keyboard.press("Escape");
+  await waitForHash(page, /^#\/story\//);
+  await page.keyboard.press(",");
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+  expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");
 }, 120_000);

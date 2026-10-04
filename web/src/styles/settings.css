@@ -93,3 +93,15 @@
   .settings-bar-text { flex: 1 1 100%; }
   .settings-bar-actions { justify-content: flex-end; width: 100%; }
 }
+
+.settings-subheading {
+  color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); margin: var(--s-4) 0 var(--s-1);
+  text-transform: uppercase;
+}
+.field .settings-lines {
+  font-family: var(--mono); font-size: var(--fs-ui); line-height: 1.5; padding: var(--s-2) var(--s-3);
+  resize: vertical; width: 100%;
+}
+.settings-preview { color: var(--dim); font-size: var(--fs-small); line-height: 1.4; padding: var(--s-2) 0; }
+.settings-preview p + p { margin-top: var(--s-1); }
+.settings-wrap { flex-wrap: wrap; }
