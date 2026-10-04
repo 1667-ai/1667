@@ -3,7 +3,7 @@ import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import type { HitRows } from "../src/hit.js";
 import { buildRailModel } from "../src/rail.js";
-import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
+import { nextRequestEstimate, type NextRequestContext } from "../../shared/request-projection.js";
 import { renderFactsPanel } from "../src/screens/facts-panel.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";
 import { frameText, segment, sliceFrame } from "../src/screens/story/frame.js";

@@ -1,6 +1,6 @@
-import { isChapterSummary } from "../../shared/story-tree.js";
-import { estimateTokens } from "../../shared/tokens.js";
-import type { StoryNode, StoryPayload } from "../../shared/types.js";
+import { isChapterSummary } from "./story-tree.js";
+import { estimateTokens } from "./tokens.js";
+import type { StoryNode, StoryPayload } from "./types.js";
 
 /** Conservative likely-response size when the story has no usable generation history. */
 export const COLD_START_RESPONSE_GROWTH_TOKENS = 512;

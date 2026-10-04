@@ -6,7 +6,7 @@ import {
   estimateResponseGrowthTokens,
   likelyResponseTokens,
   recentProviderProseTokenCounts
-} from "../src/response-growth-estimate.js";
+} from "../../shared/response-growth-estimate.js";
 
 function growthPathPayload(
   nodes: Array<{

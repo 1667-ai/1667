@@ -3,7 +3,7 @@ import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { attachDraftImage } from "../src/draft-image.js";
 import { nextRequestContext } from "../src/request-context.js";
-import { nextRequestEstimate } from "../src/request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 import { renderRequestViewer } from "../src/screens/request-viewer.js";
 import { frameText } from "../src/screens/story/frame.js";
 

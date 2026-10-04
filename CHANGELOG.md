@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` shows how much the next request holds.** The composer bar shows
+  the size of the next request and the context window. Click it to see the
+  parts of the request: voice, facts, recent text, summary, and note. On a Mac,
+  press Control+G to open and close it. Each Fact shows if the next request
+  sends it, if it did not match, or if the request drops it. The chapter table
+  shows which chapters the next request holds.
+
 - **`1667 web` can check a chapter or a story line against the Facts.** Press
   `:` and choose "check chapter against Facts" or "check story line against
   Facts". The page shows how many parts and requests the check uses. Choose

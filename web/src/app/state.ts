@@ -2,6 +2,7 @@ import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.
 import { initialAsideState, type AsideState } from "../aside/state.js";
 import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
+import { initialContextState, type ContextState } from "../context/state.js";
 import type { EditorState } from "../editor/state.js";
 import { initialFactCheckState, type FactCheckState } from "../factcheck/state.js";
 import { initialFactsState, type FactsState } from "../facts/state.js";
@@ -59,6 +60,8 @@ export interface AppState {
   readonly generation: GenerationState;
   /** The composer's drafts and history (#409 step 6). See `compose/state.ts`. */
   readonly compose: ComposeState;
+  /** The next-request projection and its token count (#409 step 10f). See `context/state.ts`. */
+  readonly context: ContextState;
   /** The one open inline editor, if any (#409 step 6). See `editor/state.ts`. */
   readonly editor: EditorState | null;
   /** The part menu request and the delete confirmation (#409 step 6). */
@@ -108,6 +111,7 @@ export function initialAppState(
     story: initialStoryState(),
     generation: initialGenerationState(),
     compose: initialComposeState(),
+    context: initialContextState(),
     editor: null,
     partUi: initialPartUiState(),
     chapters: initialChaptersState(),

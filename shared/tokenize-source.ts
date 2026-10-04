@@ -8,6 +8,8 @@ import {
   type TokenizeSourceKind
 } from "./tokenize-source-contract.js";
 export {
+  countedPromptChars,
+  MAX_COUNTED_PROMPT_CHARS,
   COUNTED_TOKENIZE_SOURCE_VALUES,
   TOKEN_COUNT_FALLBACK_VALUES,
   TOKENIZE_SOURCE_CONTRACTS,
@@ -121,19 +123,6 @@ export type PromptTokenCount =
   | { readonly kind: "estimate"; readonly reason: TokenCountFallback };
 
 export const ESTIMATED_TOKEN_COUNT: PromptTokenCount = { kind: "estimate", reason: "no-source" };
-
-/**
- * The largest message array 1667 sends to be counted. A request past this
- * ceiling keeps the estimate rather than pushing a megabyte-scale body at the
- * backend on every idle pass. It sits under `MAX_JSON_BODY_BYTES` with room for
- * the JSON envelope around the text.
- */
-export const MAX_COUNTED_PROMPT_CHARS = 400_000;
-
-/** The counted content, in the order the provider receives it. */
-export function countedPromptChars(messages: readonly ChatMessage[]): number {
-  return messages.reduce((sum, message) => sum + message.content.length, 0);
-}
 
 /**
  * The identity of one counted request. The views hold a count against the exact

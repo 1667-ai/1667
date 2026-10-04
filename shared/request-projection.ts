@@ -4,26 +4,26 @@ import {
   SUMMARY_TARGET_TOKENS,
   type ChapterPartLike,
   type PromptPart
-} from "../../shared/chapters.js";
-import { continuationPlan, type ContinuationPlan } from "../../shared/continuation-plan.js";
-import { resolveAuthorBrief } from "../../shared/author-brief.js";
-import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "../../shared/authors-note.js";
-import { previewFixedContextAdmission } from "../../shared/fact-admission.js";
-import type { FactBudgetDrop } from "../../shared/fact-budget.js";
-import { renderPromptPlan, type ChatMessage } from "../../shared/prompt-plan.js";
-import { activeBudgetedFacts } from "../../shared/fact-selection.js";
-import type { FactActivationResult } from "../../shared/fact-activation.js";
-import { isChapterSummary } from "../../shared/story-tree.js";
-import { estimateTokens } from "../../shared/tokens.js";
-import { isChapterSummaryNodeStub, type StoryPayload } from "../../shared/types.js";
-import type { StoryImageAttachment } from "../../shared/image-attachment.js";
-import type { ContinuationPromptLayout } from "../../shared/continuation-prompt-optimization.js";
+} from "./chapters.js";
+import { continuationPlan, type ContinuationPlan } from "./continuation-plan.js";
+import { resolveAuthorBrief } from "./author-brief.js";
+import { resolveAuthorsNoteDepth, type AuthorsNotePlacement } from "./authors-note.js";
+import { previewFixedContextAdmission } from "./fact-admission.js";
+import type { FactBudgetDrop } from "./fact-budget.js";
+import { renderPromptPlan, type ChatMessage } from "./prompt-plan.js";
+import { activeBudgetedFacts } from "./fact-selection.js";
+import type { FactActivationResult } from "./fact-activation.js";
+import { isChapterSummary } from "./story-tree.js";
+import { estimateTokens } from "./tokens.js";
+import { isChapterSummaryNodeStub, type StoryPayload } from "./types.js";
+import type { StoryImageAttachment } from "./image-attachment.js";
+import type { ContinuationPromptLayout } from "./continuation-prompt-optimization.js";
 import {
   estimateImageTokens,
   resolveImageInputCapability,
   type ImageTokenStrategy
-} from "../../shared/image-input-capabilities.js";
-import { continuationIntent } from "../../shared/continuation-intent.js";
+} from "./image-input-capabilities.js";
+import { continuationIntent } from "./continuation-intent.js";
 import { factRequestStatuses, type FactRequestStatus } from "./facts-model.js";
 
 export interface ContextBreakdown {

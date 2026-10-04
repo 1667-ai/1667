@@ -15,7 +15,7 @@ import {
 import { resetFactEditorHistory, setFactEditorFocus } from "../src/fact-editor-policy.js";
 import { captureMouseActionState, mouseToAction } from "../src/mouse-actions.js";
 import { pasteInto } from "../src/keys.js";
-import { nextRequestEstimate } from "../src/request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 import { renderStoryScreen } from "../src/screens/story.js";
 import { frameText } from "../src/screens/story/frame.js";
 import { createStoryViewModel } from "../src/model.js";

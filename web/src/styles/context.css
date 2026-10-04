@@ -1,0 +1,60 @@
+/**
+ * The context meter (#409 step 10f): a quiet line in the composer head that
+ * opens the request's breakdown. Colours are tokens only.
+ */
+
+.context-meter { position: relative; }
+.context-meter-button {
+  align-items: center; background: transparent; border: 0; border-radius: var(--r-sm); color: var(--dim); cursor: pointer;
+  display: inline-flex; font: var(--font-meta); gap: var(--s-2); min-height: var(--btn-sm); padding: 0 var(--s-2);
+}
+.context-meter-button:hover { background: var(--row-hover); color: var(--ink); }
+.context-meter-label { letter-spacing: var(--ls-label); text-transform: uppercase; }
+.context-meter-value { color: var(--ink); }
+.context-meter[data-severity="warning"] .context-meter-value { color: var(--meter-warn); }
+.context-meter[data-severity="over"] .context-meter-value { color: var(--danger); }
+.context-gauge { background: var(--chip); border-radius: var(--r-pill); display: inline-block; height: var(--s-1); overflow: hidden; width: 48px; }
+.context-gauge-fill { background: var(--accent); border-radius: var(--r-pill); display: block; height: 100%; }
+.context-meter[data-severity="warning"] .context-gauge-fill { background: var(--meter-warn); }
+.context-meter[data-severity="over"] .context-gauge-fill { background: var(--danger); }
+
+.context-detail {
+  background: var(--surface); border: var(--border); border-radius: var(--r-md); bottom: calc(100% + var(--s-2));
+  box-shadow: var(--shadow-pop); display: flex; flex-direction: column; gap: var(--s-2); max-width: min(360px, 90vw);
+  padding: var(--s-3) var(--s-4); position: absolute; right: 0; width: 320px; z-index: 40;
+}
+.context-detail-head { align-items: baseline; display: flex; gap: var(--s-2); }
+.context-detail-title { color: var(--ink); font-size: var(--fs-ui); font-weight: 600; }
+.context-detail-sub { color: var(--dim); font: var(--font-meta); }
+.context-bar { background: var(--chip); border-radius: var(--r-pill); display: flex; height: var(--s-2); overflow: hidden; }
+.context-slice { display: block; height: 100%; min-width: 2px; }
+.cat-voice { background: var(--accent); }
+.cat-facts { background: var(--canon); }
+.cat-recent { background: var(--dim); }
+.cat-summary { background: var(--summary); }
+.cat-note { background: var(--stale-amber); }
+.cat-visual { background: var(--faint); }
+.context-legend { display: flex; flex-direction: column; gap: var(--s-1); list-style: none; margin: 0; padding: 0; }
+.context-legend-row { align-items: center; display: flex; font-size: var(--fs-small); gap: var(--s-2); }
+.context-swatch { border-radius: var(--r-xs); display: inline-block; flex: none; height: var(--s-2); width: var(--s-2); }
+.context-legend-label { color: var(--dim); flex: 1; }
+.context-legend-count { color: var(--ink); font: var(--font-meta); }
+.context-total {
+  border-top: var(--border); color: var(--ink); display: flex; font-size: var(--fs-small); font-weight: 600;
+  justify-content: space-between; margin: 0; padding-top: var(--s-2);
+}
+.context-total-value { font: var(--font-meta); }
+.context-window-line { color: var(--dim); font: var(--font-meta); margin: 0; }
+.context-hint { align-self: flex-start; }
+.context-note { color: var(--dim); font-size: var(--fs-small); margin: 0; }
+.context-note-warn { color: var(--stale-amber); }
+.context-note-danger { color: var(--danger); }
+
+.fact-status { font: var(--font-meta); }
+.fact-status[data-status="sent"] { color: var(--accent); }
+.fact-status[data-status="dropped"], .fact-status[data-status="unevaluated"] { color: var(--stale-amber); }
+.fact-status[data-status="not-matched"] { color: var(--faint); }
+
+.panel-row-request { color: var(--dim); font: var(--font-meta); }
+.panel-row-request.stale { color: var(--stale-amber); }
+.panel-row-request.saves { color: var(--summary); }
