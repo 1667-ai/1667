@@ -19,6 +19,7 @@ import {
  * up by `AI_1667_DRY_RUN_WORD_DELAY_MS`. Every case checks what the server
  * saved (`getAsideV2`), not only what is on screen. The forked story's part 2
  * (`B1`) has three takes, so an anchor can be told from its sibling takes.
+ * Step 10e adds the Use menu: copy, compose, story (placement) and Fact.
  */
 
 const WORD_DELAY_MS = 20;
@@ -92,6 +93,8 @@ async function openForked(web: ReadyWeb, api: StoryApi): Promise<{ page: Page; s
 }
 
 async function ask(page: Page, question: string): Promise<void> {
+  // A question sent while the sessions still load is not sent.
+  await panel(page).getByText("Loading…").waitFor({ state: "detached" });
   await questionBox(page).fill(question);
   await questionBox(page).press("Enter");
 }
@@ -311,4 +314,118 @@ test("case 8: a retake edit follows its answer when an earlier turn is deleted",
 
   await questionBox(page).press("Enter");
   expect(await poll(async () => (await savedTurns(api, storyId, b1)).map((turn) => turn.q).join("|") === "Second, edited", 10_000)).toBeTrue();
+}, 60_000);
+
+/** Asks one question on part 2 and opens the Use menu of its answer. Returns the saved answer. */
+async function askAndUse(page: Page, api: StoryApi, storyId: string, b1: string, item: string): Promise<string> {
+  await page.keyboard.press("a");
+  await ask(page, "What should happen next?");
+  await waitForCount(turns(page), 1, 10_000);
+  const saved = await savedTurns(api, storyId, b1);
+  await panel(page).getByRole("button", { name: "Use" }).click();
+  await page.getByRole("menuitem", { name: item }).click();
+  return saved[0]!.a;
+}
+
+test("case 9: Insert into compose puts the answer at the composer caret", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  const composer = page.getByRole("textbox", { name: "What happens next?" });
+  await composer.fill("Start End");
+  await composer.press("Home");
+  for (let step = 0; step < 6; step += 1) await composer.press("ArrowRight");
+  await part(page, "B1:").click();
+  const answer = await askAndUse(page, api, storyId, b1, "Insert into compose");
+
+  expect(await composer.inputValue()).toBe(`Start ${answer}End`);
+}, 60_000);
+
+test("case 10: Insert into story after part 2 adds a take that becomes part 3, "
+  + "with 2 takes", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  const answer = await askAndUse(page, api, storyId, b1, "Insert into story…");
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor();
+  // The choice starts on part 2; one step down is the place after it.
+  await page.keyboard.press("ArrowDown");
+  await page.getByRole("button", { name: /^Insert here new take of part 3/ }).and(page.locator("[aria-pressed='true']")).waitFor();
+  await page.keyboard.press("Enter");
+
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor({ state: "detached" });
+  const placed = await api.loadStory(storyId);
+  expect(placed.path.length).toBe(3);
+  const leaf = placed.path[2]!;
+  expect(leaf.parentId).toBe(b1);
+  expect(leaf.text).toBe(answer.trim());
+  expect(leaf.instruction).toBe("» from aside");
+  const third = page.locator(".part").nth(2);
+  await third.getByRole("button", { name: /^Take 2 of 2, show every take$/ }).waitFor();
+}, 60_000);
+
+test("case 11: Insert as new Fact opens the Fact editor with the answer; Save creates it", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  const answer = await askAndUse(page, api, storyId, b1, "Insert as new Fact");
+  const editor = page.getByRole("form", { name: "New fact" });
+  await editor.waitFor();
+  expect(await editor.getByRole("textbox", { name: "Text" }).inputValue()).toBe(answer);
+  await editor.getByRole("button", { name: "Save" }).click();
+
+  expect(await poll(async () => (await api.loadStory(storyId)).facts.length === 1)).toBeTrue();
+  expect((await api.loadStory(storyId)).facts[0]!.states[0]).toMatchObject({ text: answer.trim() });
+}, 60_000);
+
+test("case 12: Esc during placement leaves the story unchanged", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+  const before = await api.loadStory(storyId);
+
+  await askAndUse(page, api, storyId, b1, "Insert into story…");
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor({ state: "detached" });
+  const after = await api.loadStory(storyId);
+  expect(after.nodes.length).toBe(before.nodes.length);
+  expect(after.path.map((node) => node.id)).toEqual(before.path.map((node) => node.id));
+  await waitForCount(turns(page), 1);
+}, 60_000);
+
+test("case 13: Esc in the Use menu closes only the menu; Copy keeps the keys in Aside", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  await page.keyboard.press("a");
+  await ask(page, "A question");
+  await waitForCount(turns(page), 1, 10_000);
+  const use = panel(page).getByRole("button", { name: "Use" });
+  await use.click();
+  await page.getByRole("menuitem", { name: "Copy" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("menuitem", { name: "Copy" }).waitFor({ state: "detached" });
+  await panel(page).waitFor();
+  expect(await use.evaluate((element) => element === document.activeElement)).toBeTrue();
+
+  // Copy hands the keyboard back, so `r` retakes the answer, not the story.
+  await use.click();
+  await page.getByRole("menuitem", { name: "Copy" }).click();
+  expect(await use.evaluate((element) => element === document.activeElement)).toBeTrue();
+  await page.keyboard.press("r");
+  await panel(page).getByText("Thinking…").or(panel(page).getByText("Waiting…")).first().waitFor();
+  expect(await poll(async () => (await savedTurns(api, storyId, b1)).length === 1 && (await panel(page).getByRole("button", { name: "Stop" }).count()) === 0, 10_000)).toBeTrue();
+  expect((await api.loadStory(storyId)).path.length).toBe(3);
 }, 60_000);
