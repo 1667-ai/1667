@@ -248,6 +248,65 @@ test("aborting after the first delta settles null; a new continue then completes
   }
 }, 30_000);
 
+test("askAsideV2 streams its reasoning phase and answer deltas, and the session is saved on the anchor", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const transport = await openBridge(web);
+  try {
+    const api = storyApiFromWorkerTransport(transport);
+    const story = await api.createStory("Bridge aside");
+    const seeded = await api.createNode(story.id, { parentId: null, text: "Once upon a time" });
+    const partId = seeded.path.at(-1)?.id;
+    if (partId === undefined) throw new Error("seed produced no part");
+    const anchor = { partId, takeId: partId };
+
+    const phases: string[] = [];
+    const deltas: string[] = [];
+    const answer = await api.askAsideV2!(
+      { storyId: story.id, question: "Who speaks?", anchor },
+      (text) => deltas.push(text),
+      { onPhase: (phase) => { if (phases.at(-1) !== phase) phases.push(phase); } },
+      new AbortController().signal
+    );
+    expect(phases).toEqual(["thinking", "writing"]);
+    expect(deltas.length).toBeGreaterThan(0);
+    expect(answer?.turns.map((turn) => turn.q)).toEqual(["Who speaks?"]);
+    expect(deltas.join("").trim()).toBe(answer?.turns[0]?.a);
+
+    const read = await api.getAsideV2!({ storyId: story.id, anchor });
+    expect(read?.sessions.flatMap((session) => session.turns.map((turn) => turn.q))).toEqual(["Who speaks?"]);
+  } finally {
+    transport.close();
+  }
+}, 30_000);
+
+test("aborting askAsideV2 while it is still thinking settles null and saves nothing", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const transport = await openBridge(web);
+  try {
+    const api = storyApiFromWorkerTransport(transport);
+    const story = await api.createStory("Bridge aside abort");
+    const seeded = await api.createNode(story.id, { parentId: null, text: "Once upon a time" });
+    const partId = seeded.path.at(-1)?.id;
+    if (partId === undefined) throw new Error("seed produced no part");
+    const anchor = { partId, takeId: partId };
+
+    const controller = new AbortController();
+    const result = await api.askAsideV2!(
+      { storyId: story.id, question: "Never answered", anchor },
+      () => undefined,
+      { onPhase: (phase) => { if (phase === "thinking") controller.abort(); } },
+      controller.signal
+    );
+    expect(result).toBeNull();
+    const read = await api.getAsideV2!({ storyId: story.id, anchor });
+    expect(read?.sessions.flatMap((session) => session.turns) ?? []).toEqual([]);
+  } finally {
+    transport.close();
+  }
+}, 30_000);
+
 test("a throwing onDelta rejects with its own error only after the host settles; "
   + "the story then accepts a new continue", async () => {
   const project = await scratchProject();
