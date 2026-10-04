@@ -26,7 +26,7 @@ import {
  * function of the run's own port. */
 function csp(port: string): string {
   return "default-src 'none'; script-src 'self'; "
-    + "style-src 'self'; font-src 'self'; img-src 'self'; "
+    + "style-src 'self'; font-src 'self'; img-src 'self' blob:; "
     + `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}; `
     + "base-uri 'none'; form-action 'none'; frame-ancestors 'none'";
 }

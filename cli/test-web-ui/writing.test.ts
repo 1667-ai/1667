@@ -2,6 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { createServer, type Server } from "node:http";
 import type { AddressInfo } from "node:net";
 import { tmpdir } from "node:os";
+import { deflateSync } from "node:zlib";
 import path from "node:path";
 import { mkdtemp, writeFile } from "node:fs/promises";
 import type { Browser, Locator, Page } from "playwright-core";
@@ -142,7 +143,7 @@ test("case 1: Rewrite selection replaces the chosen words in place", async () =>
   await field.fill("make it darker");
   await field.press("Enter");
 
-  await page.getByText("Selection rewritten in place.").waitFor();
+  await page.getByText("Selection rewritten in place.").first().waitFor();
   expect(await poll(async () => {
     const saved = (await savedPath(api, seeded.storyId))[1];
     return saved !== undefined && !saved.text.includes("first take");
@@ -159,7 +160,7 @@ test("case 1: Rewrite selection replaces the chosen words in place", async () =>
   expect(await page.getByRole("textbox", { name: "What happens next?" }).inputValue()).toBe("make it darker");
 }, 90_000);
 
-test("case 2: Esc during a rewrite keeps the streamed text, as the TUI does", async () => {
+test("case 2: Esc during a rewrite stops it, saves nothing, and gives the instruction back", async () => {
   const { api, seeded, page } = await openForked({ [DRY_RUN_WORD_DELAY_VARIABLE]: "250" });
   await selectInPart(page, "B1:", "the first take that follows A1");
   const menu = await openMenuOf(page, "B1:");
@@ -168,21 +169,22 @@ test("case 2: Esc during a rewrite keeps the streamed text, as the TUI does", as
   await field.fill("longer please");
   await field.press("Enter");
 
+  // The model's text is held back until it has reconnected to the story, so
+  // an early Stop has no replacement to keep.
   await page.getByRole("button", { name: "Stop" }).waitFor();
-  // The part already shows the replacement while it streams.
-  const prose = part(page, "B1:").locator(".prose");
-  expect(await poll(async () => !((await prose.textContent()) ?? "").includes("the first take that follows A1"), 20_000)).toBeTrue();
-  await shot(page, "rewrite-streaming");
+  await shot(page, "rewrite-running");
   await page.keyboard.press("Escape");
 
-  await page.getByText("Rewrite stopped. Streamed text kept.").waitFor();
+  await page.getByText("Rewrite stopped. Nothing saved.").first().waitFor();
   await waitForCount(page.getByRole("button", { name: "Stop" }), 0);
   const saved = (await savedPath(api, seeded.storyId))[1]!;
   expect(saved.id).toBe(seeded.b1);
-  expect(saved.text).not.toContain("the first take that follows A1");
-  expect(saved.text.startsWith("B1: ")).toBeTrue();
-  expect(saved.text.endsWith(".")).toBeTrue();
-  expect(await prose.textContent()).toBe(saved.text);
+  expect(saved.text).toBe(B1_TEXT);
+  expect(await part(page, "B1:").locator(".prose").textContent()).toBe(B1_TEXT);
+  // The instruction is back in the box, in rewrite mode.
+  const back = page.getByRole("textbox", { name: "Instruction for the rewrite" });
+  await back.waitFor();
+  expect(await back.inputValue()).toBe("longer please");
 }, 90_000);
 
 test("case 3: Copy story line below part 2, Paste story line below part 1: the new line holds the copies", async () => {
@@ -192,12 +194,12 @@ test("case 3: Copy story line below part 2, Paste story line below part 1: the n
   // The pasted line is not offered before something is copied.
   expect(await menu2.getByRole("menuitem", { name: "Paste story line below" }).count()).toBe(0);
   await menu2.getByRole("menuitem", { name: "Copy story line below" }).click();
-  await page.getByText(/Copied story line/).waitFor();
+  await page.getByText(/Copied story line/).first().waitFor();
 
   const menu1 = await openMenuOf(page, "A1:");
   await shot(page, "line-menu");
   await menu1.getByRole("menuitem", { name: "Paste story line below" }).click();
-  await page.getByText(/Pasted story line/).waitFor();
+  await page.getByText(/Pasted story line/).first().waitFor();
 
   await waitForCount(page.locator(".part"), 2);
   const path = await savedPath(api, seeded.storyId);
@@ -302,12 +304,38 @@ async function fakeModelServer(): Promise<FakeServer> {
   return fake;
 }
 
-/** A 2×2 PNG, written to disk for the file input. */
+const CRC_TABLE = Array.from({ length: 256 }, (_, n) => {
+  let c = n;
+  for (let k = 0; k < 8; k += 1) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1;
+  return c >>> 0;
+});
+
+function pngChunk(type: string, data: Buffer): Buffer {
+  const body = Buffer.concat([Buffer.from(type, "ascii"), data]);
+  let crc = 0xffffffff;
+  for (const byte of body) crc = CRC_TABLE[(crc ^ byte) & 0xff]! ^ (crc >>> 8);
+  const head = Buffer.alloc(4);
+  head.writeUInt32BE(data.length);
+  const tail = Buffer.alloc(4);
+  tail.writeUInt32BE((crc ^ 0xffffffff) >>> 0);
+  return Buffer.concat([head, body, tail]);
+}
+
+/** A 16×16 solid PNG, written to disk for the file input. */
 async function pngFile(): Promise<string> {
-  const bytes = Buffer.from(
-    "iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAIAAAD91JpzAAAAFklEQVR4nGP8z8Dwn4GBgYGJAQoAHhgCAh6X4CYAAAAASUVORK5CYII=",
-    "base64"
-  );
+  const size = 16;
+  const header = Buffer.alloc(13);
+  header.writeUInt32BE(size, 0);
+  header.writeUInt32BE(size, 4);
+  header[8] = 8;
+  header[9] = 2;
+  const row = Buffer.concat([Buffer.from([0]), Buffer.alloc(size * 3, 0x80)]);
+  const bytes = Buffer.concat([
+    Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
+    pngChunk("IHDR", header),
+    pngChunk("IDAT", deflateSync(Buffer.concat(Array.from({ length: size }, () => row)))),
+    pngChunk("IEND", Buffer.alloc(0))
+  ]);
   const file = path.join(await mkdtemp(path.join(tmpdir(), "1667-web-image-")), "door.png");
   await writeFile(file, bytes);
   return file;
@@ -350,8 +378,11 @@ test("case 6: attach image: not offered on a route that cannot take one; on one 
   expect(await poll(async () => !(await attach.isDisabled()))).toBeTrue();
   await page.locator('input[type="file"]').setInputFiles(file);
   const chips = page.getByRole("list", { name: "Attached images" });
-  await chips.getByRole("img", { name: "Image 1" }).waitFor();
+  const thumb = chips.getByRole("img", { name: "Image 1" });
+  await thumb.waitFor();
   expect(await chips.getByRole("listitem").count()).toBe(1);
+  // The thumbnail really loads (the page's security policy allows a blob).
+  expect(await poll(async () => (await thumb.evaluate((image: HTMLImageElement) => image.naturalWidth)) === 16)).toBeTrue();
   await shot(page, "image-chip");
   await chips.getByRole("button", { name: "Remove image 1" }).click();
   await waitForCount(chips.getByRole("listitem"), 0);
@@ -369,5 +400,5 @@ test("case 6: attach image: not offered on a route that cannot take one; on one 
   const saved = (await savedPath(api, seeded.storyId)).at(-1)!;
   expect(saved.instruction).toBe("They find a door.");
   const story = await api.loadStory(seeded.storyId);
-  expect(story.path.at(-1)!.images?.length ?? 0).toBe(1);
+  expect(story.path.at(-1)!.imageAttachments?.length ?? 0).toBe(1);
 }, 120_000);

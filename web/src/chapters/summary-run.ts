@@ -142,7 +142,11 @@ export function createSummaryActions(
           scheduler.schedule(() => write((chapters) => (
             chapters.summaryRun === null ? chapters : { ...chapters, summaryRun: { ...chapters.summaryRun, text } }
           )));
-        }, mine.signal, { onPayload: () => false });
+        }, mine.signal, {
+          // The facade advances its held version with the payload it hands
+          // over; the switch below needs that version.
+          onPayload: (confirmed) => deps.story.adoptPayload(storyId, confirmed)
+        });
       });
       if (result === null || mine.signal.aborted) throw new DOMException("stopped", "AbortError");
       const switched = await api.switchLine(storyId, result.nodeId, {
