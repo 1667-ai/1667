@@ -1,11 +1,11 @@
-import { createStoryIndex } from "../../shared/story-model.js";
-import { isChapterSummary } from "../../shared/story-tree.js";
-import type { Tag, NodeStub, StoryPayload } from "../../shared/types.js";
-import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "../../shared/map-cold.js";
-import { windowRows } from "../../shared/map-window.js";
-import { opening } from "./screens/map-row-labels.js";
-import type { MapMassSort } from "./map-state.js";
-import type { FrameDeadlineCollector } from "./animation-deadline.js";
+import { createStoryIndex } from "./story-model.js";
+import { isChapterSummary } from "./story-tree.js";
+import type { Tag, NodeStub, StoryPayload } from "./types.js";
+import { ageDays, cumulativeWords, COLD_DAYS, DAY } from "./map-cold.js";
+import { windowRows } from "./map-window.js";
+import { opening } from "./map-labels.js";
+import type { MapMassSort } from "./map-model.js";
+import type { LayoutDeadlines } from "./lane-layout.js";
 
 /** The mass view's own sort order. The local-camera "graph" sort doc "10a"
  *  replaced with the lane tree is gone — every production caller already
@@ -43,7 +43,7 @@ export interface AtlasLayout {
 export interface AtlasLayoutOptions {
   now: number; cursorId?: string | null; showSketches?: boolean;
   maxRows?: number; sort: AtlasLayoutSort;
-  deadlines?: FrameDeadlineCollector;
+  deadlines?: LayoutDeadlines;
 }
 /** `activeEnd` marks a segment the reading line stops on while the node still
  *  has children — stopping a generation and summarising both leave the story
