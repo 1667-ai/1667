@@ -31,11 +31,13 @@ import {
 } from "./model.js";
 import {
   currentSession,
+  retakeTargetIsLast,
   sameAnchor,
   type AsideAnchorLabel,
   type AsideRun,
   type AsideState,
-  type AsideSurface
+  type AsideSurface,
+  type AsideUnsaved
 } from "./state.js";
 
 export const ASIDE_UNAVAILABLE_TOAST = "Aside is not available on this server.";
@@ -72,6 +74,10 @@ export interface AsideActions {
   clearSession(): Promise<void>;
   /** Moves the story to the anchor's take. */
   goToAnchor(): void;
+  /** Copies an answer that could not be saved. */
+  copyUnsaved(id: string): Promise<void>;
+  /** Drops an answer that could not be saved. */
+  discardUnsaved(id: string): void;
   /** Asks for a yes before delete, reset or clear. */
   requestConfirm(kind: "delete" | "reset" | "clear"): void;
   dismissConfirm(): void;
@@ -164,6 +170,7 @@ export function createAsideActions(
         return false;
       }
       applyRead(response, anchor, fallback);
+      settleRetakes();
       return true;
     } catch (error) {
       if (mine === epoch) {
@@ -202,6 +209,7 @@ export function createAsideActions(
               turnCursor: Math.min(now.turnCursor, lastTurn(response.sessions[sessionIndex] ?? null))
             };
           });
+          settleRetakes();
         }
       } catch {
         // The failure that brought us here already has its toast.
@@ -229,6 +237,30 @@ export function createAsideActions(
         anchors: payload === undefined ? surface.anchors : reconcileAnchors(surface.anchors, payload)
       };
     });
+    settleRetakes();
+  }
+
+  function dropRetake(sessionId: string): void {
+    set((aside) => {
+      if (aside.retakes[sessionId] === undefined) return aside;
+      const retakes = { ...aside.retakes };
+      delete retakes[sessionId];
+      return { ...aside, retakes };
+    });
+  }
+
+  /** After the sessions change, a retake draft whose answer is no longer the
+   * last of its session has no target. Its text becomes a normal question. */
+  function settleRetakes(): void {
+    const surface = store.get().aside.surface;
+    if (surface === null) return;
+    for (const draft of Object.values(store.get().aside.retakes)) {
+      const session = surface.sessions.find((entry) => entry.id === draft.sessionId);
+      if (session === undefined || retakeTargetIsLast(draft, session)) continue;
+      dropRetake(draft.sessionId);
+      restoreQuestion(draft.storyId, draft.text.trim());
+      if (draft.text.trim().length > 0) pushToast(store, RETAKE_GONE_TOAST);
+    }
   }
 
   /** What an ask that did not land gives back: the question goes into the box.
@@ -274,7 +306,11 @@ export function createAsideActions(
           text += delta;
           scheduler.schedule(() => setRun((run) => ({ ...run, text })));
         },
-        { onPhase: (phase) => setRun((run) => (run.phase === phase ? run : { ...run, phase })) },
+        {
+          onPhase: (phase) => setRun((run) => (run.phase === phase ? run : { ...run, phase })),
+          // Text that arrived after Stop is part of the answer too.
+          onStopped: (tail) => { text += tail; }
+        },
         mine.signal
       );
       scheduler.cancel();
@@ -289,9 +325,20 @@ export function createAsideActions(
       return true;
     } catch (error) {
       scheduler.cancel();
-      set((aside) => ({ ...aside, run: null }));
+      const message = errorMessage(error);
+      // The backend saves nothing on a failure, so an answer that had begun
+      // exists only here: it stays on screen, marked not saved, until the
+      // writer copies or discards it.
+      const kept: AsideUnsaved | null = text.trim().length === 0
+        ? null
+        : { id: crypto.randomUUID(), storyId, question, text: text.trim(), message };
+      set((aside) => ({
+        ...aside,
+        run: null,
+        unsaved: kept === null ? aside.unsaved : [...aside.unsaved, kept]
+      }));
       // A Stop that surfaces as an error is not a failure to report.
-      if (!mine.signal.aborted) pushToast(store, errorMessage(error));
+      if (!mine.signal.aborted) pushToast(store, kept === null ? message : `${message} The answer is not saved. Copy or discard it.`);
       await recover(storyId, api);
       return false;
     } finally {
@@ -516,49 +563,86 @@ export function createAsideActions(
       const turnIndex = found.surface.turnCursor;
       const turn = found.session.turns[turnIndex];
       if (turn === undefined || turnIndex !== found.session.turns.length - 1) return;
-      set((aside) => ({
-        ...aside,
-        retake: aside.retake !== null && aside.retake.sessionId === found.session.id && aside.retake.turnIndex === turnIndex
-          ? aside.retake
-          : { storyId: found.storyId, sessionId: found.session.id, turnIndex, text: turn.q }
-      }));
+      set((aside) => {
+        const existing = aside.retakes[found.session.id];
+        if (existing !== undefined && retakeTargetIsLast(existing, found.session)) return aside;
+        return {
+          ...aside,
+          retakes: {
+            ...aside.retakes,
+            [found.session.id]: {
+              storyId: found.storyId,
+              sessionId: found.session.id,
+              targetQuestion: turn.q,
+              targetAnswer: turn.a,
+              text: turn.q
+            }
+          }
+        };
+      });
     },
 
-    setRetakeText: (text) => set((aside) => (aside.retake === null || aside.retake.text === text ? aside : { ...aside, retake: { ...aside.retake, text } })),
+    setRetakeText: (text) => {
+      const sessionId = target()?.session.id;
+      if (sessionId === undefined) return;
+      set((aside) => {
+        const draft = aside.retakes[sessionId];
+        return draft === undefined || draft.text === text ? aside : { ...aside, retakes: { ...aside.retakes, [sessionId]: { ...draft, text } } };
+      });
+    },
 
-    cancelRetake: () => set((aside) => (aside.retake === null ? aside : { ...aside, retake: null })),
+    cancelRetake: () => {
+      const sessionId = target()?.session.id;
+      if (sessionId !== undefined) dropRetake(sessionId);
+    },
 
     submitRetake: async () => {
-      const draft = store.get().aside.retake;
       const found = target();
-      if (draft === null) return;
+      if (found === null) return;
+      const draft = store.get().aside.retakes[found.session.id];
+      if (draft === undefined) return;
       const question = draft.text.trim();
       if (question.length === 0) return;
-      if (found === null || found.session.id !== draft.sessionId
-        || draft.turnIndex !== found.session.turns.length - 1 || found.surface.turnCursor !== draft.turnIndex) {
-        // The turn is gone. The edited question moves to the ask box.
-        set((aside) => ({ ...aside, retake: null }));
+      if (!retakeTargetIsLast(draft, found.session)) {
+        // The answer is gone. The edited question moves to the ask box.
+        dropRetake(found.session.id);
         restoreQuestion(draft.storyId, question);
         pushToast(store, RETAKE_GONE_TOAST);
         return;
       }
       const { storyId, session, surface } = found;
-      const old = session.turns[draft.turnIndex];
+      const turnIndex = session.turns.length - 1;
       const landed = await stream(
         "retake",
         question,
         (api, onDelta, callbacks, signal) => {
           if (api.retakeAside === undefined) throw new Error(ASIDE_UNAVAILABLE_TOAST);
-          return api.retakeAside({ storyId, sessionId: session.id, turnIndex: draft.turnIndex, anchor: surface.anchor, question }, onDelta, callbacks, signal);
+          return api.retakeAside({ storyId, sessionId: session.id, turnIndex, anchor: surface.anchor, question }, onDelta, callbacks, signal);
         },
         (result) => {
-          if (old !== undefined) recordNotice(store, "toast", `Aside retake replaced the previous answer:\n${old.a}`);
+          recordNotice(store, "toast", `Aside retake replaced the previous answer:\n${draft.targetAnswer}`);
+          // The draft is spent; settling must not read its old target as gone.
+          dropRetake(session.id);
           applySession(storyId, result, (view) => lastTurn(view));
         }
       );
       // A stop or a failure keeps the edited question where it is.
-      if (landed) set((aside) => ({ ...aside, retake: null }));
+      if (landed) dropRetake(session.id);
     },
+
+    copyUnsaved: async (id) => {
+      const item = store.get().aside.unsaved.find((entry) => entry.id === id);
+      if (item === undefined) return;
+      try {
+        await navigator.clipboard.writeText(item.text);
+      } catch {
+        pushToast(store, "Could not copy the text. Select it and copy it by hand.");
+        return;
+      }
+      pushToast(store, "Copied the unsaved answer.");
+    },
+
+    discardUnsaved: (id) => set((aside) => ({ ...aside, unsaved: aside.unsaved.filter((entry) => entry.id !== id) })),
 
     deleteTurn: async (turnIndex) => {
       const found = target();

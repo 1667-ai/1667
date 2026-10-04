@@ -41,3 +41,4 @@
 .aside-mark:hover { background: var(--accent-soft); }
 .aside-mark-elsewhere { color: var(--dim); }
 .aside-mark svg { height: var(--icon-sm); width: var(--icon-sm); }
+.aside-unsaved { cursor: default; box-shadow: inset 2px 0 0 var(--danger); }
