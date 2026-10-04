@@ -176,21 +176,12 @@ the provider, the base URL, the model, the context size, the Default Author
 Brief, and the Default Continue direction. They also include the sampling
 parameters and the Generation Profiles. Choose Save to keep your changes.
 
-### Context meter and inspectors
+### Context meter
 
 The composer shows the context meter. It shows the size of the next request and
 the context window. Click it to see the parts of the request: voice, Facts,
 recent text, summary, and note. It also shows which Facts the request sends and
 which chapters it holds.
-
-Each inspector is a page. Press Esc or the Back button to close it.
-
-- The request viewer shows the exact messages of the next request. Choose "next
-  request" in the command palette. On a Mac, press Control+R.
-- The Generation Record Viewer shows how a take was made. Press `h`.
-- The token probability viewer shows the alternative tokens of a take. Press
-  `l`.
-- Press Shift+T to show or hide the stored thought of a take.
 
 ### Import and export
 
@@ -218,8 +209,8 @@ web UI handles. The web UI differs from the TUI in these ways:
 
 - The palette opens with `:` only. The browser keeps Ctrl+P for printing.
 - Ctrl+R and Ctrl+G stay with the browser, except on a Mac. On a Mac, the
-  browser uses Command, so Control is free for the web UI. Ctrl+R opens the
-  request viewer. Ctrl+G opens the context details. On other systems, use the
+  browser uses Command, so Control is free for the web UI. Ctrl+G opens the
+  context details. On other systems, use the
   command palette or the context meter.
 - Ctrl+U and Ctrl+D stay with the browser. Press Page Up and Page Down to
   scroll.
