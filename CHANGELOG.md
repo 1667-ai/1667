@@ -39,6 +39,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   guidance prompts. A row that does not apply to the provider shows the
   reason. On a wide screen, a list of sections stays beside the form.
 
+- **`1667 web` has Aside.** Press `a` on a part to ask a question about its
+  take. The answer shows in the side panel and never changes the story. Press
+  Esc to stop an answer. You can write the last answer again, write it again
+  from an edited question, delete a turn, reset a session to a turn, and clear
+  a session. A part that has Aside sessions shows a speech mark. The `[` and `]`
+  keys go to the next part that has sessions.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line

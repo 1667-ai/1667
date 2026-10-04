@@ -1,0 +1,44 @@
+/**
+ * The Aside view in the story panel (#409 step 10d): heading, hop strip,
+ * turns and the question box. The panel shell and the shared controls are in
+ * `panel.css`, `facts.css` and `buttons.css`.
+ */
+
+.aside-body { display: flex; flex-direction: column; gap: var(--s-3); padding: 0 var(--s-3) var(--s-3); }
+.aside-head { display: flex; flex-direction: column; gap: var(--s-2); }
+.aside-heading-row { align-items: center; display: flex; gap: var(--s-2); }
+.aside-heading { color: var(--ink); font-family: var(--serif); font-size: var(--fs-title); font-weight: 600; line-height: 1.2; margin: 0; }
+.aside-badge {
+  background: var(--chip); border-radius: var(--r-pill); color: var(--dim); font: var(--font-meta);
+  letter-spacing: var(--ls-label); margin-right: auto; padding: 0 var(--s-2); text-transform: uppercase;
+}
+.aside-sessions { align-items: center; display: flex; gap: var(--s-1); }
+.aside-session-label { color: var(--dim); flex: 1; font-size: var(--fs-small); min-width: 0; overflow: hidden; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
+.aside-hop { align-items: center; display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.aside-hop-label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); margin-right: var(--s-1); text-transform: uppercase; }
+
+.aside-turns { display: flex; flex-direction: column; gap: var(--s-2); list-style: none; margin: 0; padding: 0; }
+.aside-turn { border-radius: var(--r-md); cursor: pointer; display: flex; flex-direction: column; gap: var(--s-2); padding: var(--s-3); }
+.aside-turn:hover { background: var(--row-hover); }
+.aside-turn.selected { background: var(--accent-soft); box-shadow: var(--bar-accent); }
+.aside-live { cursor: default; }
+.aside-q { color: var(--dim); font-size: var(--fs-small); margin: 0; white-space: pre-wrap; }
+.aside-a { color: var(--ink); font-size: var(--fs-ui); line-height: 1.55; margin: 0; white-space: pre-wrap; }
+.aside-status { color: var(--dim); font: var(--font-meta); margin: 0; }
+.aside-turn-actions { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+
+.aside-foot { flex-direction: column; gap: var(--s-2); }
+.aside-foot-label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.aside-box { max-height: 30vh; }
+.aside-foot-actions { display: flex; gap: var(--s-2); justify-content: flex-end; }
+
+/* The speech mark in a part's header. */
+.aside-mark {
+  align-items: center; background: transparent; border: 0; border-radius: var(--r-pill); color: var(--accent);
+  cursor: pointer; display: inline-flex; flex: none; font: var(--font-meta); gap: var(--s-1); height: var(--hit);
+  padding: 0 var(--s-2); transition: background 120ms ease;
+}
+.aside-mark:hover { background: var(--accent-soft); }
+.aside-mark-elsewhere { color: var(--dim); }
+.aside-mark svg { height: var(--icon-sm); width: var(--icon-sm); }
+.aside-unsaved { cursor: default; box-shadow: inset 2px 0 0 var(--danger); }

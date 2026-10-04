@@ -8,6 +8,8 @@
 import { createComposer, type ComposerState } from "./composer-model.js";
 import type { TextPresentation } from "./text-presentation.js";
 import { asideHopAnchorIndex } from "./aside-hop.js";
+import type { AsideAnchorView, AsideSessionAnchor } from "../../shared/aside-hop-model.js";
+export type { AsideAnchorView, AsideSessionAnchor };
 import type { StorySelectionSpan } from "./selection-projection.js";
 
 export interface AsideNoteView {
@@ -64,14 +66,6 @@ export function inheritAsideTurnRowIdentities(
   }
 }
 
-export interface AsideSessionAnchor {
-  readonly partId: string;
-  readonly takeId: string;
-  readonly partNumber?: number;
-  readonly takeIndex?: number;
-  readonly takeCount?: number;
-}
-
 export interface AsideSessionView {
   readonly id: string;
   readonly title: string;
@@ -79,14 +73,6 @@ export interface AsideSessionView {
   readonly turns: readonly AsideTurnView[];
   readonly createdAt?: string;
   readonly updatedAt?: string;
-}
-
-/** One hop-strip entry. `sessions` is optional because the ledger is not a
- * required part of card 12a, while the count is useful to the cycler. */
-export interface AsideAnchorView extends AsideSessionAnchor {
-  readonly sessionCount: number;
-  readonly title?: string;
-  readonly unanchored?: boolean;
 }
 
 export type AsideFocus = "composer" | "turns" | "notes";
