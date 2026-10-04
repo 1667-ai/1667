@@ -10,6 +10,7 @@ import { readStoredTypewriter } from "../reading/typewriter.js";
 import { initialNotesState, type NotesState } from "../notes/state.js";
 import { initialPanelState, type PanelState } from "../panel/state.js";
 import { initialTagsState, type TagsState } from "../tags/state.js";
+import { initialSettingsState, type SettingsState } from "../settings/state.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
@@ -71,6 +72,9 @@ export interface AppState {
   readonly panel: PanelState;
   /** The Author's Note and brief editors, and the story naming run (#409 step 10b). See `notes/state.ts`. */
   readonly notes: NotesState;
+  /** The settings page (#409 step 9b): the loaded settings, the draft, and the
+   * write-only keys. See `settings/state.ts`. */
+  readonly settings: SettingsState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** The notice log, oldest first. See `app/notices.ts`. */
@@ -102,6 +106,7 @@ export function initialAppState(
     facts: initialFactsState(),
     panel: initialPanelState(),
     notes: initialNotesState(),
+    settings: initialSettingsState(),
     reading: { showDirections: readStoredShowDirections(), typewriter: readStoredTypewriter() },
     toasts: [],
     notices: [],

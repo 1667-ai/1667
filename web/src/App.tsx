@@ -11,6 +11,7 @@ import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
 import { StoryMap } from "./map/StoryMap.js";
+import { SettingsPage } from "./settings/SettingsPage.js";
 import { StoryView } from "./story/StoryView.js";
 import {
   ClosedOverlay,
@@ -95,7 +96,9 @@ function Shell() {
             }}
           />
         )}
-        {route.kind === "story"
+        {route.kind === "settings"
+          ? <SettingsPage onOpenSidebar={openSidebar} />
+          : route.kind === "story"
           ? (route.map === true
             ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
             : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)

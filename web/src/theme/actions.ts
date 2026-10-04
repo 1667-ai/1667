@@ -2,9 +2,12 @@ import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { applyPalette, applyTheme, persistPalette, persistTheme } from "./apply.js";
 import { systemPrefersDark } from "./resolvedTheme.js";
+import type { ThemeMode } from "./themes.js";
 
 export interface ThemeActions {
   toggleTheme(): void;
+  /** `null` follows the OS. */
+  setTheme(theme: ThemeMode | null): void;
   selectPalette(paletteId: string): void;
 }
 
@@ -18,6 +21,12 @@ export function createThemeActions(store: Store<AppState>): ThemeActions {
     toggleTheme: () => {
       const current = store.get().theme;
       const next = current === "dark" ? "light" : current === "light" ? "dark" : oppositeOfSystem();
+      applyTheme(next);
+      persistTheme(next);
+      store.set((state) => ({ ...state, theme: next }));
+    },
+
+    setTheme: (next) => {
       applyTheme(next);
       persistTheme(next);
       store.set((state) => ({ ...state, theme: next }));
