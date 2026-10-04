@@ -1,1 +1,1 @@
-export * from "../../host/launcher/settings-profile-draft.js";
+export * from "../../shared/settings-profile-draft.js";

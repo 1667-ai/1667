@@ -1,4 +1,4 @@
-import { resolveSettingsProfile } from "../../shared/settings-route.js";
+import { settingsDraftContextWindowIsManual } from "../../shared/settings-save-document.js";
 import type { DiscoveredModelV2 } from "../../shared/settings-v2-types.js";
 import { isolateSettingsProfileModel } from "./settings-profile-draft.js";
 import { settingsModelTargetFingerprint } from "./settings-provider-probe.js";
@@ -210,12 +210,7 @@ export function settingsAutomaticModelSelectionForProfile(
 export function settingsContextWindowIsManual(
   overlay: SettingsOverlayState
 ): boolean {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null
-    || overlay.draft.generation.contextWindow === null) return false;
-  return resolveSettingsProfile(document, profileId).model.overrides.contextWindow
-    === overlay.draft.generation.contextWindow;
+  return settingsDraftContextWindowIsManual(overlay.draft);
 }
 
 export function settingsHasAutomaticModelSelections(
