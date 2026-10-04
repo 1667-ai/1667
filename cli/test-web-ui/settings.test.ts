@@ -184,6 +184,14 @@ test("case 1: `,` opens the page, Esc and Back close it, Forward reopens it, and
   await waitForHash(page, /^(#\/?)?$/);
   await page.getByRole("button", { name: "New story" }).waitFor();
 
+  // The palette opens it too.
+  await page.keyboard.press(":");
+  await page.keyboard.type("settings");
+  await page.keyboard.press("Enter");
+  await waitForHash(page, /^#\/settings$/);
+  await page.keyboard.press("Escape");
+  await waitForHash(page, /^(#\/?)?$/);
+
   await page.getByRole("button", { name: /^Forked Story/ }).click();
   await page.getByRole("heading", { name: "Forked Story", level: 1 }).waitFor();
   await page.locator(".part").first().click();

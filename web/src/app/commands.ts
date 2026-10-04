@@ -1,4 +1,5 @@
 import { registerCommands } from "../palette/registry.js";
+import { openSettings } from "./router.js";
 
 registerCommands([
   {
@@ -24,7 +25,16 @@ registerCommands([
     section: "system",
     shortcut: "!",
     run: (context) => context.actions.overlay.open("log")
+  },
+  {
+    id: "settings",
+    title: "generation settings",
+    description: "provider, model and prompts",
+    section: "system",
+    shortcut: ",",
+    // As `,`: from the Library and story pages, not the map or settings itself.
+    available: ({ state }) => state.route.kind === "library"
+      || (state.route.kind === "story" && state.route.map !== true),
+    run: () => openSettings()
   }
-  // Settings registers its command here once step 9 lands:
-  // { id: "settings", title: "generation settings", section: "system", shortcut: ",", ... }.
 ]);
