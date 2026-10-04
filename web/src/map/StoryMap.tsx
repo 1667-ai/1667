@@ -43,7 +43,8 @@ export function StoryMap({ storyId, onOpenSidebar }: { readonly storyId: string;
   const { store, actions } = useAppContext();
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const uid = useId();
-  const [view, setView] = useState<MapViewKind>("tree");
+  // The path view first, as in the TUI: the reader's own line, part by part.
+  const [view, setView] = useState<MapViewKind>("path");
   const [showSketches, setShowSketches] = useState(false);
   const [opened, setOpened] = useState<ReadonlySet<string>>(() => new Set());
   const [cursor, setCursor] = useState<string | null>(null);
