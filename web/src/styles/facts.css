@@ -72,3 +72,10 @@
 }
 .fact-mark:hover { background: var(--accent-soft); }
 .fact-mark svg { height: var(--icon-sm); width: var(--icon-sm); fill: currentColor; stroke: none; }
+
+/* The state tools and the state comparison (#409 step 10h). */
+.fact-state-tools { display: flex; flex-wrap: wrap; gap: var(--s-1); }
+.fact-diff { display: flex; flex-direction: column; gap: var(--s-1); }
+.fact-diff-line { font-size: var(--fs-small); margin: 0; overflow-wrap: anywhere; }
+.fact-diff-line.removed { color: var(--stale-amber); }
+.fact-diff-line.added { color: var(--accent); }

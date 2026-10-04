@@ -1,10 +1,11 @@
 /**
  * The story's right-hand panel (#409 step 7a): one panel with three views,
- * Chapters, Facts and Aside (step 10d). `view` is `null` while it is closed. `factsDocked` keeps
- * the Facts view open beside the manuscript without taking the keyboard (`F`);
- * it is remembered across visits.
+ * Chapters, Facts, Aside (step 10d) and the Fact check's Findings (step 10h).
+ * `view` is `null` while it is closed. `factsDocked` keeps the Facts view open
+ * beside the manuscript without taking the keyboard (`F`); it is remembered
+ * across visits.
  */
-export type PanelView = "chapters" | "facts" | "aside";
+export type PanelView = "chapters" | "facts" | "aside" | "findings";
 
 export interface PanelState {
   readonly view: PanelView | null;

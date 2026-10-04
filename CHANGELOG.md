@@ -12,6 +12,15 @@ This file records notable changes to 1667. Product terms use the definitions in
   sends it, if it did not match, or if the request drops it. The chapter table
   shows which chapters the next request holds.
 
+- **`1667 web` can check a chapter or a story line against the Facts.** Press
+  `:` and choose "check chapter against Facts" or "check story line against
+  Facts". The page shows how many parts and requests the check uses. Choose
+  Check to start it. The Findings view of the right panel lists each Fact, the
+  quote, and the contradiction. Click a finding to go to its part. Choose
+  "show Fact findings" to open the last check again. The Fact editor can also
+  re-anchor a Fact State, convert it between text and an End State, and compare
+  it with the State before it.
+
 - **`1667 web` can search the text of your stories.** Press `/` to open the
   search. Type at least two characters. Press Tab to search all stories, and
   press Ctrl+S to match case. Press Enter to go to a hit.

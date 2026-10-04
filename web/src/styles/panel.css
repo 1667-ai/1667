@@ -63,3 +63,11 @@
 }
 .seg-btn:disabled { cursor: default; opacity: var(--disabled-opacity); }
 .panel-empty { color: var(--dim); font-size: var(--fs-ui); margin: 0; padding: var(--s-3); }
+
+/* The Fact check's findings (#409 step 10h). */
+.findings-summary { color: var(--dim); font: var(--font-meta); margin: 0; padding: var(--s-2) var(--s-3); }
+.finding-row { cursor: pointer; }
+.finding-row.dimmed .panel-row-title, .finding-row.dimmed .finding-quote { color: var(--dim); }
+.finding-quote { color: var(--ink); font-family: var(--serif); font-size: var(--fs-ui); overflow-wrap: anywhere; }
+.finding-statement { color: var(--ink); font-size: var(--fs-ui); overflow-wrap: anywhere; }
+.finding-row .panel-row-title { white-space: normal; }

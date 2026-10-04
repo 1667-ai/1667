@@ -4,6 +4,7 @@ import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import { initialContextState, type ContextState } from "../context/state.js";
 import type { EditorState } from "../editor/state.js";
+import { initialFactCheckState, type FactCheckState } from "../factcheck/state.js";
 import { initialFactsState, type FactsState } from "../facts/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
@@ -73,6 +74,8 @@ export interface AppState {
   /** The Facts view's filter, editor and pick mode (#409 step 7b). See
    * `facts/state.ts`. */
   readonly facts: FactsState;
+  /** The Fact consistency check (#409 step 10h): its confirmation, its run and its findings. See `factcheck/state.ts`. */
+  readonly factCheck: FactCheckState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
   /** The Author's Note and brief editors, and the story naming run (#409 step 10b). See `notes/state.ts`. */
@@ -114,6 +117,7 @@ export function initialAppState(
     chapters: initialChaptersState(),
     tags: initialTagsState(),
     facts: initialFactsState(),
+    factCheck: initialFactCheckState(),
     panel: initialPanelState(),
     notes: initialNotesState(),
     settings: initialSettingsState(),
