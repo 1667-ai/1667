@@ -7,14 +7,17 @@ import { MAP_KEY_ACTIONS } from "../map/map-keys.js";
 import { READING_KEY_ACTIONS } from "../story/reading-keys.js";
 import { STRUCTURE_KEY_ACTIONS } from "../story/structure-keys.js";
 import { WRITING_KEY_ACTIONS } from "../story/writing-keys.js";
+import { SEARCH_KEY_ACTIONS } from "../search/search-keys.js";
 import { OVERLAY_KEY_ACTIONS } from "./overlay-keys.js";
 
 const NAV_ACTIONS: ReadonlySet<string> = new Set([
   ...READING_KEY_ACTIONS,
   ...WRITING_KEY_ACTIONS,
   ...STRUCTURE_KEY_ACTIONS,
-  ...OVERLAY_KEY_ACTIONS
+  ...OVERLAY_KEY_ACTIONS,
+  "open-search"
 ]);
+const SEARCH_ACTIONS: ReadonlySet<string> = new Set(SEARCH_KEY_ACTIONS);
 const MAP_ACTIONS: ReadonlySet<string> = new Set([...MAP_KEY_ACTIONS, "open-log"]);
 const COMPOSE_ACTIONS: ReadonlySet<string> = new Set(COMPOSE_KEY_ACTIONS);
 
@@ -27,6 +30,7 @@ export function webHandles(binding: ReferenceBinding): boolean {
     case "NAV": return NAV_ACTIONS.has(binding.action);
     case "MAP": return binding.mapView !== "mass" && MAP_ACTIONS.has(binding.action);
     case "COMPOSE": return COMPOSE_ACTIONS.has(binding.action);
+    case "SEARCH": return SEARCH_ACTIONS.has(binding.action);
     case "KEYS":
     case "LOG": return binding.action === "cancel";
     default: return false;

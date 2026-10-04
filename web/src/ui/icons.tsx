@@ -14,6 +14,8 @@ export const ICONS = {
   trash: "M4 7h16 M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2 M6 7l1 13h10l1-13 M10 11v6 M14 11v6",
   chevronLeft: "M15 6l-6 6 6 6",
   chevronRight: "M9 6l6 6-6 6",
+  chevronDown: "M6 9l6 6 6-6",
+  search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z M21 21l-5-5",
   arrowRight: "M5 12h14 M13 6l6 6-6 6",
   rotate: "M3 12a9 9 0 1 0 2.6-6.4L3 8 M3 3v5h5",
   signpost: "M12 3v3 M12 14v7 M5 6h12l3 4-3 4H5Z",

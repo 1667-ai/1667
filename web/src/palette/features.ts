@@ -4,5 +4,6 @@
  */
 import "../app/commands.js";
 import "../library/commands.js";
+import "../search/commands.js";
 import "../story/commands.js";
 import "../theme/commands.js";
