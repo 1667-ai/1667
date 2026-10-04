@@ -20,6 +20,7 @@ import { settingsScalar, scalarInvalidReason, typedScalarValue } from "../../../
 import { resolveSettingsProfile } from "../../../shared/settings-route.js";
 import { storedCredentialSecretId } from "../../../shared/settings-stored-credential.js";
 import {
+  settingsTextDraftForDocument,
   settingsTextDraftProjectionIdentity,
   settingsTextDraftWithDetectedContext,
   settingsTextDraftWithGeneration,
@@ -244,6 +245,7 @@ function refusedFieldText(loaded: LoadedSettings): string[] {
 export function isDirty(loaded: LoadedSettings): boolean {
   return loaded.view.editable
     && (Object.keys(loaded.secrets).length > 0 || refusedFieldText(loaded).length > 0
+      || Object.keys(loaded.stashedInvalid).length > 0
       || !draftsEqual(loaded.draft, loaded.base));
 }
 
@@ -251,20 +253,62 @@ export function invalidCount(loaded: LoadedSettings): number {
   return Object.keys(loaded.invalid).length;
 }
 
+/** The saved draft as it reads for the profile the writer has selected, so
+ * choosing another profile is not counted as a change. */
+function baseForSelection(loaded: LoadedSettings): SettingsTextDraft {
+  const { base, draft } = loaded;
+  return base.document !== null && draft.selectedProfileId !== null
+    && base.document.profiles[draft.selectedProfileId] !== undefined
+    && base.selectedProfileId !== draft.selectedProfileId
+    ? settingsTextDraftForDocument(base.document, draft.selectedProfileId)
+    : base;
+}
+
+function selectedConnection(draft: SettingsTextDraft) {
+  try {
+    return draft.document === null || draft.selectedProfileId === null
+      ? null
+      : resolveSettingsProfile(draft.document, draft.selectedProfileId).connection;
+  } catch {
+    return null;
+  }
+}
+
+/** One profile as the count compares it: the model it points at is the
+ * connection and model rows' own change. */
+function profileFingerprint(profile: SettingsDocumentV5["profiles"][string] | undefined): string {
+  return profile === undefined ? "" : JSON.stringify({ ...profile, modelId: null });
+}
+
 /** "N changes": one per row that differs from what is saved. */
 export function changeCount(loaded: LoadedSettings): number {
   if (!isDirty(loaded)) return 0;
   const draft = loaded.draft;
-  const base = loaded.base;
+  const base = baseForSelection(loaded);
   let count = 0;
   if (currentProviderChoice(draft).id !== currentProviderChoice(base).id) count += 1;
   if (draft.generation.baseUrl !== base.generation.baseUrl) count += 1;
+  if ((draft.generation.allowInsecureHttp === true) !== (base.generation.allowInsecureHttp === true)) count += 1;
   if (Object.keys(loaded.secrets).length > 0) count += 1;
   if (draft.generation.model !== base.generation.model) count += 1;
   if (draft.generation.contextWindow !== base.generation.contextWindow) count += 1;
   if (draft.document !== null && base.document !== null) {
     for (const field of WRITING_PROMPT_FIELD_IDS) {
       if (draft.document.writing[field] !== base.document.writing[field]) count += 1;
+    }
+    const ids = new Set([...Object.keys(draft.document.profiles), ...Object.keys(base.document.profiles)]);
+    for (const id of ids) {
+      if (profileFingerprint(draft.document.profiles[id]) !== profileFingerprint(base.document.profiles[id])) count += 1;
+    }
+    for (const purpose of ["default", "prose", "utility"] as const) {
+      if (draft.document.routing[purpose] !== base.document.routing[purpose]) count += 1;
+    }
+    const now = selectedConnection(draft);
+    const was = selectedConnection(base);
+    if (now !== null && was !== null) {
+      if (JSON.stringify(now.timeouts) !== JSON.stringify(was.timeouts)) count += 1;
+      if (now.textPromptFormat !== was.textPromptFormat) count += 1;
+      if ((now.splitThinkTags === true) !== (was.splitThinkTags === true)) count += 1;
     }
   }
   return Math.max(count, 1);
