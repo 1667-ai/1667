@@ -7,7 +7,7 @@ import { Modal } from "../ui/Modal.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { AsideUseMenu } from "./AsideUseMenu.js";
 import { hopEntries, surfaceHeading } from "./model.js";
-import { currentSession, type AsideConfirm, type AsideRun, type AsideSurface } from "./state.js";
+import { currentSession, retakeTargetIsLast, type AsideConfirm, type AsideRun, type AsideSurface } from "./state.js";
 
 function words(text: string): number {
   return text.trim().split(/\s+/u).filter(Boolean).length;
@@ -56,7 +56,8 @@ export function AsidePanel({ payload, onClose }: { readonly payload: StoryPayloa
   const surface = useStore(store, (state) => state.aside.surface);
   const run = useStore(store, (state) => state.aside.run);
   const draft = useStore(store, (state) => state.aside.drafts[payload.id] ?? "");
-  const retake = useStore(store, (state) => state.aside.retake);
+  const retakes = useStore(store, (state) => state.aside.retakes);
+  const unsaved = useStore(store, (state) => state.aside.unsaved);
   const confirm = useStore(store, (state) => state.aside.confirm);
   const openSerial = useStore(store, (state) => state.panel.openSerial);
   const boxRef = useRef<HTMLTextAreaElement>(null);
@@ -67,8 +68,8 @@ export function AsidePanel({ payload, onClose }: { readonly payload: StoryPayloa
   const session = here === null ? null : currentSession(here);
   const turns = session?.turns ?? [];
   const lastIndex = turns.length - 1;
-  const retaking = retake !== null && session !== null && retake.sessionId === session.id && retake.turnIndex === lastIndex
-    && retake.storyId === payload.id;
+  const retake = session === null ? undefined : retakes[session.id];
+  const retaking = retake !== undefined && session !== null && retakeTargetIsLast(retake, session);
   const active = run !== null && run.storyId === payload.id ? run : null;
   const streaming = active !== null && active.kind !== "change";
   const ready = here !== null && here.load === "ready";
@@ -139,6 +140,7 @@ export function AsidePanel({ payload, onClose }: { readonly payload: StoryPayloa
   };
 
   const text = retaking ? retake.text : draft;
+  const kept = unsaved.filter((item) => item.storyId === payload.id);
   const nothingToSend = text.trim().length === 0 || !ready || !idle;
 
   return (
@@ -236,6 +238,21 @@ export function AsidePanel({ payload, onClose }: { readonly payload: StoryPayloa
               </li>
             );
           })}
+          {kept.map((item) => (
+            <li key={item.id} className="aside-turn aside-unsaved" aria-label="Answer not saved">
+              <p className="aside-q">{item.question}</p>
+              <p className="aside-a">{item.text}</p>
+              <p className="aside-status">Not saved: {item.message}</p>
+              <div className="aside-turn-actions">
+                <button type="button" className="btn btn-small btn-ghost" title="Copy the text" onClick={() => void actions.aside.copyUnsaved(item.id)}>
+                  Copy
+                </button>
+                <button type="button" className="btn btn-small btn-ghost" title="Discard the text" onClick={() => actions.aside.discardUnsaved(item.id)}>
+                  Discard
+                </button>
+              </div>
+            </li>
+          ))}
           {streaming && (
             <li ref={liveRef} className="aside-turn aside-live" aria-label="Answer being written">
               <p className="aside-q">{active.question}</p>

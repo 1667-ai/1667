@@ -48,12 +48,27 @@ export interface AsideRun {
   readonly stopping: boolean;
 }
 
-/** A retake with an edited question: the turn it replaces and the text so far. */
+/** A retake with an edited question. It belongs to one session and names the
+ * answer it replaces by what that answer says, not by its place: a turn
+ * deleted above it moves the place, and the text must never land on another
+ * answer. */
 export interface AsideRetakeDraft {
   readonly storyId: string;
   readonly sessionId: string;
-  readonly turnIndex: number;
+  /** The question and answer of the turn this retake replaces. */
+  readonly targetQuestion: string;
+  readonly targetAnswer: string;
   readonly text: string;
+}
+
+/** An answer that arrived but could not be saved (the provider failed after
+ * it began). It stays until the writer copies or discards it. */
+export interface AsideUnsaved {
+  readonly id: string;
+  readonly storyId: string;
+  readonly question: string;
+  readonly text: string;
+  readonly message: string;
 }
 
 /** A destructive change that waits for the writer's yes. */
@@ -76,14 +91,16 @@ export interface AsideState {
   readonly surface: AsideSurface | null;
   /** The unsent question of each story. */
   readonly drafts: Readonly<Record<string, string>>;
-  readonly retake: AsideRetakeDraft | null;
+  /** Retake drafts, one per session. */
+  readonly retakes: Readonly<Record<string, AsideRetakeDraft>>;
+  readonly unsaved: readonly AsideUnsaved[];
   readonly run: AsideRun | null;
   readonly confirm: AsideConfirm | null;
   readonly placement: AsidePlacement | null;
 }
 
 export function initialAsideState(): AsideState {
-  return { surface: null, drafts: {}, retake: null, run: null, confirm: null, placement: null };
+  return { surface: null, drafts: {}, retakes: {}, unsaved: [], run: null, confirm: null, placement: null };
 }
 
 export function currentSession(surface: AsideSurface): AsideSessionResponse | null {
@@ -93,4 +110,10 @@ export function currentSession(surface: AsideSurface): AsideSessionResponse | nu
 export function sameAnchor(left: AsideAnchor | null, right: AsideAnchor | null): boolean {
   if (left === null || right === null) return left === right;
   return left.partId === right.partId && left.takeId === right.takeId;
+}
+
+/** True while `draft` still names the last answer of `session`. */
+export function retakeTargetIsLast(draft: AsideRetakeDraft, session: AsideSessionResponse): boolean {
+  const last = session.turns.at(-1);
+  return last !== undefined && last.q === draft.targetQuestion && last.a === draft.targetAnswer;
 }

@@ -63,3 +63,4 @@
 .placement-target:hover { color: var(--ink); }
 .placement-target[aria-pressed="true"] { background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); }
 .placement-target-meta { color: var(--dim); font: var(--font-meta); margin-left: auto; }
+.aside-unsaved { cursor: default; box-shadow: inset 2px 0 0 var(--danger); }

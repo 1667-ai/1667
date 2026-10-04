@@ -54,8 +54,13 @@ export function unsavedWork(
   for (const [storyId, draft] of Object.entries(aside.drafts)) {
     if (draft.trim().length > 0) items.push({ id: `aside:${storyId}`, label: "Unsent Aside question", text: draft });
   }
-  if (aside.retake !== null && aside.retake.text.trim().length > 0) {
-    items.push({ id: `aside-retake:${aside.retake.storyId}`, label: "Unsent Aside retake question", text: aside.retake.text });
+  for (const draft of Object.values(aside.retakes)) {
+    if (draft.text.trim().length > 0) {
+      items.push({ id: `aside-retake:${draft.sessionId}`, label: "Unsent Aside retake question", text: draft.text });
+    }
+  }
+  for (const item of aside.unsaved) {
+    items.push({ id: `aside-unsaved:${item.id}`, label: "Aside answer not saved", text: item.text });
   }
   // A question that is being answered is not lost: a Stop with no answer, or a
   // failure, hands it back. It is listed so a reload does not lose it quietly.

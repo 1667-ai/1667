@@ -262,6 +262,58 @@ test("case 6: another take of part 2 has no sessions; back on the first "
   await panel(page).locator(".aside-q", { hasText: "Question on take one" }).waitFor();
 }, 60_000);
 
+test("case 7: an edited retake question stays with its own session", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page } = await openForked(web, api);
+
+  await page.keyboard.press("a");
+  await ask(page, "Question A");
+  await waitForCount(turns(page), 1, 10_000);
+  await panel(page).getByRole("button", { name: "Edit question" }).click();
+  await questionBox(page).fill("Edit in A");
+
+  // A second session, with its own edit.
+  await panel(page).getByRole("button", { name: "New session (n)" }).click();
+  await waitForCount(turns(page), 0);
+  await ask(page, "Question B");
+  await waitForCount(turns(page), 1, 10_000);
+  await panel(page).getByRole("button", { name: "Edit question" }).click();
+  await questionBox(page).fill("Edit in B");
+
+  await panel(page).getByRole("button", { name: "Previous session (←)" }).click();
+  await panel(page).locator(".aside-q", { hasText: "Question A" }).waitFor();
+  expect(await questionBox(page).inputValue()).toBe("Edit in A");
+  await panel(page).getByRole("button", { name: "Next session (→)" }).click();
+  expect(await questionBox(page).inputValue()).toBe("Edit in B");
+}, 60_000);
+
+test("case 8: a retake edit follows its answer when an earlier turn is deleted", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  await page.keyboard.press("a");
+  await ask(page, "First question");
+  await waitForCount(turns(page), 1, 10_000);
+  await ask(page, "Second question");
+  await waitForCount(turns(page), 2, 10_000);
+  await panel(page).getByRole("button", { name: "Edit question" }).click();
+  await questionBox(page).fill("Second, edited");
+
+  // Delete the first turn: the edit now belongs to turn 1, not turn 2.
+  await turns(page).first().click();
+  await panel(page).getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("dialog", { name: "Delete turn 1" }).getByRole("button", { name: "Delete" }).click();
+  await waitForCount(turns(page), 1);
+  expect(await questionBox(page).inputValue()).toBe("Second, edited");
+
+  await questionBox(page).press("Enter");
+  expect(await poll(async () => (await savedTurns(api, storyId, b1)).map((turn) => turn.q).join("|") === "Second, edited", 10_000)).toBeTrue();
+}, 60_000);
+
 /** Asks one question on part 2 and opens the Use menu of its answer. Returns the saved answer. */
 async function askAndUse(page: Page, api: StoryApi, storyId: string, b1: string, item: string): Promise<string> {
   await page.keyboard.press("a");
@@ -273,7 +325,7 @@ async function askAndUse(page: Page, api: StoryApi, storyId: string, b1: string,
   return saved[0]!.a;
 }
 
-test("case 7: Insert into compose puts the answer at the composer caret", async () => {
+test("case 9: Insert into compose puts the answer at the composer caret", async () => {
   const project = await scratchProject();
   const web = await spawnAsideWeb(project, WORD_DELAY_MS);
   const api = await openInspectionApi(web);
@@ -289,7 +341,7 @@ test("case 7: Insert into compose puts the answer at the composer caret", async 
   expect(await composer.inputValue()).toBe(`Start ${answer}End`);
 }, 60_000);
 
-test("case 8: Insert into story after part 2 adds a take that becomes part 3, "
+test("case 10: Insert into story after part 2 adds a take that becomes part 3, "
   + "with 2 takes", async () => {
   const project = await scratchProject();
   const web = await spawnAsideWeb(project, WORD_DELAY_MS);
@@ -314,7 +366,7 @@ test("case 8: Insert into story after part 2 adds a take that becomes part 3, "
   await third.getByRole("button", { name: /^Take 2 of 2, show every take$/ }).waitFor();
 }, 60_000);
 
-test("case 9: Insert as new Fact opens the Fact editor with the answer; Save creates it", async () => {
+test("case 11: Insert as new Fact opens the Fact editor with the answer; Save creates it", async () => {
   const project = await scratchProject();
   const web = await spawnAsideWeb(project, WORD_DELAY_MS);
   const api = await openInspectionApi(web);
@@ -330,7 +382,7 @@ test("case 9: Insert as new Fact opens the Fact editor with the answer; Save cre
   expect((await api.loadStory(storyId)).facts[0]!.states[0]).toMatchObject({ text: answer.trim() });
 }, 60_000);
 
-test("case 10: Esc during placement leaves the story unchanged", async () => {
+test("case 12: Esc during placement leaves the story unchanged", async () => {
   const project = await scratchProject();
   const web = await spawnAsideWeb(project, WORD_DELAY_MS);
   const api = await openInspectionApi(web);
