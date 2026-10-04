@@ -93,6 +93,8 @@ async function openForked(web: ReadyWeb, api: StoryApi): Promise<{ page: Page; s
 }
 
 async function ask(page: Page, question: string): Promise<void> {
+  // A question sent while the sessions still load is not sent.
+  await panel(page).getByText("Loading…").waitFor({ state: "detached" });
   await questionBox(page).fill(question);
   await questionBox(page).press("Enter");
 }
