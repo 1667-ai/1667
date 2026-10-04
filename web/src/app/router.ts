@@ -1,7 +1,7 @@
 /**
  * Hash routes: `#/` (library home), `#/story/<id>`, and `#/story/<id>/map`
  * (the story's map: still the story's route, so a story's actions treat it as
- * open). `web-bridge-connect.ts`'s
+ * open), and `#/settings` (the settings page, which belongs to no story). `web-bridge-connect.ts`'s
  * token read only ever looks at `hash`'s `token` query key
  * (`new URLSearchParams(hash).get("token")`), so a route hash with no such
  * key — every route here — safely falls through to `storage` instead, and
@@ -11,12 +11,15 @@
  */
 export type Route =
   | { readonly kind: "library" }
+  | { readonly kind: "settings" }
   | { readonly kind: "story"; readonly id: string; readonly map?: true };
 
 const STORY_PREFIX = "#/story/";
 const MAP_SUFFIX = "/map";
+const SETTINGS_HASH = "#/settings";
 
 export function parseRoute(hash: string): Route {
+  if (hash === SETTINGS_HASH) return { kind: "settings" };
   if (hash.startsWith(STORY_PREFIX)) {
     const rest = hash.slice(STORY_PREFIX.length);
     const map = rest.endsWith(MAP_SUFFIX);
@@ -32,6 +35,7 @@ export function currentRoute(): Route {
 
 export function routeHash(route: Route): string {
   if (route.kind === "library") return "#/";
+  if (route.kind === "settings") return SETTINGS_HASH;
   return `${STORY_PREFIX}${encodeURIComponent(route.id)}${route.map === true ? MAP_SUFFIX : ""}`;
 }
 
@@ -64,10 +68,33 @@ export function closeMap(storyId: string): void {
   navigate({ kind: "story", id: storyId }, { replace: true });
 }
 
+/** True when the history entry below the settings page is a page of this app:
+ * the page was opened here, or arrived through Back or Forward. Closing then
+ * steps back; a page opened by its address replaces itself with the Library,
+ * so Back never reopens it. */
+let settingsHasPageBelow = false;
+
+/** Opens the settings page (Back closes it). */
+export function openSettings(): void {
+  if (currentRoute().kind === "settings") return;
+  settingsHasPageBelow = true;
+  navigate({ kind: "settings" });
+}
+
+export function closeSettings(): void {
+  if (settingsHasPageBelow) {
+    settingsHasPageBelow = false;
+    history.back();
+    return;
+  }
+  navigate({ kind: "library" }, { replace: true });
+}
+
 export function listenForRouteChanges(onChange: (route: Route) => void): () => void {
   const handler = (): void => {
     const route = currentRoute();
     if (route.kind !== "story" || route.id !== mapOpenedFrom) mapOpenedFrom = null;
+    settingsHasPageBelow = route.kind === "settings";
     onChange(route);
   };
   addEventListener("hashchange", handler);

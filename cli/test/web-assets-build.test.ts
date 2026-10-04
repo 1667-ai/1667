@@ -5,7 +5,9 @@ import { loadWebAssets } from "../src/web-assets.js";
 /** The built app is what a slow device downloads (#409). This test runs under
  * `bun test`, which sets NODE_ENV=test: the build must still be the small
  * production build. */
-const SCRIPT_BUDGET_GZIP_BYTES = 160 * 1024;
+// The settings page (step 9b) brings the shared settings draft core into the
+// bundle: the provider table, the capability rules and the draft reducers.
+const SCRIPT_BUDGET_GZIP_BYTES = 190 * 1024;
 
 test("the served app script is the production build and stays small", async () => {
   expect(process.env.NODE_ENV).toBe("test");
