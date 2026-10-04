@@ -33,7 +33,9 @@ export function editorOnState(storyId: string, fact: StoryFact, state: FactState
       stateId: state.id,
       anchorPartId: state.anchorPartId ?? null,
       ends: isFactEndState(state),
-      baseText: form.text
+      baseText: form.text,
+      baseAnchorPartId: state.anchorPartId ?? null,
+      baseEnds: isFactEndState(state)
     }
   };
 }
