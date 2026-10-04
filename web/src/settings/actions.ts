@@ -510,7 +510,12 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     retryLoad: () => { void load(false); },
     chooseProvider: (id) => {
       const choice = SETTINGS_PROVIDER_CHOICES.find((candidate) => candidate.id === id);
-      if (choice !== undefined) applyEdit((edit) => applyProviderChoice(edit, choice));
+      if (choice === undefined) return;
+      applyEdit((edit) => applyProviderChoice(edit, choice));
+      // A refused key belonged to the old provider; its error must not block
+      // Save after the key field changes or goes away.
+      setInvalid("api-key", null);
+      patch((state) => ({ ...state, keyEpoch: state.keyEpoch + 1 }));
     },
     setBaseUrl: (text) => applyEdit((edit) => applyBaseUrl(edit, text)),
     setAllowInsecureHttp: (on) => applyEdit((edit) => applyAllowInsecureHttp(edit, on)),
