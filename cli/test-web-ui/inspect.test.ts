@@ -155,6 +155,7 @@ test("case 2: after a Continue, h lists one record and opening it shows the prom
   await page.keyboard.press("h");
   await page.getByRole("heading", { name: "Generation records", level: 1 }).waitFor();
   expect(await hash(page)).toContain(`#/story/${storyId}/records/`);
+  await page.getByRole("list", { name: "Events" }).getByRole("listitem").first().waitFor();
   expect(await page.getByRole("list", { name: "Events" }).getByRole("listitem").count()).toBe(1);
   const entries = page.getByRole("list", { name: "Prompt entries" }).getByRole("listitem");
   await entries.first().waitFor();
@@ -228,6 +229,7 @@ test("case 5: h on a map row opens the records of that take, and Back returns to
   await page.getByRole("heading", { name: "Map", level: 1 }).waitFor();
   await page.keyboard.press("h");
   await page.getByRole("heading", { name: "Generation records", level: 1 }).waitFor();
+  await page.getByRole("list", { name: "Events" }).getByRole("listitem").first().waitFor();
   expect(await page.getByRole("list", { name: "Events" }).getByRole("listitem").count()).toBe(1);
   await page.goBack();
   await page.getByRole("heading", { name: "Map", level: 1 }).waitFor();
