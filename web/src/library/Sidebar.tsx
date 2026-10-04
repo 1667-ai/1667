@@ -1,10 +1,11 @@
 import { useCallback, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { useKeymap } from "../app/keymap.js";
-import { navigate } from "../app/router.js";
+import { navigate, openSettings } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { ThemeControls } from "../theme/ThemeControls.js";
 import { Icon, ICONS } from "../ui/icons.js";
+import { isDirty } from "../settings/model.js";
 import { filterAndSort } from "./filterStories.js";
 import { StoryRow } from "./StoryRow.js";
 
@@ -12,7 +13,7 @@ import { StoryRow } from "./StoryRow.js";
  * Structural start ported from `~/source/storytavern/web/src/Sidebar.tsx`
  * (brand bar, theme toggle, palette popover, story list), adapted to this
  * app's store/actions and to `StorySummary`'s own fields. `.sidebar-settings`
- * is dropped — there is no settings screen yet. This file is now just the
+ * is the gear at the bottom that opens `#/settings` (step 9b). This file is now just the
  * shell around `theme/ThemeControls.tsx`, `library/StoryRow.tsx`, and
  * `library/filterStories.ts` (review fix B6) — the Rename/Delete dialogs
  * moved to `library/LibraryDialogs.tsx`, which `App.tsx`'s `Shell` mounts
@@ -29,6 +30,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
   const route = useStore(store, (state) => state.route);
   const stories = useStore(store, (state) => state.library.stories);
   const query = useStore(store, (state) => state.library.query);
+  const settingsDirty = useStore(store, (state) => state.settings.kind === "loaded" && isDirty(state.settings));
   const projectLabel = useStore(store, (state) => (
     state.connection.kind === "connected" ? state.connection.status.project : null
   ));
@@ -124,6 +126,23 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
             />
           ))}
         </nav>
+
+        <button
+          type="button"
+          className={`btn btn-ghost sidebar-settings${route.kind === "settings" ? " active" : ""}`}
+          title="Settings (,)"
+          aria-label={settingsDirty ? "Settings (,) · unsaved changes" : "Settings (,)"}
+          aria-keyshortcuts=","
+          onClick={() => {
+            onClose();
+            openSettings();
+          }}
+        >
+          <Icon path={ICONS.gear} />
+          <span className="sidebar-settings-label">Settings</span>
+          {settingsDirty && <span className="unsaved-dot" aria-hidden="true" />}
+          <span className="menu-key">,</span>
+        </button>
       </aside>
     </>
   );

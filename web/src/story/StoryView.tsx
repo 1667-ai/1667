@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
-import { navigate, openMap } from "../app/router.js";
+import { navigate, openMap, openSettings } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
 import { PartEditor } from "../editor/PartEditor.js";
@@ -156,6 +156,7 @@ export function StoryView(
       case "scroll-up": return scrollBy(container, -pageScrollDistance(container));
       case "scroll-down": return scrollBy(container, pageScrollDistance(container));
       case "open-library": navigate({ kind: "library" }); return true;
+      case "open-settings": openSettings(); return true;
       case "open-map":
         if (current.story.payload.nodes.length === 0) pushToast(store, NOTHING_TO_MAP_TOAST);
         else openMap(storyId);

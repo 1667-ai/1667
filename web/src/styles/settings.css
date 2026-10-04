@@ -1,0 +1,82 @@
+/**
+ * The settings page (`#/settings`, `settings/SettingsPage.tsx`): one scrolling
+ * column of sections, each row a label, a control and one hint line. Below the
+ * drawer breakpoint the labels sit above their controls and the Save bar is
+ * full width at the bottom. Tokens only.
+ */
+
+.settings-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
+.settings-body { margin: 0 auto; max-width: 720px; padding: var(--s-6) var(--s-6) var(--s-12); }
+
+.settings-header .story-title { min-width: 0; }
+.settings-header .story-title-wrap { gap: var(--s-2); }
+
+.settings-section { margin-bottom: var(--s-8); }
+.settings-heading {
+  border-bottom: var(--border); color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label);
+  margin-bottom: var(--s-2); padding-bottom: var(--s-2); text-transform: uppercase;
+}
+
+.settings-row {
+  align-items: start; display: grid; gap: var(--s-4); grid-template-columns: 160px minmax(0, 1fr);
+  padding: var(--s-3) 0;
+}
+.settings-label { color: var(--ink); font-size: var(--fs-ui); font-weight: 500; line-height: var(--btn-md); }
+.settings-control { display: flex; flex-direction: column; gap: var(--s-2); min-width: 0; }
+.settings-hint { color: var(--dim); font-size: var(--fs-small); line-height: 1.4; }
+.settings-hint-danger { color: var(--danger); }
+.settings-hint-ready { color: var(--accent); }
+.settings-note { color: var(--dim); font-size: var(--fs-small); line-height: 1.4; padding: var(--s-2) 0 var(--s-3); }
+
+.settings-input-line { align-items: center; display: flex; gap: var(--s-2); }
+.settings-field { flex: 1; min-width: 0; }
+.settings-field input:disabled, .settings-field textarea:disabled { opacity: var(--disabled-opacity); }
+.field .settings-prompt {
+  font-family: var(--prose); font-size: var(--fs-body); line-height: 1.5; min-height: calc(3 * 1.5em);
+  padding: var(--s-2) var(--s-3); resize: vertical; width: 100%;
+}
+
+.settings-popover-wrap { position: relative; }
+.settings-select { justify-content: space-between; min-width: 220px; }
+.settings-menu {
+  left: 0; max-height: min(50vh, 360px); max-width: min(480px, calc(100vw - 2 * var(--s-4)));
+  overflow-y: auto; top: calc(100% + var(--s-1));
+}
+.settings-menu-current, .settings-menu-current:hover:not(:disabled) { background: var(--accent-soft); }
+.settings-stored { flex-shrink: 0; }
+
+.settings-choice { display: flex; flex-wrap: wrap; gap: var(--s-2); padding-top: var(--s-1); }
+
+.settings-banner {
+  background: var(--warn-soft); border: var(--border); border-radius: var(--r-md); color: var(--ink);
+  font-size: var(--fs-ui); line-height: 1.4; margin-bottom: var(--s-6); padding: var(--s-3) var(--s-4);
+}
+
+/* The Save bar: below the scrolling form, above the generation bar. */
+.settings-bar {
+  align-items: center; background: var(--bg); border-top: var(--border); display: flex; flex: 0 0 auto;
+  gap: var(--s-3); justify-content: space-between; padding: var(--s-3) var(--s-6);
+}
+.settings-bar-text { color: var(--dim); display: flex; flex-direction: column; font-size: var(--fs-ui); gap: var(--s-1); min-width: 0; }
+.settings-bar-danger { color: var(--danger); }
+.settings-bar-actions { display: flex; flex-shrink: 0; gap: var(--s-2); }
+
+.unsaved-dot {
+  background: var(--accent); border-radius: var(--r-round); display: inline-block; flex-shrink: 0;
+  height: var(--dot); width: var(--dot);
+}
+
+.sidebar-settings { justify-content: flex-start; width: 100%; }
+.sidebar-settings-label { flex: 1; text-align: left; }
+.sidebar-settings.active, .sidebar-settings.active:hover:not(:disabled) { background: var(--accent-soft); color: var(--accent); }
+.sidebar-settings .menu-key { margin-left: 0; }
+
+@media (max-width: 800px) {
+  .settings-body { padding: var(--s-4) var(--s-4) var(--s-8); }
+  .settings-row { gap: var(--s-1); grid-template-columns: minmax(0, 1fr); }
+  .settings-label { line-height: 1.3; }
+  .settings-select { min-width: 0; width: 100%; }
+  .settings-bar { flex-wrap: wrap; padding: var(--s-3) var(--s-4); }
+  .settings-bar-text { flex: 1 1 100%; }
+  .settings-bar-actions { justify-content: flex-end; width: 100%; }
+}
