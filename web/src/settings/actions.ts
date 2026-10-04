@@ -688,7 +688,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         return;
       }
       applyEdit(() => result.edit, { probe: null });
-      clearProfileFieldText();
+      followSelection(current.draft.selectedProfileId);
       pushToast(store, result.note);
     },
     setSamplingScalar: (knob, text) => typedEdit(`sampling.${knob}`, text, (edit) => applySamplingScalar(edit, knob, text)),
