@@ -17,9 +17,9 @@ import {
   sameProjectionIdentity,
   type ProjectedNextRequest
 } from "../request-context.js";
-import { nextRequestEstimate, type NextRequestEstimate } from "../request-projection.js";
+import { nextRequestEstimate, type NextRequestEstimate } from "../../../shared/request-projection.js";
 import type { PromptTokenCount } from "../../../shared/tokenize-source.js";
-import { estimateResponseGrowthTokens } from "../response-growth-estimate.js";
+import { estimateResponseGrowthTokens } from "../../../shared/response-growth-estimate.js";
 import type { HitRow, HitRows, HitTarget } from "../hit.js";
 import type {
   DocumentEditorSession,

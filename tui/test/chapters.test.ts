@@ -12,7 +12,7 @@ import { chapterListModel, chapterWindow } from "../src/chapter-model.js";
 import { createDemoController, demoAppSource } from "../src/demo.js";
 import type { HitRows } from "../src/hit.js";
 import { createStoryViewModel } from "../src/model.js";
-import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
+import { nextRequestEstimate, type NextRequestContext } from "../../shared/request-projection.js";
 import { buildRailModel, formatTokensEstimate } from "../src/rail.js";
 import { renderPanels } from "../src/screens/panels.js";
 import { frameText, type FrameLine } from "../src/screens/story/frame.js";

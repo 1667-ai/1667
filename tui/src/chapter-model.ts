@@ -1,8 +1,10 @@
 import type { StoryPayload } from "../../shared/types.js";
 import { extentLabel } from "../../shared/chapter-labels.js";
-import { formatTokensScaled } from "./rail.js";
-import type { RequestChapterProjection, RequestTokenEstimate } from "./request-projection.js";
+import { chapterStatus } from "../../shared/rail-model.js";
+import type { RequestTokenEstimate } from "../../shared/request-projection.js";
 import { createStoryViewModel, type StoryChapter, type StoryViewModel } from "./model.js";
+
+export { chapterStatus };
 
 export interface ChapterListRow {
   chapter: StoryChapter;
@@ -53,15 +55,6 @@ export function chapterListModel(
     };
   });
   return { rows, totalTokens, contextWindow, over, biggestUnsummarized };
-}
-
-export function chapterStatus(projection: RequestChapterProjection | undefined): string {
-  if (projection?.included !== true) return "not sent";
-  const tokens = formatTokensScaled(projection.tokens);
-  if (projection.summarized) {
-    return projection.stale ? `${tokens} stale ↻` : `${tokens} ✓ summary`;
-  }
-  return projection.closed ? `${tokens} raw — no summary` : `current · ${tokens} raw`;
 }
 
 export function chapterWindow(total: number, cursor: number, budget: number): { start: number; end: number } {

@@ -1,8 +1,10 @@
 import type { Ref } from "react";
 import { factBody, factName, factPathProjection, factPriorityGlyph, factScopeLabel } from "../../../shared/fact-view.js";
+import { factStatusForPath } from "../../../shared/facts-model.js";
 import type { StoryFact, StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
+import { factStatusLabel, useRequestEstimate } from "../context/status.js";
 import { Icon, ICONS } from "../ui/icons.js";
 
 /** One fact in the list: name, a line of body, and where it applies. The
@@ -27,6 +29,10 @@ export function FactRow(
   const scope = factScopeLabel(fact, pathIds, [], projection);
   const glyph = factPriorityGlyph(fact.priority);
   const body = factBody(fact, pathIds, projection);
+  const estimate = useRequestEstimate(payload.id);
+  const requestStatus = estimate === null
+    ? null
+    : factStatusLabel(factStatusForPath(fact, estimate.factStatuses.get(fact.id) ?? { kind: "not-matched" }, pathIds, projection));
 
   return (
     <li
@@ -44,6 +50,7 @@ export function FactRow(
           <span>{fact.activation === "keyed" ? "keyed" : "always"}</span>
           {glyph.length > 0 && <span title={glyph === "↑" ? "High priority" : "Low priority"}>{glyph}</span>}
           {scope !== "—" && <span className="fact-row-scope">{scope}</span>}
+          {requestStatus !== null && <span className="fact-status" data-status={requestStatus.kind}>{requestStatus.text}</span>}
         </span>
       </div>
       {selected && (
