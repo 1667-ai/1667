@@ -212,3 +212,26 @@ test("case 5: a story with no Facts does not offer the check commands", async ()
   await page.keyboard.type("against Facts");
   expect(await palette(page).getByRole("option").count()).toBe(2);
 }, 90_000);
+
+test("case 6: a finding whose part was deleted shows as out of date and Findings does not crash", async () => {
+  const web = await spawnCheckWeb();
+  const seeded = await seed(web, true);
+  const first = await openStory(web, seeded.storyId);
+  await runCommand(first, "check story line");
+  await first.getByRole("dialog", { name: "Check story line against Facts" }).getByRole("button", { name: "Check" }).click();
+  await findingRows(first).first().waitFor();
+
+  await seeded.api.loadStory(seeded.storyId);
+  await seeded.api.deleteNode(seeded.storyId, seeded.c1, 1);
+  const page = await openStory(web, seeded.storyId);
+  const diagnostics = await collectPageDiagnostics(page);
+  await part(page, "B1:").click();
+  await page.keyboard.press(":");
+  await palette(page).waitFor();
+  await page.keyboard.type("show Fact findings");
+  await page.keyboard.press("Enter");
+  await findingRows(page).first().waitFor();
+  expect(await findingRows(page).count()).toBe(3);
+  expect(await findingsPanel(page).getByText("Out of date").count()).toBe(1);
+  expect(diagnostics.consoleErrors).toEqual([]);
+}, 90_000);

@@ -25,6 +25,8 @@ export type FactBody =
       readonly baseText: string;
       readonly baseAnchorPartId: string | null;
       readonly baseEnds: boolean;
+      /** The text typed before Convert to end, kept until Convert to text brings it back. */
+      readonly heldText?: string;
     }
   /** A state that does not exist yet. `baseText` is what the body started with. */
   | {
