@@ -44,6 +44,7 @@ const ITEMS: readonly MenuItem[] = [
   { id: "retake-with-prompt", label: "Retake with direction", key: "R", icon: ICONS.message },
   { id: "write", label: "Write", key: "w", icon: ICONS.penLine },
   { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
+  { id: "copy", label: "Copy", key: "y", icon: ICONS.copy },
   { id: "tag", label: "Tag line", key: "t", icon: ICONS.flag },
   { id: "end-chapter", label: "End chapter here", key: "C", icon: ICONS.summary },
   { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash },
@@ -120,7 +121,7 @@ export function PartActionsMenu(
     const article = triggerRef.current?.closest("[data-part-id]") ?? null;
     const inside = selected !== null && !selected.isCollapsed && article !== null
       && article.contains(selected.anchorNode) && article.contains(selected.focusNode);
-    setSelection(inside ? selected.toString().trim() : "");
+    setSelection(inside ? selected.toString() : "");
   }, [open]);
 
   // Open upward when the trigger sits in the lower half of the manuscript.
@@ -147,13 +148,18 @@ export function PartActionsMenu(
   const available = new Set<WebPartActionId>(partActions(part.node, isLeaf).map((action) => action.id));
   available.add("end-chapter");
   for (const id of ["fact-here", "fact-state", "fact-end", "new-fact"] as const) available.add(id);
-  if (selection.length > 0) available.add("fact-from-selection");
+  const hasSelection = selection.trim().length > 0;
+  if (hasSelection) available.add("fact-from-selection");
   const items = ITEMS.filter((item) => available.has(item.id));
 
   const run = (id: WebPartActionId): void => {
     closedByItem.current = true;
     setOpen(false);
-    actions.part.run(id, part.id, id === "fact-from-selection" ? { selection } : {});
+    actions.part.run(
+      id,
+      part.id,
+      id === "fact-from-selection" ? { selection: selection.trim() } : id === "copy" && hasSelection ? { selection } : {}
+    );
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
@@ -200,7 +206,7 @@ export function PartActionsMenu(
               onClick={() => run(item.id)}
             >
               <Icon path={item.icon} />
-              <span className="menu-item-text">{item.label}</span>
+              <span className="menu-item-text">{item.id === "copy" && hasSelection ? "Copy selection" : item.label}</span>
               <span className="menu-key" aria-hidden="true">{item.key}</span>
             </button>
             </Fragment>

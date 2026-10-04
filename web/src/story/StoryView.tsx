@@ -20,6 +20,7 @@ import { StoryPanel } from "../panel/StoryPanel.js";
 import { PruneDialog } from "./PruneDialog.js";
 import { StoryHeader } from "./StoryHeader.js";
 import { NOTHING_TO_MAP_TOAST } from "./reading-keys.js";
+import { centerPart } from "./typewriter.js";
 import { handleWritingKey } from "./writing-keys.js";
 import { effectiveFocusedPartId, storyIdOf, type StoryState } from "./state.js";
 
@@ -61,6 +62,7 @@ export function StoryView(
   const { store, actions } = useAppContext();
   const story = useStore(store, (state) => (storyIdOf(state.story) === storyId ? state.story : null));
   const showDirections = useStore(store, (state) => state.reading.showDirections);
+  const typewriter = useStore(store, (state) => state.reading.typewriter);
   const generation = useStore(store, (state) => state.generation);
   const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
   // Primitives and stable references only: this view must not redraw on every
@@ -103,6 +105,13 @@ export function StoryView(
     if (focusedPartId === null || scrollRef.current === null) return;
     focusPartElement(scrollRef.current, focusedPartId);
   }, [focusedPartId]);
+
+  // Typewriter mode (`z`): after the move above, the focused part is brought
+  // to the middle of the view. Turning the mode on centers the current part.
+  useEffect(() => {
+    if (!typewriter || focusedPartId === null || scrollRef.current === null) return;
+    centerPart(scrollRef.current, focusedPartId);
+  }, [typewriter, focusedPartId]);
 
   // The TUI keys this screen handles now: focus prev/next, take prev/next
   // (also while a take-switch button has focus — buttons are not "fields"),
@@ -200,7 +209,7 @@ export function StoryView(
       />
       <div className="story-columns">
       <div className="story-main">
-        <div className="story-scroll" ref={scrollRef}>
+        <div className={`story-scroll${typewriter ? " story-scroll-typewriter" : ""}`} ref={scrollRef}>
           <div className="story-body">
             {editorOffLine && <EditorRecovery />}
             {payload.path.length === 0 && generationView === null

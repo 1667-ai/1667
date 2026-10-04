@@ -3,13 +3,32 @@ import {
   lineName,
   workingName,
   type StoryIndex
-} from "../../shared/story-model.js";
+} from "./story-model.js";
 import type {
   SearchHit,
   SearchResponse,
   SearchScope
-} from "../../shared/story-search.js";
-import type { StoryPayload, StorySummary, Tag } from "../../shared/types.js";
+} from "./story-search.js";
+import type { StoryPayload, StorySummary, Tag } from "./types.js";
+
+/** How long typing must pause before a scan starts.
+ *
+ *  A window only collapses typing faster than itself. Measured against a
+ *  14-character phrase, where every character otherwise costs a scan:
+ *
+ *      window    100wpm   80wpm   60wpm
+ *      none          13      13      13
+ *      90ms           1      13      13
+ *      150ms          1       1      13
+ *      260ms          1       1       1
+ *
+ *  150ms takes the bursts that actually load the backend and stays well inside
+ *  the quarter-second that still reads as immediate. A slower hand keeps a scan
+ *  per character, which is a rate the backend was never troubled by.
+ *
+ *  Cancellation frees the backend the instant a key lands; this only holds back
+ *  the replacement. */
+export const SEARCH_DEBOUNCE_MS = 150;
 
 /** Everything the search navigator renders from. Hits arrive from the backend;
  * grouping, ordering and folding are decided here. */

@@ -5,7 +5,7 @@ import {
   type SearchHitRow,
   type SearchRowModel,
   type SearchState
-} from "../search-model.js";
+} from "../../../shared/search-model.js";
 import type { StoryScreenState } from "../state.js";
 import { tagGlyph } from "../tag-presentation.js";
 import { wrapText } from "../wrap.js";

@@ -20,7 +20,7 @@ import type { UndoEntry } from "./model.js";
 import type { PrunePlan } from "./prune-model.js";
 import type { ComposerState } from "./composer-model.js";
 import type { MapState } from "./map-state.js";
-import type { SearchState } from "./search-model.js";
+import type { SearchState } from "../../shared/search-model.js";
 import type { CommandSelectionId } from "./command-model.js";
 import type {
   DiscardPendingSettingsCommand,

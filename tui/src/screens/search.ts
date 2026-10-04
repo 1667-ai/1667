@@ -8,7 +8,7 @@ import {
   type SearchRow,
   type SearchRowModel,
   type SearchState
-} from "../search-model.js";
+} from "../../../shared/search-model.js";
 import type { StoryScreenState } from "../state.js";
 import {
   fitLine,

@@ -13,6 +13,7 @@ import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { STORY_RELOADED_TOAST, type StoryActions } from "./actions.js";
+import { copyStoryText } from "./copy.js";
 import { createDeletePlan } from "./delete-plan.js";
 import { partActionRefusal, type WebPartActionId } from "./part-policy.js";
 import { openPart } from "./state.js";
@@ -33,6 +34,8 @@ export interface PartCommands {
    * from the `···` menu: asks `partActionRefusal` first (a refusal is a
    * toast and nothing else), then does the action. */
   run(id: WebPartActionId, partId: string, options?: { readonly selection?: string }): void;
+  /** `Y`: copies the whole line's text. */
+  copyLine(): void;
   /** `x`: opens this part's `···` menu. */
   openMenu(partId: string): void;
   cancelDelete(): void;
@@ -78,6 +81,11 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
       case "retake-with-prompt": deps.compose.startRetake(partId); break;
       case "write": deps.editor.openWrite(partId); break;
       case "edit": deps.editor.openEdit(partId); break;
+      case "copy":
+        void copyStoryText(store, target.story.payload, options.selection === undefined
+          ? { kind: "part", partId }
+          : { kind: "selection", text: options.selection });
+        break;
       case "prune": askDelete(partId); break;
       case "tag": deps.tags.openForPart(partId); break;
       case "end-chapter": void deps.chapters.addBreak(partId); break;
@@ -98,6 +106,11 @@ export function createPartCommands(store: Store<AppState>, deps: PartCommandDepe
 
   return {
     run,
+
+    copyLine: () => {
+      const { story } = store.get();
+      if (story.kind === "loaded") void copyStoryText(store, story.payload, { kind: "line" });
+    },
 
     openMenu: (partId) => {
       if (openPart(store.get(), partId) === null) return;

@@ -1,5 +1,5 @@
 import type { SearchHit } from "../../../shared/story-search.js";
-import type { SearchGroupRow, SearchHitRow } from "../search-model.js";
+import type { SearchGroupRow, SearchHitRow } from "../../../shared/search-model.js";
 import { tagGlyph, tagRole } from "../tag-presentation.js";
 import {
   fitLine,
