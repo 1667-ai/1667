@@ -1,3 +1,4 @@
+import { initialAsideState, type AsideState } from "../aside/state.js";
 import { composeDraftOf, type ComposeState } from "../compose/state.js";
 import { editorCopyText, editorDirty, type EditorState } from "../editor/state.js";
 import { noteDraftDirty, noteFieldLabel, type NotesState } from "../notes/state.js";
@@ -6,7 +7,7 @@ import type { SettingsState } from "../settings/state.js";
 import { factEditorCopyText, factEditorDirty, type FactsState } from "../facts/state.js";
 
 /**
- * Writing that lives only in this page: a changed editor, a changed fact editor, changed settings, and any composer
+ * Writing that lives only in this page: a changed editor, a changed fact editor, changed settings, Aside questions, and any composer
  * text that was not sent. It is lost on a reload, and unreachable behind a
  * connection screen — so the unload guard warns about it, and the connection
  * screens list it with a Copy button.
@@ -22,7 +23,8 @@ export function unsavedWork(
   compose: ComposeState,
   facts: FactsState,
   notes: NotesState,
-  settings: SettingsState
+  settings: SettingsState,
+  aside: AsideState = initialAsideState()
 ): UnsavedItem[] {
   const items: UnsavedItem[] = [];
   if (editor !== null && editorDirty(editor)) {
@@ -48,6 +50,22 @@ export function unsavedWork(
     if (draft.retake !== null && draft.retake.text.trim().length > 0) {
       items.push({ id: `retake:${storyId}`, label: "Unsent retake direction", text: draft.retake.text });
     }
+  }
+  for (const [storyId, draft] of Object.entries(aside.drafts)) {
+    if (draft.trim().length > 0) items.push({ id: `aside:${storyId}`, label: "Unsent Aside question", text: draft });
+  }
+  for (const draft of Object.values(aside.retakes)) {
+    if (draft.text.trim().length > 0) {
+      items.push({ id: `aside-retake:${draft.sessionId}`, label: "Unsent Aside retake question", text: draft.text });
+    }
+  }
+  for (const item of aside.unsaved) {
+    items.push({ id: `aside-unsaved:${item.id}`, label: "Aside answer not saved", text: item.text });
+  }
+  // A question that is being answered is not lost: a Stop with no answer, or a
+  // failure, hands it back. It is listed so a reload does not lose it quietly.
+  if (aside.run !== null && aside.run.question.trim().length > 0 && aside.run.kind !== "change") {
+    items.push({ id: `aside-run:${aside.run.storyId}`, label: "Aside question being answered", text: aside.run.question });
   }
   return items;
 }

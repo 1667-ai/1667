@@ -2,6 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore, type KeyboardEvent }
 import { type StoryChapter } from "../../../shared/manuscript-model.js";
 import { manuscriptModelOf } from "../story/manuscript-model.js";
 import type { StoryPayload } from "../../../shared/types.js";
+import { AsidePanel } from "../aside/AsidePanel.js";
+import { handleAsideKey } from "../aside/keys.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
@@ -30,12 +32,13 @@ function useDockedLayout(): boolean {
   );
 }
 
-const TITLES = { chapters: "Chapters", facts: "Facts", findings: "Findings" } as const;
+const TITLES = { chapters: "Chapters", facts: "Facts", aside: "Aside", findings: "Findings" } as const;
+const TAB_HINTS = { chapters: "Chapters (c)", facts: "Facts (f)", aside: "Aside (a)", findings: "The last Fact check" } as const;
 
 export const CHAPTER_ONE_NO_BREAK_TOAST = "Chapter One has no break to remove.";
 
 /**
- * The story's right-hand panel, with a Chapters view and a Facts view. It
+ * The story's right-hand panel, with a Chapters view, a Facts view and an Aside view. It
  * owns the keyboard while it has focus (`data-owns-keys`), so the
  * manuscript's keys stay quiet. `F` docks the Facts view beside the manuscript
  * without taking the keyboard (docked layout only). Chapters keys: ↑↓ move, Enter goes to the chapter's first part,
@@ -115,6 +118,10 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLElement>): void => {
+    if (view === "aside") {
+      handleAsideKey(event, { actions, close });
+      return;
+    }
     if (view === "facts") {
       handleFactsKey(event, {
         actions, rows: factRows, cursor: factCursor, filterRef, editorOpen, picking, close,
@@ -197,14 +204,14 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
       >
         <header className="panel-head">
           <div className="seg" role="group" aria-label="Panel view">
-            {(["chapters", "facts", ...(findingsHere !== null || view === "findings" ? ["findings" as const] : [])] as const).map((name) => (
+            {(["chapters", "facts", "aside", ...(findingsHere !== null || view === "findings" ? ["findings" as const] : [])] as const).map((name) => (
               <button
                 key={name}
                 type="button"
                 className="seg-btn"
                 aria-pressed={view === name}
-                title={name === "chapters" ? "Chapters (c)" : name === "facts" ? "Facts (f)" : "The last Fact check"}
-                onClick={() => actions.panel.open(name)}
+                title={TAB_HINTS[name]}
+                onClick={() => (name === "aside" ? actions.aside.open() : actions.panel.open(name))}
               >
                 {TITLES[name]}
               </button>
@@ -220,21 +227,25 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
             <Icon path={ICONS.x} />
           </button>
         </header>
-        <div className="panel-body">
-          {view === "chapters"
-            ? <ChaptersPanel payload={payload} cursor={cursor} onCursor={setCursor} onJump={jump} />
-            : view === "findings"
-            ? <FindingsPanel payload={payload} cursor={findingCursor} onCursor={setFindingCursor} />
-            : (
-              <FactsPanel
-                payload={payload}
-                rows={factRows}
-                cursor={factCursor}
-                onCursor={(index) => setFactId(factRows[index]?.id ?? null)}
-                filterRef={filterRef}
-              />
-            )}
-        </div>
+        {view === "aside"
+          ? <AsidePanel payload={payload} onClose={close} />
+          : (
+            <div className="panel-body">
+              {view === "chapters"
+                ? <ChaptersPanel payload={payload} cursor={cursor} onCursor={setCursor} onJump={jump} />
+                : view === "findings"
+                ? <FindingsPanel payload={payload} cursor={findingCursor} onCursor={setFindingCursor} />
+                : (
+                  <FactsPanel
+                    payload={payload}
+                    rows={factRows}
+                    cursor={factCursor}
+                    onCursor={(index) => setFactId(factRows[index]?.id ?? null)}
+                    filterRef={filterRef}
+                  />
+                )}
+            </div>
+          )}
         {view === "chapters" && (
           <footer className="panel-foot">
             <button
