@@ -128,6 +128,14 @@ test("case 2: Tab to all stories shows a hit in a second story; Enter opens that
   await page.keyboard.press("Tab");
   await options(page).filter({ hasText: "Second Story" }).waitFor();
   expect(await dialog(page).getByRole("button", { name: "All stories" }).getAttribute("aria-pressed")).toBe("true");
+  // A clicked toggle hands the keyboard back to the query field.
+  await dialog(page).getByRole("button", { name: "This story" }).click();
+  await dialog(page).getByRole("button", { name: "All stories" }).click();
+  await options(page).filter({ hasText: "zeppelin" }).waitFor();
+  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).toBe("Search text");
+  await page.keyboard.press("ArrowUp");
+  expect(await options(page).first().getAttribute("aria-selected")).toBe("true");
+  await page.keyboard.press("ArrowDown");
   await screenshot(page, "10c-vault");
   await options(page).filter({ hasText: "zeppelin" }).waitFor();
   await page.keyboard.press("Enter");

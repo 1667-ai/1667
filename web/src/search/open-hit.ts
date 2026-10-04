@@ -58,21 +58,28 @@ export async function openSearchHit(
   closeDialog: () => void
 ): Promise<void> {
   let payload: StoryPayload;
+  let navigated = false;
+  // Leaving the story unmounts the dialog's content; a failed open must still clear the overlay.
+  const refuse = (message: string): void => {
+    pushToast(store, message);
+    if (navigated) closeDialog();
+  };
   const current = store.get().story;
   if (current.kind === "loaded" && current.payload.id === hit.storyId) {
     payload = current.payload;
   } else {
+    navigated = true;
     navigate({ kind: "story", id: hit.storyId });
     const loaded = await whenStoryLoaded(store, hit.storyId);
     if (loaded === null) {
-      pushToast(store, "That story could not be opened.");
+      refuse("That story could not be opened.");
       return;
     }
     payload = loaded;
   }
   if (!hitSurvivesIn(hit, payload)) {
     const fact = hit.kind === "fact" && payload.facts.some(({ id }) => id === hit.targetId);
-    pushToast(store, fact ? "That Fact State is no longer in this story." : "That part is no longer in this story.");
+    refuse(fact ? "That Fact State is no longer in this story." : "That part is no longer in this story.");
     return;
   }
   if (hit.kind === "fact") {
@@ -86,7 +93,7 @@ export async function openSearchHit(
   }
   const target = resolveRerouteTarget(payload, hit.targetId);
   if (target === null) {
-    pushToast(store, "That part is no longer in this story.");
+    refuse("That part is no longer in this story.");
     return;
   }
   if (!actions.story.switchLine(target)) return;

@@ -142,10 +142,13 @@ export function SearchDialog({ onClose }: { readonly onClose: () => void }) {
   const changeScope = (next: SearchScope): void => {
     delayRef.current = 0;
     setScope(next);
+    inputRef.current?.focus();
   };
   const toggleCase = (): void => {
     delayRef.current = 0;
     setCaseSensitive((current) => !current);
+    // The search keys (Ctrl+S, the arrows) live on the field.
+    inputRef.current?.focus();
   };
 
   const activate = (row: SearchGroupRow | SearchHitRow | null): void => {
