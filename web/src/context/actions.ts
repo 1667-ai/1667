@@ -104,9 +104,10 @@ export function createContextActions(store: Store<AppState>): ContextActions {
     });
   };
 
-  /** Provider work owns the prompt: a stream, a summary, or a story name. */
+  /** Provider work owns the prompt: a stream, a summary, an Aside answer, or a story name. */
   const providerBusy = (state: AppState): boolean =>
-    isGenerationActive(state.generation) || state.chapters.summaryRun !== null || state.notes.naming !== null;
+    isGenerationActive(state.generation) || state.chapters.summaryRun !== null || state.aside.run !== null
+    || state.notes.naming !== null;
 
   const host: PromptTokenCountHost<string> = {
     storyId: () => store.get().context.projection?.storyId ?? "",
