@@ -37,6 +37,10 @@ export interface DraftHandle {
   /** Puts the text back. Returns whether it did: a newer text in the box, or
    * a box that was already restored, means it did not. */
   restore(): boolean;
+  /** Puts the staged images back in the composer without touching the text.
+   * Used when a stopped take is saved: the save cannot carry the images, so
+   * they stay attached for the next send. */
+  restoreImages?(): void;
   /** Empties what `restore` put back, if the writer has not changed it. Only
    * called after a `restore` that returned `true`. */
   clear(): void;
@@ -53,6 +57,8 @@ export interface GenerationContinueRequest {
   readonly draft?: DraftHandle;
   /** Images staged for this take, in order. */
   readonly images?: readonly DraftImage[];
+  /** Opens a new take even with an empty direction. */
+  readonly forceTake?: boolean;
 }
 
 /** A rewrite of a passage of one part: the range and the text it held when
@@ -333,6 +339,10 @@ export function createGenerationActions(
         announcement: `Stopped. Part ${n} kept.`
       });
       endRun(run, "landed");
+      if (run.draft.handle?.restoreImages !== undefined) {
+        run.draft.handle.restoreImages();
+        pushToast(store, "The stopped text was saved without its images. The images are still attached.");
+      }
       if (failureMessage !== null) {
         pushToast(store, `${failureMessage} · generation stopped · text kept in ${run.storyTitle}.`);
       } else if (!applied) {
@@ -624,7 +634,8 @@ export function createGenerationActions(
         focusedPartId,
         instruction,
         ...(defaultContinueDirection === undefined ? {} : { defaultContinueDirection }),
-        retakeNode
+        retakeNode,
+        ...(request.forceTake === true ? { forceTake: true } : {})
       });
     } catch (error) {
       return refuse(errorMessage(error));

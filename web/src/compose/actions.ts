@@ -1,4 +1,3 @@
-import { DEFAULT_INSTRUCTION } from "../../../shared/continuation-plan.js";
 import { resolveRewriteRange } from "../../../shared/rewrite-target.js";
 import type { GenerationActions } from "../generation/actions.js";
 import { createImageActions, type ImageActions } from "../images/actions.js";
@@ -117,9 +116,10 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
       const { storyId, node } = target;
       // A retake already open for this part keeps what the writer typed; one
       // open for another part is archived before this one replaces it.
-      if (composeDraftOf(store.get().compose, storyId).retake?.nodeId !== node.id) archiveRetake(storyId);
+      const open = composeDraftOf(store.get().compose, storyId).retake;
+      if (open?.nodeId !== node.id || open.rewrite !== undefined) archiveRetake(storyId);
       writeDraft(storyId, (draft) => (
-        draft.retake?.nodeId === node.id ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
+        draft.retake?.nodeId === node.id && draft.retake.rewrite === undefined ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
       ));
       deps.story.focusPart(partId);
       focusComposer();
@@ -204,7 +204,7 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         // Images go with a new take, and a take has a direction: the default.
         const handle = createDirectDraft(host, "", attached);
         writeDraft(storyId, (current) => ({ ...current, direct: "", images: [] }));
-        void deps.generation.continue({ instruction: DEFAULT_INSTRUCTION, draft: handle, images: attached });
+        void deps.generation.continue({ draft: handle, images: attached, forceTake: true });
         return true;
       }
       const text = draft.direct;

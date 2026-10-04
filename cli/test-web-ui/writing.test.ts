@@ -402,3 +402,25 @@ test("case 6: attach image: not offered on a route that cannot take one; on one 
   const story = await api.loadStory(seeded.storyId);
   expect(story.path.at(-1)!.imageAttachments?.length ?? 0).toBe(1);
 }, 120_000);
+
+test("case 7: Retake with direction after Rewrite selection retakes; it does not rewrite in place", async () => {
+  const { api, seeded, page } = await openForked();
+  await selectInPart(page, "B1:", "first take");
+  const menu = await openMenuOf(page, "B1:");
+  await menu.getByRole("menuitem", { name: "Rewrite selection" }).click();
+  await page.getByRole("textbox", { name: "Instruction for the rewrite" }).waitFor();
+
+  const again = await openMenuOf(page, "B1:");
+  await again.getByRole("menuitem", { name: "Retake with direction" }).click();
+  const field = page.getByRole("textbox", { name: "New direction for the retake" });
+  await field.waitFor();
+  await field.fill("a different B");
+  await field.press("Enter");
+
+  expect(await poll(async () => {
+    const story = await api.loadStory(seeded.storyId);
+    return story.nodes.some((node) => node.parentId === seeded.a1 && node.id !== seeded.b1 && node.id !== seeded.b2 && node.id !== seeded.b3);
+  }, 20_000)).toBeTrue();
+  const saved = (await api.loadStory(seeded.storyId)).nodes.find((node) => node.id === seeded.b1)!;
+  expect(saved.preview).toContain("first take");
+}, 90_000);
