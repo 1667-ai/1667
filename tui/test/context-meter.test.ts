@@ -13,7 +13,7 @@ import {
   type RailModel
 } from "../src/rail.js";
 import type { HitRows } from "../src/hit.js";
-import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
+import { nextRequestEstimate, type NextRequestContext } from "../../shared/request-projection.js";
 import {
   nextRequestContext,
   projectNextRequest,
@@ -34,7 +34,7 @@ import { effectiveFactAtPath, type EffectiveStoryFact } from "../../shared/fact-
 import { assertPromptReadyStoryPayload, type StoryPayload } from "../../shared/types.js";
 import { continuationIntent } from "../../shared/continuation-intent.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
-import { estimateResponseGrowthTokens } from "../src/response-growth-estimate.js";
+import { estimateResponseGrowthTokens } from "../../shared/response-growth-estimate.js";
 import type { PromptTokenCount } from "../../shared/tokenize-source.js";
 import { factWithText } from "./fact-fixture.js";
 

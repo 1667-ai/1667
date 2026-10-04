@@ -4,7 +4,7 @@ import type { RuntimeState } from "../src/state.js";
 import { demoAppSource } from "../src/demo.js";
 import { buildRailModel } from "../src/rail.js";
 import type { HitRows } from "../src/hit.js";
-import { nextRequestEstimate, type NextRequestContext } from "../src/request-projection.js";
+import { nextRequestEstimate, type NextRequestContext } from "../../shared/request-projection.js";
 import { renderFactsRail } from "../src/screens/story/facts-rail.js";
 import { panelRowWindow } from "../src/screens/panel-table-layout.js";
 import { frameText, plainLine, segment, sliceFrame, visibleWidth } from "../src/screens/story/frame.js";

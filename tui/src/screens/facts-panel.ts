@@ -22,7 +22,7 @@ import { isFactEndState } from "../../../shared/fact-state.js";
 import { lineName } from "../../../shared/story-model.js";
 import type { HitRegion, HitRows, HitTarget } from "../hit.js";
 import type { KeyAction } from "../keys.js";
-import type { RequestTokenEstimate } from "../request-projection.js";
+import type { RequestTokenEstimate } from "../../../shared/request-projection.js";
 import type { OverlayState } from "../state.js";
 import {
   boundedContent,

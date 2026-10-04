@@ -1,6 +1,6 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import type { HitRows, HitTarget } from "../hit.js";
-import type { NextRequestContext, NextRequestEstimate } from "../request-projection.js";
+import type { NextRequestContext, NextRequestEstimate } from "../../../shared/request-projection.js";
 import {
   breakdownFromPerMessage,
   formatTokensEstimate,

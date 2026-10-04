@@ -27,7 +27,7 @@ import { chapterDisplayTitle } from "../../../shared/chapter-labels.js";
 import { chapterListModel, chapterWindow } from "../chapter-model.js";
 import { createStoryViewModel, rowIndexForNode, rowPart } from "../model.js";
 import { formatTokensScaled, formatTokensEstimate } from "../rail.js";
-import type { RequestTokenEstimate } from "../request-projection.js";
+import type { RequestTokenEstimate } from "../../../shared/request-projection.js";
 import {
   dimPage,
   panelContentRows,

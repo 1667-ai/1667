@@ -4,7 +4,7 @@ import { initialState } from "../src/app.js";
 import { demoAppSource } from "../src/demo.js";
 import { initialSettingsOverlay } from "../src/settings-overlay-model.js";
 import { frameText } from "../src/screens/story/frame.js";
-import { nextRequestEstimate } from "../src/request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 import { nextRequestContext } from "../src/request-context.js";
 import type { HitRows } from "../src/hit.js";
 

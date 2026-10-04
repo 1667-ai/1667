@@ -6,7 +6,7 @@ import { pruneConfirmText } from "../../prune-model.js";
 import { samplingListPanelStatusLabel } from "../../sampling-panel-spec.js";
 import { isPlainNavigation } from "../../keys.js";
 import { contextSeverity, formatTokensScaled, formatTokensEstimate, requestWindow } from "../../rail.js";
-import type { NextRequestEstimate } from "../../request-projection.js";
+import type { NextRequestEstimate } from "../../../../shared/request-projection.js";
 import {
   PLACEMENT_PLACING_STATUS,
   PLACEMENT_STATUS_TEXT,

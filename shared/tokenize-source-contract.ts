@@ -1,3 +1,4 @@
+import type { ChatMessage } from "./prompt-plan.js";
 /** Browser-safe token-count source contracts shared by wire decoders. */
 export type TokenizeSourceKind =
   | "bundled-openai"
@@ -25,3 +26,16 @@ export const COUNTED_TOKENIZE_SOURCE_VALUES = [
   "llama-cpp-tokenize",
   "koboldcpp-tokencount"
 ] as const satisfies readonly Exclude<TokenizeSourceKind, "none">[];
+
+/**
+ * The largest message array 1667 sends to be counted. A request past this
+ * ceiling keeps the estimate rather than pushing a megabyte-scale body at the
+ * backend on every idle pass. It sits under `MAX_JSON_BODY_BYTES` with room for
+ * the JSON envelope around the text.
+ */
+export const MAX_COUNTED_PROMPT_CHARS = 400_000;
+
+/** The counted content, in the order the provider receives it. */
+export function countedPromptChars(messages: readonly ChatMessage[]): number {
+  return messages.reduce((sum, message) => sum + message.content.length, 0);
+}
