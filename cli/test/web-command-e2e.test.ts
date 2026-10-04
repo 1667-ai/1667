@@ -73,7 +73,7 @@ test("the shell page and every hashed asset it references are public, "
     expect(asset.headers.get("content-type")).toBe(contentTypeForPath(assetPath));
     assertSecurityHeaders(asset, web.port, assetPath.startsWith("/assets/") ? IMMUTABLE : "no-store");
     if (assetPath.endsWith(".js")) {
-      scriptBody = await asset.text();
+      scriptBody += await asset.text();
     } else if (assetPath.endsWith(".css")) {
       // Fonts are referenced only from inside the stylesheet's own
       // `@font-face src: url(...)` rules, never from index.html directly.
