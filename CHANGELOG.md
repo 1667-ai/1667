@@ -20,6 +20,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   computer and never shows it again. Press Ctrl+S or Cmd+S to save. Press Esc
   to close the page. An unsaved draft stays when you leave the page.
 
+- **`1667 web` can copy text, write an Author's Note, and keep a part in the
+  middle of the page.** Press `y` to copy the part that has focus. Press `Y` to
+  copy the whole line. Press `n` to write an Author's Note with a depth. Press
+  `z` to keep the part that has focus in the middle of the page. The command
+  palette can set an author brief, name a story, and download a story as a
+  Markdown file.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line
