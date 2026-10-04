@@ -4,6 +4,7 @@
 export const ICONS = {
   menu: "M4 7h16 M4 12h16 M4 17h16",
   plus: "M12 5v14 M5 12h14",
+  minus: "M5 12h14",
   moon: "M12 3a6 6 0 0 0 9 9 9 9 0 1 1-9-9Z",
   droplet: "M12 2.7c3.6 4.2 6 7.3 6 10.3a6 6 0 1 1-12 0c0-3 2.4-6.1 6-10.3Z",
   sun: "M12 4V2 M12 22v-2 M4 12H2 M22 12h-2 M5.6 5.6 4.2 4.2 M19.8 19.8l-1.4-1.4 M18.4 5.6l1.4-1.4 M4.2 19.8l1.4-1.4 M12 8a4 4 0 1 0 0 8 4 4 0 0 0 0-8Z",
@@ -16,6 +17,7 @@ export const ICONS = {
   trash: "M4 7h16 M9 7V5a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v2 M6 7l1 13h10l1-13 M10 11v6 M14 11v6",
   chevronLeft: "M15 6l-6 6 6 6",
   chevronRight: "M9 6l6 6-6 6",
+  search: "M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14Z M21 21l-5-5",
   arrowRight: "M5 12h14 M13 6l6 6-6 6",
   rotate: "M3 12a9 9 0 1 0 2.6-6.4L3 8 M3 3v5h5",
   signpost: "M12 3v3 M12 14v7 M5 6h12l3 4-3 4H5Z",
@@ -28,6 +30,7 @@ export const ICONS = {
   diamond: "M12 3l9 9-9 9-9-9Z",
   branch: "M6 3v12 M18 9a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M6 21a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z M18 9a9 9 0 0 1-9 9",
   /* Three solid circles, r 1.6, each drawn as two arcs (`FILLED`). */
+  copy: "M10 8h10a2 2 0 0 1 2 2v10a2 2 0 0 1-2 2H10a2 2 0 0 1-2-2V10a2 2 0 0 1 2-2Z M4 16a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2",
   dots: "M3.4 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0 M10.4 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0 M17.4 12a1.6 1.6 0 1 0 3.2 0a1.6 1.6 0 1 0-3.2 0"
 } as const;
 

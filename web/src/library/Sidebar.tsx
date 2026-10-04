@@ -3,6 +3,7 @@ import { useAppContext } from "../app/context.js";
 import { useKeymap } from "../app/keymap.js";
 import { navigate, openSettings } from "../app/router.js";
 import { useStore } from "../app/store.js";
+import { searchAvailable } from "../search/commands.js";
 import { ThemeControls } from "../theme/ThemeControls.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { isDirty } from "../settings/model.js";
@@ -43,7 +44,12 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
     () => actions.generation.stop() || actions.chapters.stopSummary(),
     [actions]
   );
-  useKeymap({ searchRef, stopGeneration, openOverlay: actions.overlay.open });
+  const openSearch = useCallback((): boolean => {
+    if (!searchAvailable(store.get())) return false;
+    actions.overlay.open("search");
+    return true;
+  }, [actions, store]);
+  useKeymap({ searchRef, stopGeneration, openOverlay: actions.overlay.open, openSearch });
 
   return (
     <>
@@ -98,7 +104,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
             type="search"
             placeholder="Search stories"
             aria-label="Search stories"
-            title="Search stories (/)"
+            title="Filter stories"
             value={query}
             onChange={(event) => actions.library.setQuery(event.currentTarget.value)}
           />

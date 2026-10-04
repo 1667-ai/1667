@@ -10,6 +10,7 @@ import { unsavedWork } from "../web/src/app/unsaved-work.js";
 import { initialChaptersState } from "../web/src/chapters/state.js";
 import { initialComposeState } from "../web/src/compose/state.js";
 import { initialFactsState } from "../web/src/facts/state.js";
+import { initialNotesState } from "../web/src/notes/state.js";
 import type { LoadedSettings } from "../web/src/settings/state.js";
 import {
   connectedState,
@@ -179,7 +180,7 @@ test("a read-only view cannot be edited or saved", async () => {
 
   assert.equal(loaded(store).draft, before.draft);
   assert.equal(saves.commands.length, 0);
-  assert.equal(unsavedWork(null, initialComposeState(), initialFactsState(), store.get().settings).length, 0);
+  assert.equal(unsavedWork(null, initialComposeState(), initialFactsState(), initialNotesState(), store.get().settings).length, 0);
 });
 
 test("a typed key goes out under a fresh secret id, and a removed key goes out as null", async () => {
@@ -193,7 +194,7 @@ test("a typed key goes out under a fresh secret id, and a removed key goes out a
   const pending = loaded(store);
   assert.deepEqual(Object.values(pending.secrets), [KEY]);
   actions.settings.setWriting("defaultAuthorBrief", "A brief changed beside the key.");
-  const items = unsavedWork(null, initialComposeState(), initialFactsState(), store.get().settings);
+  const items = unsavedWork(null, initialComposeState(), initialFactsState(), initialNotesState(), store.get().settings);
   assert.equal(items.length, 1);
   assert.ok(!JSON.stringify(items).includes(KEY));
   assert.match(items[0]!.text, /A brief changed beside the key\./u);
@@ -228,7 +229,7 @@ test("the unsaved settings never list a key, and nothing but changed prompts rea
   const { actions, store } = await opened();
   actions.settings.chooseProvider("openai-compatible");
   actions.settings.setApiKey(KEY);
-  const items = unsavedWork(null, initialComposeState(), initialFactsState(), store.get().settings);
+  const items = unsavedWork(null, initialComposeState(), initialFactsState(), initialNotesState(), store.get().settings);
   assert.deepEqual(items.map((item) => item.id), ["settings"]);
   assert.equal(items[0]!.text, "");
   // Neither the store's other slices nor the items carry it.

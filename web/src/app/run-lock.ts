@@ -15,17 +15,24 @@ export const SUMMARY_LOCKED_TOAST = "Summarizing… Esc stops it first.";
 
 /** A generation's text is not saved yet; nothing may start or remove the
  * part it hangs below until the writer retries or discards it. */
+/** The story is being named: a provider call that cannot be stopped. */
+export const NAMING_LOCKED_TOAST = "Naming the story… Wait for it.";
+
 export const UNSAVED_TOAST = "The last text is not saved yet. Retry or discard it first.";
 
 /** True while a generation is running or settling in `storyId`, or a chapter
  * summary is running there. `"unsaved"` text does not lock: nothing is
  * running any more. */
 export function storyRunLocked(state: AppState, storyId: string): boolean {
-  return generationLocks(state.generation, storyId) || state.chapters.summaryRun?.storyId === storyId;
+  return generationLocks(state.generation, storyId)
+    || state.chapters.summaryRun?.storyId === storyId
+    || state.notes.naming?.storyId === storyId;
 }
 
 /** The toast for a change refused because `storyId` is locked. */
 export function lockedToast(state: AppState, storyId: string): string {
+  if (state.notes.naming?.storyId === storyId && !generationLocks(state.generation, storyId)
+    && state.chapters.summaryRun?.storyId !== storyId) return NAMING_LOCKED_TOAST;
   return state.chapters.summaryRun?.storyId === storyId && !generationLocks(state.generation, storyId)
     ? SUMMARY_LOCKED_TOAST
     : STORY_LOCKED_TOAST;
@@ -40,6 +47,10 @@ export function runBusyToast(state: AppState, storyId: string): string | null {
     return generation.kind === "unsaved" ? UNSAVED_TOAST : STORY_LOCKED_TOAST;
   }
   const run = state.chapters.summaryRun;
-  if (run === null) return null;
-  return run.storyId === storyId ? SUMMARY_LOCKED_TOAST : `Already summarizing in ${run.storyTitle}. Esc stops it.`;
+  if (run !== null) {
+    return run.storyId === storyId ? SUMMARY_LOCKED_TOAST : `Already summarizing in ${run.storyTitle}. Esc stops it.`;
+  }
+  const naming = state.notes.naming;
+  if (naming === null) return null;
+  return naming.storyId === storyId ? NAMING_LOCKED_TOAST : `Already naming ${naming.storyTitle}. Wait for it.`;
 }

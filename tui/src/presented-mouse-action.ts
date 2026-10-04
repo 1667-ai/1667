@@ -12,7 +12,7 @@ import {
 import { factEditorPaletteContext } from "./facts-command-catalog.js";
 import { factsOpeningPartId, factsPaletteContext } from "./facts-command-context.js";
 import { libraryRows } from "./library-model.js";
-import { searchRows, selectedSearchRow } from "./search-model.js";
+import { searchRows, selectedSearchRow } from "../../shared/search-model.js";
 import { canRewriteSelection } from "./selection-projection.js";
 import { currentPartActions } from "./story-actions.js";
 import { createStoryIndex } from "../../shared/story-model.js";
