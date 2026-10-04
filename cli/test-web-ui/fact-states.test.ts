@@ -271,3 +271,97 @@ test("case 5: selected text becomes the body of a new fact", async () => {
   await menu(page, 3).waitFor();
   expect(await menu(page, 3).getByRole("menuitem", { name: "New fact from selection" }).count()).toBe(0);
 }, 90_000);
+
+/** A fact "The door" with a story-wide state and a second state at B1; the editor is open on the second. */
+async function openDoorEditor(web: ReadyWeb): Promise<{ page: Page; seeded: Awaited<ReturnType<typeof seedForked>>; factId: string }> {
+  const seeded = await seedForked(web);
+  const made = await seeded.api.createFact(seeded.storyId, { name: "The door", text: "The door is open." });
+  const factId = made.facts[0]!.id;
+  await seeded.api.createFactState!(seeded.storyId, factId, { text: "The door is locked.", anchorPartId: seeded.b1 });
+  const page = await openStory(web, seeded.storyId);
+  await page.keyboard.press("f");
+  await waitForCount(rows(page), 1);
+  await page.keyboard.press("Enter");
+  await editor(page).getByRole("textbox", { name: "Text" }).waitFor();
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).inputValue()).toBe("The door is locked.");
+  return { page, seeded, factId };
+}
+
+test("case 6: Re-anchor here moves the open state to the part being read", async () => {
+  const web = await spawnStatesWeb();
+  const { page, seeded } = await openDoorEditor(web);
+
+  await part(page, "C1:").click();
+  await waitForAttribute(part(page, "C1:"), "aria-current", "true");
+  await editor(page).getByRole("button", { name: "Re-anchor here" }).click();
+  await editor(page).getByText("Moves to part 3. Save to keep it.").waitFor();
+  await screenshot(page, "10h-reanchor");
+  // Nothing is saved before Save, and Revert takes the move back.
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({ anchorPartId: seeded.b1 });
+  await editor(page).getByRole("button", { name: "Revert" }).click();
+  await waitForCount(editor(page).getByText("Moves to part 3. Save to keep it."), 0);
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await waitForCount(editor(page), 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({ anchorPartId: seeded.b1 });
+  await rows(page).first().click();
+  await editor(page).getByRole("textbox", { name: "Text" }).waitFor();
+  await editor(page).getByRole("button", { name: "Re-anchor here" }).click();
+  await editor(page).getByText("Moves to part 3. Save to keep it.").waitFor();
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await waitForCount(editor(page), 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({
+    anchorPartId: seeded.c1, text: "The door is locked."
+  });
+
+  // A part that already holds a state of this fact is refused.
+  await rows(page).first().click();
+  await editor(page).getByRole("region", { name: "States" }).getByRole("button", { name: "Edit state 1" }).click();
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).inputValue()).toBe("The door is open.");
+  await editor(page).getByRole("button", { name: "Re-anchor here" }).click();
+  await page.getByText("This fact already has a state at that part.").first().waitFor();
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[0]!.anchorPartId).toBeUndefined();
+}, 90_000);
+
+test("case 7: Convert turns a text state into an End State and back", async () => {
+  const web = await spawnStatesWeb();
+  const { page, seeded } = await openDoorEditor(web);
+
+  // Typed text survives a round trip before Save.
+  await editor(page).getByRole("textbox", { name: "Text" }).fill("The door is painted red.");
+  await editor(page).getByRole("button", { name: "Convert to end" }).click();
+  await editor(page).getByText("This state ends the fact here. It has no text.").waitFor();
+  await editor(page).getByRole("button", { name: "Convert to text" }).click();
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).inputValue()).toBe("The door is painted red.");
+  await editor(page).getByRole("button", { name: "Convert to end" }).click();
+  await editor(page).getByText("This state ends the fact here. It has no text.").waitFor();
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).count()).toBe(0);
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await waitForCount(editor(page), 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({ anchorPartId: seeded.b1, ends: true });
+
+  await panel(page).getByRole("button", { name: "Ended", exact: true }).click();
+  await waitForCount(rows(page), 1);
+  await rows(page).first().click();
+  await editor(page).getByRole("button", { name: "Convert to text" }).click();
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).inputValue()).toBe("The door is open.");
+  await editor(page).getByRole("textbox", { name: "Text" }).fill("The door is bricked up.");
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await waitForCount(editor(page), 0);
+  const state = (await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]!;
+  expect(state).toMatchObject({ anchorPartId: seeded.b1, text: "The door is bricked up." });
+  expect("ends" in state).toBeFalse();
+}, 90_000);
+
+test("case 8: Compare shows what the open state changes from the state before it", async () => {
+  const web = await spawnStatesWeb();
+  const { page } = await openDoorEditor(web);
+
+  await editor(page).getByRole("button", { name: "Compare" }).click();
+  const diff = editor(page).getByRole("group", { name: "Compare states" });
+  await diff.getByText("Changes from state 1 to state 2").waitFor();
+  expect(await diff.getByText("The door is open.").count()).toBe(1);
+  expect(await diff.getByText("The door is locked.").count()).toBe(1);
+  await screenshot(page, "10h-compare");
+  await editor(page).getByRole("button", { name: "Compare" }).click();
+  await waitForCount(diff, 0);
+}, 90_000);

@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { factStateText, isFactEndState, isFactStateful } from "../../../shared/fact-state.js";
-import { factDossierEntries } from "../../../shared/fact-view.js";
+import { factDossierEntries, factStateDiff } from "../../../shared/fact-view.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
@@ -19,6 +19,7 @@ export function FactStates({ payload, editor }: { readonly payload: StoryPayload
   ));
   const factsBusy = useStore(store, (state) => state.facts.busy);
   const [confirming, setConfirming] = useState<string | null>(null);
+  const [comparing, setComparing] = useState(false);
   const fact = editor.factId === null ? undefined : payload.facts.find((candidate) => candidate.id === editor.factId);
   if (fact === undefined || !available) return null;
 
@@ -29,6 +30,9 @@ export function FactStates({ payload, editor }: { readonly payload: StoryPayload
   const busy = editor.saving || factsBusy;
   const hasStoryWide = entries.some((entry) => entry.state.anchorPartId === undefined);
   const adding = editor.body.kind === "new-state";
+  const draftBody = editor.body;
+  const editingEntry = entries.find((entry) => entry.state.id === editingId);
+  const diff = comparing && editingEntry !== undefined ? factStateDiff(fact, editingEntry.index) : null;
 
   return (
     <section className="fact-states" aria-label="States">
@@ -80,6 +84,70 @@ export function FactStates({ payload, editor }: { readonly payload: StoryPayload
             </li>
           ))}
         </ul>
+      )}
+      {editor.body.kind !== "fact" && (
+        <div className="fact-state-tools">
+          {focusedId !== null && (
+            <button
+              type="button"
+              className="btn btn-small"
+              disabled={busy}
+              title={`Move this state to part ${partNumber}`}
+              onClick={actions.facts.reanchorState}
+            >
+              Re-anchor here
+            </button>
+          )}
+          {editor.body.kind === "state" && (
+            <button
+              type="button"
+              className="btn btn-small"
+              disabled={busy}
+              title={editor.body.ends ? "Give this state text again" : "Make this state end the fact"}
+              onClick={actions.facts.convertState}
+            >
+              {editor.body.ends ? "Convert to text" : "Convert to end"}
+            </button>
+          )}
+          {editor.body.kind === "state" && (
+            <button
+              type="button"
+              className="btn btn-small"
+              aria-pressed={comparing}
+              title="Compare this state with the one before it"
+              onClick={() => setComparing(!comparing)}
+            >
+              Compare
+            </button>
+          )}
+        </div>
+      )}
+      {draftBody.kind !== "fact" && (draftBody.kind === "new-state" || draftBody.anchorPartId !== draftBody.baseAnchorPartId) && (
+        <p className="facts-note" role="status">
+          {draftBody.kind === "state" ? "Moves to " : "Starts at "}
+          {draftBody.anchorPartId === null
+            ? "the whole story"
+            : `part ${payload.path.findIndex((node) => node.id === draftBody.anchorPartId) + 1 || "on another line"}`}
+          {draftBody.kind === "state" ? ". Save to keep it." : "."}
+        </p>
+      )}
+      {comparing && editor.body.kind === "state" && (
+        <div className="fact-diff" role="group" aria-label="Compare states">
+          {diff === null
+            ? <p className="facts-note">Select a later state to compare it with the one before.</p>
+            : (
+              <>
+                <span className="facts-label">Changes from state {diff.fromIndex + 1} to state {diff.toIndex + 1}</span>
+                {diff.omitted.map((line, index) => (
+                  <p key={`o${index}`} className="fact-diff-line removed"><span aria-hidden="true">− </span>{line}</p>
+                ))}
+                {diff.added.map((line, index) => (
+                  <p key={`a${index}`} className="fact-diff-line added"><span aria-hidden="true">+ </span>{line}</p>
+                ))}
+                {diff.omitted.length + diff.added.length === 0 && <p className="facts-note">The two states say the same.</p>}
+              </>
+            )}
+        </div>
       )}
       {!adding && (
         <div className="fact-state-adders">

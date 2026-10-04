@@ -7,5 +7,7 @@ import "../inspect/commands.js";
 import "../library/commands.js";
 import "../search/commands.js";
 import "../notes/commands.js";
+import "../factcheck/commands.js";
+import "../imports/commands.js";
 import "../story/commands.js";
 import "../theme/commands.js";

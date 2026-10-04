@@ -4,6 +4,8 @@ import { createComposeActions, type ComposeActions } from "../compose/actions.js
 import { createContextActions, type ContextActions } from "../context/actions.js";
 import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createFactActions, type FactActions } from "../facts/index.js";
+import { createImportActions, type ImportActions } from "../imports/actions.js";
+import { createFactCheckActions, type FactCheckActions } from "../factcheck/actions.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
 import { createThoughtActions, type ThoughtActions } from "../inspect/thoughts.js";
@@ -32,6 +34,8 @@ export interface ContentActions {
   readonly panel: PanelActions;
   readonly aside: AsideActions & AsideUseActions;
   readonly facts: FactActions;
+  readonly factCheck: FactCheckActions;
+  readonly imports: ImportActions;
   readonly notes: NotesActions;
   readonly thoughts: ThoughtActions;
   readonly settings: SettingsActions;
@@ -76,11 +80,13 @@ export function createContentActions(
   const chapters = createChapterActions(store, { story });
   const panel = createPanelActions(store);
   const facts = createFactActions(store, { story, panel });
+  const factCheck = createFactCheckActions(store, { story, panel });
   const aside = { ...createAsideActions(store, { story, panel }), ...createAsideUseActions(store, { story, compose, facts, panel }) };
+  const imports = createImportActions(store, { story, library });
   const notes = createNotesActions(store, { story });
   const thoughts = createThoughtActions(store);
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
   const settings = createSettingsActions(store);
-  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, notes, settings, thoughts };
+  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, factCheck, imports, notes, settings, thoughts };
 }
 

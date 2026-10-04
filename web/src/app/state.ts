@@ -4,6 +4,8 @@ import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import { initialContextState, type ContextState } from "../context/state.js";
 import type { EditorState } from "../editor/state.js";
+import { initialImportsState, type ImportsState } from "../imports/state.js";
+import { initialFactCheckState, type FactCheckState } from "../factcheck/state.js";
 import { initialFactsState, type FactsState } from "../facts/state.js";
 import { initialThoughtsState, type ThoughtsState } from "../inspect/thoughts.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
@@ -74,6 +76,10 @@ export interface AppState {
   /** The Facts view's filter, editor and pick mode (#409 step 7b). See
    * `facts/state.ts`. */
   readonly facts: FactsState;
+  /** The Fact consistency check (#409 step 10h): its confirmation, its run and its findings. See `factcheck/state.ts`. */
+  readonly factCheck: FactCheckState;
+  /** File imports (#409 step 10i): the result dialog. See `imports/state.ts`. */
+  readonly imports: ImportsState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
   /** The stored thoughts that are unfolded and read (#409 step 10g). See `inspect/thoughts.ts`. */
@@ -117,6 +123,8 @@ export function initialAppState(
     chapters: initialChaptersState(),
     tags: initialTagsState(),
     facts: initialFactsState(),
+    factCheck: initialFactCheckState(),
+    imports: initialImportsState(),
     panel: initialPanelState(),
     thoughts: initialThoughtsState(),
     notes: initialNotesState(),

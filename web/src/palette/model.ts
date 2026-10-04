@@ -25,15 +25,23 @@ const SECTIONS: ReadonlyArray<{ readonly id: CommandSection; readonly label: str
 /** The commands worth offering first, as `tui/src/command-model.ts`'s
  * `suggestedCommands` does for the commands the web has: a lost connection
  * puts reconnect on top, nothing is suggested while a run owns the story, and
- * otherwise an untagged line suggests tagging it. */
+ * otherwise a story with a stored Fact check suggests its findings (or, with
+ * Facts and no check yet, checking the chapter), and an untagged line suggests
+ * tagging it. */
 function suggestedIds(context: CommandContext): readonly string[] {
   const { state } = context;
   if (state.connection.kind === "closed") return ["reconnect"];
   if (state.generation.kind !== "idle") return [];
   if (state.story.kind !== "loaded") return [];
-  const leafId = state.story.payload.path.at(-1)?.id ?? null;
-  const tagged = leafId !== null && state.story.payload.tags.some((tag) => tag.nodeId === leafId);
-  return leafId !== null && !tagged ? ["tag-line"] : [];
+  const { payload } = state.story;
+  const leafId = payload.path.at(-1)?.id ?? null;
+  const tagged = leafId !== null && payload.tags.some((tag) => tag.nodeId === leafId);
+  return [
+    ...(payload.hasFactConsistencyRun === true
+      ? ["show-fact-findings"]
+      : payload.facts.length > 0 ? ["check-chapter-against-facts"] : []),
+    ...(leafId !== null && !tagged ? ["tag-line"] : [])
+  ];
 }
 
 /** Groups the available commands for `query`, in the TUI's order and ranking:

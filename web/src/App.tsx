@@ -5,6 +5,9 @@ import { useStore } from "./app/store.js";
 import { dismissToast } from "./app/toasts.js";
 import { UnsavedWork, useHasUnsavedWork } from "./ui/UnsavedWork.js";
 import { GenerationBar } from "./generation/GenerationBar.js";
+import { ImportDrop } from "./imports/ImportDrop.js";
+import { ImportReportDialog } from "./imports/ImportReportDialog.js";
+import { FactCheckDialog } from "./factcheck/FactCheckDialog.js";
 import { NoteDialog } from "./notes/NoteDialog.js";
 import { Overlays } from "./palette/Overlays.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
@@ -118,6 +121,9 @@ function Shell() {
       </main>
       <LibraryDialogs />
       <NoteDialog />
+      <FactCheckDialog />
+      <ImportReportDialog />
+      <ImportDrop />
       <Overlays openLibrary={openSidebar} />
       <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(store, id)} />
       {closed !== null && <ClosedOverlay message={closed} onReconnect={actions.reconnect} />}
