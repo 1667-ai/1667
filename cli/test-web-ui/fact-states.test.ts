@@ -296,8 +296,17 @@ test("case 6: Re-anchor here moves the open state to the part being read", async
   await editor(page).getByRole("button", { name: "Re-anchor here" }).click();
   await editor(page).getByText("Moves to part 3. Save to keep it.").waitFor();
   await screenshot(page, "10h-reanchor");
-  // Nothing is saved before Save.
+  // Nothing is saved before Save, and Revert takes the move back.
   expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({ anchorPartId: seeded.b1 });
+  await editor(page).getByRole("button", { name: "Revert" }).click();
+  await waitForCount(editor(page).getByText("Moves to part 3. Save to keep it."), 0);
+  await editor(page).getByRole("button", { name: "Save" }).click();
+  await waitForCount(editor(page), 0);
+  expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({ anchorPartId: seeded.b1 });
+  await rows(page).first().click();
+  await editor(page).getByRole("textbox", { name: "Text" }).waitFor();
+  await editor(page).getByRole("button", { name: "Re-anchor here" }).click();
+  await editor(page).getByText("Moves to part 3. Save to keep it.").waitFor();
   await editor(page).getByRole("button", { name: "Save" }).click();
   await waitForCount(editor(page), 0);
   expect((await seeded.api.loadStory(seeded.storyId)).facts[0]!.states[1]).toMatchObject({
@@ -317,6 +326,12 @@ test("case 7: Convert turns a text state into an End State and back", async () =
   const web = await spawnStatesWeb();
   const { page, seeded } = await openDoorEditor(web);
 
+  // Typed text survives a round trip before Save.
+  await editor(page).getByRole("textbox", { name: "Text" }).fill("The door is painted red.");
+  await editor(page).getByRole("button", { name: "Convert to end" }).click();
+  await editor(page).getByText("This state ends the fact here. It has no text.").waitFor();
+  await editor(page).getByRole("button", { name: "Convert to text" }).click();
+  expect(await editor(page).getByRole("textbox", { name: "Text" }).inputValue()).toBe("The door is painted red.");
   await editor(page).getByRole("button", { name: "Convert to end" }).click();
   await editor(page).getByText("This state ends the fact here. It has no text.").waitFor();
   expect(await editor(page).getByRole("textbox", { name: "Text" }).count()).toBe(0);

@@ -443,9 +443,11 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
       update((current) => {
         const body = current.body;
         if (body.kind !== "state") return current;
-        if (!body.ends) return { ...current, body: { ...body, ends: true }, form: { ...current.form, text: "" }, discardArmed: false };
-        // Back to text: the state's own text, or else the fact's first text.
-        const text = body.baseText.length > 0 ? body.baseText : fact === null ? "" : firstFactText(fact);
+        if (!body.ends) {
+          return { ...current, body: { ...body, ends: true, heldText: current.form.text }, form: { ...current.form, text: "" }, discardArmed: false };
+        }
+        // Back to text: what was typed, else the state's own text, else the fact's first text.
+        const text = body.heldText ?? (body.baseText.length > 0 ? body.baseText : fact === null ? "" : firstFactText(fact));
         return { ...current, body: { ...body, ends: false }, form: { ...current.form, text }, discardArmed: false };
       });
     },
@@ -459,7 +461,15 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
     save,
 
     revert: () => update((editor) => (
-      editor.saving ? editor : { ...editor, form: editor.base, overwriteArmed: false, discardArmed: false }
+      editor.saving ? editor : {
+        ...editor,
+        form: editor.base,
+        body: editor.body.kind === "state"
+          ? { ...editor.body, anchorPartId: editor.body.baseAnchorPartId, ends: editor.body.baseEnds, heldText: undefined }
+          : editor.body,
+        overwriteArmed: false,
+        discardArmed: false
+      }
     )),
 
     requestClose: () => {

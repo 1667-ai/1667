@@ -39,7 +39,10 @@ export function findingRows(run: FactConsistencyRun, payload: StoryPayload): rea
   const rows: FindingRow[] = [];
   const tree = { nodes: payload.nodes, activeRootId: payload.activeRootId };
   for (const part of run.parts) {
-    const pathIds = pathTo(tree, part.takeId).map((node) => node.id);
+    // A deleted take has no path; its findings stay, marked out of date.
+    const pathIds = payload.nodes.some((node) => node.id === part.takeId)
+      ? pathTo(tree, part.takeId).map((node) => node.id)
+      : [];
     const index = payload.path.findIndex((node) => node.id === part.takeId);
     part.findings.forEach((finding, number) => {
       const fact = payload.facts.find((candidate) => candidate.id === finding.fact_id);
