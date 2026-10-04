@@ -115,11 +115,13 @@ export function RecordViewer(
     }));
     const warning = humanEditWarning(node);
     const onLine = payload.path.find((candidate) => candidate.id === nodeId);
-    const output = onLine !== undefined && warning === null && resolved.range !== undefined
-      ? onLine.text.slice(resolved.range.start, resolved.range.end)
+    // An append names the characters it wrote; a new take wrote all of its text.
+    const output = onLine !== undefined && warning === null && resolved.kind !== "unsupported"
+      ? (resolved.range === undefined ? onLine.text : onLine.text.slice(resolved.range.start, resolved.range.end))
       : null;
     if (output !== null && output.length > 0) {
-      messages.push({ key: "output", role: "assistant", label: `output · characters ${resolved.range!.start}–${resolved.range!.end}`, content: output });
+      const where = resolved.range === undefined ? "the take" : `characters ${resolved.range.start}–${resolved.range.end}`;
+      messages.push({ key: "output", role: "assistant", label: `output · ${where}`, content: output });
     }
     const sections: DocSection[] = [
       { label: "Human edit", lines: warning === null ? [] : [warning] },

@@ -237,13 +237,13 @@ test("case 5: h on a map row opens the records of that take, and Back returns to
 test("case 6: T shows and hides the stored thought of a landed take; none shows while text streams", async () => {
   const web = await spawnInspectWeb();
   const api = await openInspectionApi(web);
-  const storyId = await seedStory(api, "Thought Story");
-  const page = await openStory(web, storyId, "Thought Story");
+  const storyId = await seedStory(api, "Mind Story");
+  const page = await openStory(web, storyId, "Mind Story");
   await part(page, "lighthouse stairs").click();
   await page.getByRole("textbox", { name: "What happens next?" }).fill("Go on.");
   await page.getByRole("button", { name: "Continue" }).click();
   await page.locator(".part-streaming").waitFor();
-  expect(await page.getByRole("button", { name: "Thought" }).count()).toBe(0);
+  expect(await page.getByRole("button", { name: "Thought", exact: true }).count()).toBe(0);
   expect(await page.getByRole("region", { name: "Thought" }).count()).toBe(0);
   expect(await poll(async () => (await page.locator(".part").count()) === 3 && (await page.getByRole("button", { name: "Continue" }).count()) === 1, 20_000)).toBeTrue();
 
