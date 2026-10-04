@@ -11,7 +11,7 @@ import {
   COLD_START_RESPONSE_GROWTH_TOKENS,
   likelyResponseTokens,
   recentProviderProseTokenCounts
-} from "../src/response-growth-estimate.js";
+} from "../../shared/response-growth-estimate.js";
 
 function textHash(text: string): string {
   return createHash("sha256").update(text).digest("hex");

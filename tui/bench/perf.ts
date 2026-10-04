@@ -15,7 +15,7 @@ import { deriveStoryFrameLayout } from "../src/story-frame-layout.js";
 import { createStorySurface } from "../src/story-surface.js";
 import { createWrapCache, wrapText, type ProseStyle, type WrapCache } from "../src/wrap.js";
 import { createComposer } from "../src/composer-model.js";
-import { nextRequestEstimate } from "../src/request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 import { createAtlasLayout } from "../../shared/atlas-layout.js";
 import { createLaneLayout } from "../../shared/lane-layout.js";
 import { renderLaneRow } from "../src/screens/map-lane-row.js";

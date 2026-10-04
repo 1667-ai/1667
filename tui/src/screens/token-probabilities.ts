@@ -1,7 +1,7 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import type { HitRows } from "../hit.js";
 import { gaugeFill } from "../rail.js";
-import type { NextRequestEstimate } from "../request-projection.js";
+import type { NextRequestEstimate } from "../../../shared/request-projection.js";
 import { createStoryViewModel, type StoryPart, type StoryViewModel } from "../model.js";
 import type { StoryScreenState, TokenProbabilitiesViewerState } from "../state.js";
 import {

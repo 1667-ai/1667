@@ -15,7 +15,7 @@ import { openChapterSummaryEditor } from "./editor-action.js";
 import type { AppSource } from "./app.js";
 import type { RuntimeState } from "./state.js";
 import { nextRequestContext } from "./request-context.js";
-import { nextRequestEstimate } from "./request-projection.js";
+import { nextRequestEstimate } from "../../shared/request-projection.js";
 import type { ActionContext, BackendActionContext } from "./action-context.js";
 import { rememberFocus } from "./reading-position-persist.js";
 import { adoptSameStoryPayload } from "./story-adoption.js";
