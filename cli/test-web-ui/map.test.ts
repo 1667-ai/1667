@@ -446,6 +446,10 @@ test("case 12: a narrow window has no horizontal overflow in either view", async
   expect((close!.x + close!.width) <= 375).toBeTrue();
   await screenshot(page, "narrow-tree");
   await page.keyboard.press("m");
+  await page.getByRole("button", { name: /^Sort:/ }).waitFor();
+  expect((await overflow()) <= 0).toBeTrue();
+  await screenshot(page, "narrow-mass");
+  await page.keyboard.press("m");
   await waitForCount(options(page), 3);
   expect((await overflow()) <= 0).toBeTrue();
   await screenshot(page, "narrow-path");
@@ -468,6 +472,7 @@ test("case 13: tag and chapter chips show on the rows", async () => {
   await page.emulateMedia({ colorScheme: "dark" });
   await screenshot(page, "chips-dark");
   await page.emulateMedia({ colorScheme: "light" });
+  await page.keyboard.press("m");
   await page.keyboard.press("m");
   await waitForCount(options(page), 3);
   expect(await options(page).filter({ hasText: "B1:" }).textContent()).toContain("§ The Door");
@@ -501,6 +506,7 @@ test("case 14: a line untouched for weeks folds into a cold row that Enter unfol
 async function shot(page: Page, name: string): Promise<void> {
   const directory = process.env.AI_1667_MAP_SHOTS;
   if (directory === undefined || directory === "") return;
+  await page.waitForTimeout(400);
   await page.screenshot({ path: `${directory}/web-10j-${name}.png` });
 }
 

@@ -10,7 +10,7 @@
 .map-header { flex-wrap: wrap; position: relative; }
 .map-header .story-identity { min-width: 0; }
 .map-kicker { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-actions { margin-left: auto; }
+.map-actions { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; min-width: 0; }
 .map-views { display: inline-flex; gap: var(--s-1); }
 
 .map-list { flex: 1 1 0; min-height: 0; outline: none; overflow-x: hidden; overflow-y: auto; }
@@ -78,7 +78,7 @@
 /* The mass view: name, a bar as long as the line's words, then its numbers. */
 .map-row-mass { padding-left: var(--s-6); }
 .map-row-here .mass-name { font-weight: 600; }
-.mass-name { flex: 0 1 22ch; }
+.mass-name { flex: 0 0 22ch; }
 .mass-track { background: var(--chip); border-radius: var(--r-pill); flex: 1 1 0; height: var(--s-2); min-width: 0; overflow: hidden; }
 .mass-bar { background: var(--accent); border-radius: var(--r-pill); display: block; height: 100%; }
 .mass-bar-cold { background: var(--faint); }
@@ -107,6 +107,7 @@
 @media (max-width: 520px) {
   .map-stats { display: none; }
   .map-header { padding-inline: var(--s-4); }
+  .map-actions { margin-left: 0; width: 100%; }
   .map-row { padding-left: var(--s-4); padding-right: var(--s-3); }
   .map-footer { padding-inline: var(--s-4); }
   .map-footer-facts { display: none; }

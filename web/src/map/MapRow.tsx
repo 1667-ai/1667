@@ -96,6 +96,18 @@ function LaneGutter({ row, laneCount, overflow, height, lens, streaming }: {
   );
 }
 
+/** A row's text; a take being written has none yet, so it says so. */
+function NodeText({ preview, streaming }: { readonly preview: string; readonly streaming: boolean }) {
+  const text = preview.replace(/\s+/g, " ").trim();
+  if (streaming && text.length === 0) return <span className="map-text map-dim">Writing…</span>;
+  return (
+    <>
+      <span className="map-text">{text}</span>
+      {streaming && <WritingChip />}
+    </>
+  );
+}
+
 function Label({ row, chapter, streaming, lens }: {
   readonly row: LaneRow; readonly chapter: string | null; readonly streaming: boolean; readonly lens: FactLensNode | null;
 }) {
@@ -104,8 +116,7 @@ function Label({ row, chapter, streaming, lens }: {
       return (
         <>
           <span className="map-part-no">¶ {row.depth}</span>
-          <span className="map-text">{row.node.preview.replace(/\s+/g, " ").trim()}</span>
-          {streaming && <WritingChip />}
+          <NodeText preview={row.node.preview} streaming={streaming} />
           {lens !== null && <LensChip lens={lens} />}
           {row.tag !== null && <span className="map-chip map-chip-tag" title={`${row.tag.name} ${row.tag.status}`.trim()}>{row.tag.name}</span>}
           {chapter !== null && <span className="map-chip map-chip-chapter" title={`Chapter: ${chapter}`}>§ {chapter}</span>}

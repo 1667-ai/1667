@@ -39,6 +39,7 @@ export const PathRow = memo(function PathRow(props: PathRowProps) {
     ?? null;
   const shown = shownCell?.node ?? row.pathNode;
   const middle = HEIGHT / 2;
+  const writing = streamId !== null && row.cells.some((cell) => cell.node.id === streamId);
   const marks: React.ReactNode[] = [];
   if (row.cells.length > 1) {
     marks.push(<line key="rail" className="lane-line" x1={cellX(0)} y1={middle} x2={cellX(row.cells.length - 1)} y2={middle} />);
@@ -91,8 +92,14 @@ export const PathRow = memo(function PathRow(props: PathRowProps) {
         {marks}
       </svg>
       <span className="map-part-no">¶ {row.depth}</span>
-      <span className="map-text">{shown.preview.replace(/\s+/g, " ").trim()}</span>
-      {streamId !== null && row.cells.some((cell) => cell.node.id === streamId) && <WritingChip />}
+      {writing && shown.preview.trim().length === 0
+        ? <span className="map-text map-dim">Writing…</span>
+        : (
+          <>
+            <span className="map-text">{shown.preview.replace(/\s+/g, " ").trim()}</span>
+            {writing && <WritingChip />}
+          </>
+        )}
       {shownCell?.tag != null && <span className="map-chip map-chip-tag" title={shownCell.tag.name}>{shownCell.tag.name}</span>}
       {chapter !== null && <span className="map-chip map-chip-chapter" title={`Chapter: ${chapter}`}>§ {chapter}</span>}
       {counter !== null && <span className="map-meta">{counter}</span>}
