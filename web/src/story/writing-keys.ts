@@ -12,12 +12,14 @@ const PART_ACTION_OF_KEY: Readonly<Record<string, PartActionId>> = {
   "retake-with-prompt": "retake-with-prompt",
   "write": "write",
   "edit": "edit",
-  "prune": "prune"
+  "prune": "prune",
+  "copy-part": "copy"
 };
 
 /** The key actions this file handles; keys help lists only handled actions. */
 export const WRITING_KEY_ACTIONS: readonly string[] = [
-  "compose", "regenerate", "retake-with-prompt", "write", "edit", "prune", "open-actions"
+  "compose", "regenerate", "retake-with-prompt", "write", "edit", "prune", "open-actions",
+  "copy-part", "copy-line", "typewriter", "open-authors-note"
 ];
 
 /**
@@ -50,6 +52,20 @@ export function handleWritingKey(
   if (binding.action === "write" && partId === null) {
     // An empty story has no focused part: `w` writes part 1.
     actions.editor.openWrite(null);
+    return true;
+  }
+  // These keys need no focused part: a note, the line's text and the mode
+  // belong to the story.
+  if (binding.action === "open-authors-note") {
+    actions.notes.open("note");
+    return true;
+  }
+  if (binding.action === "copy-line") {
+    actions.part.copyLine();
+    return true;
+  }
+  if (binding.action === "typewriter") {
+    actions.story.toggleTypewriter();
     return true;
   }
   if (handleStructureKey(binding, story, actions)) return true;

@@ -6,6 +6,8 @@ import { initialFactsState, type FactsState } from "../facts/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
+import { readStoredTypewriter } from "../reading/typewriter.js";
+import { initialNotesState, type NotesState } from "../notes/state.js";
 import { initialPanelState, type PanelState } from "../panel/state.js";
 import { initialTagsState, type TagsState } from "../tags/state.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
@@ -37,6 +39,8 @@ export interface Toast {
  * applies across every story the reader opens. See `reading/directions.ts`. */
 export interface ReadingPreferences {
   readonly showDirections: boolean;
+  /** `z`: keep the focused part centered while the reader moves. */
+  readonly typewriter: boolean;
 }
 
 export interface AppState {
@@ -65,6 +69,8 @@ export interface AppState {
   readonly facts: FactsState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
+  /** The Author's Note and brief editors, and the story naming run (#409 step 10b). See `notes/state.ts`. */
+  readonly notes: NotesState;
   readonly reading: ReadingPreferences;
   readonly toasts: readonly Toast[];
   /** The notice log, oldest first. See `app/notices.ts`. */
@@ -95,7 +101,8 @@ export function initialAppState(
     tags: initialTagsState(),
     facts: initialFactsState(),
     panel: initialPanelState(),
-    reading: { showDirections: readStoredShowDirections() },
+    notes: initialNotesState(),
+    reading: { showDirections: readStoredShowDirections(), typewriter: readStoredTypewriter() },
     toasts: [],
     notices: [],
     overlay: null,

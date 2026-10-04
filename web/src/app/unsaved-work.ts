@@ -1,5 +1,6 @@
 import { composeDraftOf, type ComposeState } from "../compose/state.js";
 import { editorCopyText, editorDirty, type EditorState } from "../editor/state.js";
+import { noteDraftDirty, noteFieldLabel, type NotesState } from "../notes/state.js";
 import { factEditorCopyText, factEditorDirty, type FactsState } from "../facts/state.js";
 
 /**
@@ -14,13 +15,17 @@ export interface UnsavedItem {
   readonly text: string;
 }
 
-export function unsavedWork(editor: EditorState | null, compose: ComposeState, facts: FactsState): UnsavedItem[] {
+export function unsavedWork(editor: EditorState | null, compose: ComposeState, facts: FactsState, notes: NotesState): UnsavedItem[] {
   const items: UnsavedItem[] = [];
   if (editor !== null && editorDirty(editor)) {
     items.push({ id: "editor", label: "Unsaved edit", text: editorCopyText(editor) });
   }
   if (facts.editor !== null && factEditorDirty(facts.editor)) {
     items.push({ id: "fact", label: "Unsaved fact", text: factEditorCopyText(facts.editor) });
+  }
+  for (const [key, draft] of Object.entries(notes.drafts)) {
+    if (!noteDraftDirty(draft)) continue;
+    items.push({ id: `note:${key}`, label: `Unsaved ${noteFieldLabel(key.endsWith(":brief") ? "brief" : "note")}`, text: draft.text });
   }
   for (const storyId of Object.keys(compose.drafts)) {
     const draft = composeDraftOf(compose, storyId);
