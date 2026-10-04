@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` has the remaining writing features.** Select text in a part,
+  open the part menu, and choose "Rewrite selection" to rewrite the text in
+  place. Choose "Copy story line below" and "Paste story line below" to copy a
+  story line to another part. The command palette has "summary take" and "prune
+  drafts & discarded". When the model accepts images, the composer has a button
+  to attach an image.
+
 - **`1667 web` shows the next request, the generation records, and the token
   probabilities.** Open the command palette and choose "next request" to read
   the exact messages of the next request. On a Mac, press Control+R. Press `h`
