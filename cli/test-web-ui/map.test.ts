@@ -74,12 +74,20 @@ async function waitForSelected(page: Page, text: string | RegExp): Promise<void>
   expect(ok).toBeTrue();
 }
 
-async function openMapWithKey(page: Page): Promise<void> {
+/** The map opens in the path view; most cases here are about the tree. */
+async function showTree(page: Page): Promise<void> {
+  const tree = page.getByRole("button", { name: "Tree", exact: true });
+  if ((await tree.getAttribute("aria-pressed")) !== "true") await tree.click();
+  expect(await poll(async () => (await tree.getAttribute("aria-pressed")) === "true")).toBeTrue();
+}
+
+async function openMapWithKey(page: Page, view: "tree" | "path" = "tree"): Promise<void> {
   await page.getByRole("button", { name: "Map (m)" }).waitFor();
   await page.locator(".part").first().waitFor();
   await page.keyboard.press("m");
   await waitForHash(page, /\/map$/);
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  if (view === "tree") await showTree(page);
 }
 
 async function savedLeaf(api: Awaited<ReturnType<typeof openInspectionApi>>, storyId: string): Promise<string> {
@@ -97,7 +105,10 @@ test("case 1: m and the Map button open the map as its own page, the cursor "
   await openStoryPage(page, web, seeded.storyId);
   await page.getByRole("heading", { name: "Forked Story" }).waitFor();
 
-  await openMapWithKey(page);
+  await openMapWithKey(page, "path");
+  // The map opens in the path view.
+  expect(await page.getByRole("button", { name: "Path", exact: true }).getAttribute("aria-pressed")).toBe("true");
+  await showTree(page);
   expect(await page.locator(".part").count()).toBe(0);
   await page.getByRole("heading", { name: "Map" }).waitFor();
   expect((await options(page).count()) >= 4).toBeTrue();
@@ -113,6 +124,7 @@ test("case 1: m and the Map button open the map as its own page, the cursor "
   await page.getByRole("button", { name: "Map (m)" }).click();
   await waitForHash(page, /\/map$/);
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
   await page.goBack();
   await waitForHash(page, new RegExp(`/story/${seeded.storyId}$`));
   await page.locator(".part").first().waitFor();
@@ -193,6 +205,7 @@ test("case 4: mouse: a click selects, hover only highlights, the footer button a
 
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
   await options(page).filter({ hasText: "C1:" }).dblclick();
   await waitForHash(page, new RegExp(`/story/${seeded.storyId}$`));
   await page.locator(".part").filter({ hasText: "C1:" }).waitFor();
@@ -246,7 +259,7 @@ test("case 6: a toggles sketches in the tree view, and the fold row does too", a
   await waitForCount(options(page), folded + 1);
 }, 60_000);
 
-test("case 7: m switches to the path view, ←→ reach a middle part of another "
+test("case 7: the map opens in the path view, ←→ reach a middle part of another "
   + "line, and Enter switches there", async () => {
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
@@ -254,9 +267,8 @@ test("case 7: m switches to the path view, ←→ reach a middle part of another
   const seeded = await seedForkedStory(api);
   const page = await openTestPage(await sharedBrowser());
   await openStoryPage(page, web, seeded.storyId);
-  await openMapWithKey(page);
+  await openMapWithKey(page, "path");
 
-  await page.keyboard.press("m");
   const pathButton = page.getByRole("button", { name: "Path" });
   expect(await poll(async () => (await pathButton.getAttribute("aria-pressed")) === "true")).toBeTrue();
   await waitForCount(options(page), 3);
@@ -296,6 +308,7 @@ test("case 8: a running Continue refuses a switch with a toast, Esc closes the m
 
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
   await page.keyboard.press("ArrowRight");
   await waitForSelected(page, "C2:");
   await page.keyboard.press("Enter");
@@ -312,6 +325,7 @@ test("case 8: a running Continue refuses a switch with a toast, Esc closes the m
   expect(await poll(async () => ((await leafProse.textContent()) ?? "").length > 60, 30_000)).toBeTrue();
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
 
   await page.getByRole("button", { name: "Stop" }).click();
   await waitForCount(page.getByRole("button", { name: "Stop" }), 0);
@@ -335,6 +349,7 @@ test("case 9: an open editor blocks a switch under it, and its draft survives th
 
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
   await options(page).filter({ hasText: "C2:" }).dblclick();
   await page.getByText(EDITOR_OPEN_TOAST).waitFor();
   expect(await page.evaluate(() => location.hash)).toMatch(/\/map$/);
@@ -377,6 +392,7 @@ test("case 11: a large tree keeps the DOM small, parks overflow lines, scrolls w
   await page.locator(".part").first().waitFor();
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
 
   const stats = `${seeded.lines} lines · ${seeded.parts.toLocaleString("en-US")} parts · ${seeded.forks} forks`;
   expect(await poll(async () => ((await page.locator(".map-stats").textContent()) ?? "").includes(stats))).toBeTrue();
@@ -422,6 +438,7 @@ test("case 12: a narrow window has no horizontal overflow in either view", async
   await page.locator(".part").first().waitFor();
   await page.getByRole("button", { name: "Map (m)" }).click();
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
   const overflow = (): Promise<number> => page.evaluate(() => document.documentElement.scrollWidth - window.innerWidth);
   expect((await overflow()) <= 0).toBeTrue();
   expect(await page.evaluate(() => document.querySelector('[role="listbox"]')!.scrollWidth <= document.querySelector('[role="listbox"]')!.clientWidth)).toBeTrue();
