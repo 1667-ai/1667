@@ -5,6 +5,11 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` has a command palette, a keys list, and a notice log.** Press `:`
+  to open the command palette. Type to find a command, and press Enter to run
+  it. Press `?` to see the keys that the page uses. Press `!` to see the
+  messages that the app showed in this tab. Press Esc to close each of them.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line
