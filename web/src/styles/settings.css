@@ -8,6 +8,9 @@
 .settings-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 .settings-body { margin: 0 auto; max-width: 720px; padding: var(--s-6) var(--s-6) var(--s-12); }
 
+.settings-header .story-title { min-width: 0; }
+.settings-header .story-title-wrap { gap: var(--s-2); }
+
 .settings-section { margin-bottom: var(--s-8); }
 .settings-heading {
   border-bottom: var(--border); color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label);

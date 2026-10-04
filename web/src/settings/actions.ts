@@ -484,7 +484,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     open: () => {
       const settings = store.get().settings;
       if (settings.kind === "loaded") {
-        void load(true);
+        if (!isDirty(settings)) void load(true);
         syncDiscovery(true);
         scheduleProbe();
       } else if (settings.kind !== "loading") void load(false);

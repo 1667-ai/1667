@@ -41,6 +41,12 @@ export function Row(
   );
 }
 
+/** An opened menu scrolls into view: the page scrolls, and a menu near the end
+ * of it would otherwise open below the fold. */
+function showMenu(element: HTMLElement | null): void {
+  element?.scrollIntoView({ block: "nearest" });
+}
+
 /** Esc inside a field only leaves the field; a second Esc closes the page. */
 function leaveFieldOnEscape(event: React.KeyboardEvent<HTMLElement>): void {
   if (event.key !== "Escape") return;
@@ -165,7 +171,7 @@ export function ProviderRow({ loaded }: { readonly loaded: LoadedSettings }) {
           <Icon path={ICONS.chevronDown} />
         </button>
         {open && (
-          <div className="menu settings-menu" role="menu" aria-label="Provider">
+          <div ref={showMenu} className="menu settings-menu" role="menu" aria-label="Provider">
             {SETTINGS_PROVIDER_CHOICES.map((candidate) => (
               <button
                 key={candidate.id}
@@ -292,7 +298,7 @@ export function ModelRow({ loaded, disabled, dryRun }: {
           </button>
         </div>
         {open && shownModels.length > 0 && (
-          <div className="menu settings-menu" role="listbox" id={`${id}-list`} aria-label="Models">
+          <div ref={showMenu} className="menu settings-menu" role="listbox" id={`${id}-list`} aria-label="Models">
             {shownModels.map((model) => (
               <button
                 key={model.remoteId}
