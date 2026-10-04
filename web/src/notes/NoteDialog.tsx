@@ -67,12 +67,15 @@ export function NoteDialog() {
             autoFocus
             rows={8}
             placeholder={PLACEHOLDER[open.field]}
+            readOnly={busy}
             value={draft.text}
             onChange={(event) => actions.notes.setText(event.currentTarget.value)}
             onKeyDown={onKeyDown}
           />
           <span className={`note-meta${tooLong ? " note-meta-error" : ""}`}>
-            {tooLong
+            {draft.overwriteArmed === true
+              ? "Changed in another window. Save again to overwrite."
+              : tooLong
               ? `Too long: at most ${limit.max.toLocaleString("en-US")} characters.`
               : tokens > AUTHORS_NOTE_WARN_TOKENS
                 ? `About ${tokens.toLocaleString("en-US")} tokens. A long note crowds the prose it steers.`
@@ -88,7 +91,7 @@ export function NoteDialog() {
                 className="icon-btn"
                 aria-label="Shallower"
                 title="Closer to the end"
-                disabled={draft.depth <= MIN_AUTHORS_NOTE_DEPTH}
+                disabled={busy || draft.depth <= MIN_AUTHORS_NOTE_DEPTH}
                 onClick={() => actions.notes.setDepth(draft.depth - 1)}
               >
                 <Icon path={ICONS.minus} />
@@ -99,7 +102,7 @@ export function NoteDialog() {
                 className="icon-btn"
                 aria-label="Deeper"
                 title="Further from the end"
-                disabled={draft.depth >= MAX_AUTHORS_NOTE_DEPTH}
+                disabled={busy || draft.depth >= MAX_AUTHORS_NOTE_DEPTH}
                 onClick={() => actions.notes.setDepth(draft.depth + 1)}
               >
                 <Icon path={ICONS.plus} />

@@ -120,6 +120,18 @@ export function createNotesActions(store: Store<AppState>, deps: NotesActionDepe
       pushToast(store, `${refusal} Draft kept.`);
       return;
     }
+    // The story's field moved since the draft began (another window, then a
+    // reload): saving would overwrite it unseen. Say so once; the next Save overwrites.
+    const current = storedNote(payload, open.field);
+    if (draft.overwriteArmed !== true && (current.text !== draft.baseText || current.depth !== draft.baseDepth)) {
+      const key = noteDraftKey(open);
+      write((notes) => ({
+        ...notes,
+        drafts: { ...notes.drafts, [key]: { ...draft, baseText: current.text, baseDepth: current.depth, overwriteArmed: true } }
+      }));
+      pushToast(store, `This ${noteFieldLabel(open.field)} changed in another window. Save again to overwrite.`);
+      return;
+    }
     if (state.connection.kind !== "connected") return;
     const api = state.connection.api;
     const { field } = open;
@@ -160,7 +172,9 @@ export function createNotesActions(store: Store<AppState>, deps: NotesActionDepe
     const message = savedToast(field, text);
     deps.story.adoptPayload(storyId, outcome.payload, { announcement: message });
     pushToast(store, message);
-    dropDraft(open);
+    // Keep anything typed after the writer pressed Save.
+    const after = store.get().notes.drafts[noteDraftKey(open)];
+    if (after === undefined || (after.text === text && after.depth === depth)) dropDraft(open);
   }
 
   async function autoname(): Promise<void> {

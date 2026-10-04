@@ -198,3 +198,30 @@ test("case 5: the palette's export markdown downloads <title>.md with the story'
   const path = await download.path();
   expect(await readFile(path, "utf8")).toBe((await api.exportMarkdown(storyId)).markdown);
 });
+
+test("case 6: a stale note draft does not overwrite newer text unseen; the second Save does", async () => {
+  const web = await spawnKeysWeb();
+  const { page, storyId } = await openSeededStory(web, "Stale Note", ["First part.", "Second part."]);
+  const api = await openInspectionApi(web);
+  const dialog = page.getByRole("dialog", { name: "Author's Note" });
+  await part(page, "Second").click();
+  await page.keyboard.press("n");
+  await dialog.getByRole("textbox").fill("My draft.");
+  await dialog.getByRole("button", { name: "Close" }).click();
+  await dialog.waitFor({ state: "detached" });
+
+  await api.setAuthorsNote(storyId, "Text from another window.", 1);
+  await page.evaluate(() => { location.hash = "#/"; });
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, storyId);
+  await page.getByRole("heading", { name: "Stale Note" }).waitFor();
+  await part(page, "Second").click();
+  await page.keyboard.press("n");
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await page.getByText(/changed in another window/).first().waitFor();
+  expect((await api.loadStory(storyId)).authorsNote).toBe("Text from another window.");
+
+  await dialog.getByRole("button", { name: "Save" }).click();
+  await dialog.waitFor({ state: "detached" });
+  expect((await api.loadStory(storyId)).authorsNote).toBe("My draft.");
+});

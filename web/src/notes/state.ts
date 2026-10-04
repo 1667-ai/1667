@@ -15,6 +15,8 @@ export interface NoteDraft {
   /** What the story held when the draft began: the draft is a change only while it differs. */
   readonly baseText: string;
   readonly baseDepth: number;
+  /** The story's field changed elsewhere since the draft began; the next Save overwrites it. */
+  readonly overwriteArmed?: boolean;
 }
 
 export interface NoteTarget {
