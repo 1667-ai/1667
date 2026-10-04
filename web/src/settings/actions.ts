@@ -177,6 +177,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
       draft,
       secrets,
       invalid: {},
+      stashedInvalid: {},
       discovery: previous?.discovery ?? null,
       check: null,
       probe: null,
@@ -375,14 +376,35 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     applyEdit((edit) => applyModel(edit, model.remoteId, model.contextWindow));
   }
 
-  /** A field of the selected profile gives way to another profile's: what
-   * the writer typed into it (refused) belongs to the old one. */
-  function clearProfileFieldText(): void {
+  /** The selected profile changed (or did not). Text a field refused belongs to
+   * the profile it was typed for: it waits for that profile, and the profile
+   * now shown gets its own back. The key field starts empty, because a key
+   * typed for one profile must never reach another. A selection that did not
+   * change leaves everything as it is. */
+  function followSelection(previousId: string | null, dropPrevious = false): void {
     patch((state) => {
-      const next = Object.fromEntries(Object.entries(state.invalid).filter(([key]) => (
-        key === "api-key" || (WRITING_PROMPT_FIELD_IDS as readonly string[]).includes(key)
-      )));
-      return Object.keys(next).length === Object.keys(state.invalid).length ? state : { ...state, invalid: next };
+      const nextId = state.draft.selectedProfileId;
+      if (nextId === previousId) return state;
+      const keep: Record<string, InvalidField> = {};
+      const mine: Record<string, InvalidField> = {};
+      for (const [key, value] of Object.entries(state.invalid)) {
+        if (key === "api-key" || (WRITING_PROMPT_FIELD_IDS as readonly string[]).includes(key)) {
+          if (key !== "api-key") keep[key] = value;
+        } else mine[key] = value;
+      }
+      const stash = { ...state.stashedInvalid };
+      if (previousId !== null) {
+        if (dropPrevious || Object.keys(mine).length === 0) delete stash[previousId];
+        else stash[previousId] = mine;
+      }
+      const restored = nextId === null ? undefined : stash[nextId];
+      if (nextId !== null) delete stash[nextId];
+      return {
+        ...state,
+        invalid: { ...keep, ...restored },
+        stashedInvalid: stash,
+        keyEpoch: state.keyEpoch + 1
+      };
     });
   }
 
@@ -500,6 +522,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         draft: newerEdits ? state.draft : base,
         secrets: newerEdits ? state.secrets : {},
         invalid: newerEdits ? state.invalid : {},
+        stashedInvalid: newerEdits ? state.stashedInvalid : {},
         keyEpoch: state.keyEpoch + 1
       };
     });
@@ -641,8 +664,9 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
       applyEdit(() => result.edit);
     },
     selectProfile: (profileId) => {
+      const before = loaded()?.draft.selectedProfileId ?? null;
       applyEdit((edit) => applyProfileSelect(edit, profileId), { probe: null });
-      clearProfileFieldText();
+      followSelection(before);
     },
     createProfile: (duplicate) => {
       const current = loaded();
@@ -653,7 +677,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         return;
       }
       applyEdit(() => result.edit, { probe: null });
-      clearProfileFieldText();
+      followSelection(current.draft.selectedProfileId);
     },
     createProfileFromStarter: (index) => {
       const current = loaded();
@@ -680,7 +704,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         return message;
       }
       applyEdit(() => result.edit, { probe: null });
-      clearProfileFieldText();
+      followSelection(current.draft.selectedProfileId, true);
       return null;
     },
     setRoute: (purpose, profileId) => applyEdit((edit) => applyRoute(edit, purpose, profileId)),
@@ -735,6 +759,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         draft: state.base,
         secrets: {},
         invalid: {},
+        stashedInvalid: {},
         saveIntent: null,
         notice: null,
         probe: null,
