@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` can search the text of your stories.** Press `/` to open the
+  search. Type at least two characters. Press Tab to search all stories, and
+  press Ctrl+S to match case. Press Enter to go to a hit.
+
 - **The map of `1667 web` opens in the path view.** The path view shows the
   line that you read, part by part. Press `m` to show the tree view.
 

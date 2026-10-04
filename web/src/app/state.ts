@@ -29,7 +29,7 @@ export interface Notice {
   readonly key?: string;
 }
 
-export type OverlayKind = "palette" | "keys" | "log";
+export type OverlayKind = "palette" | "keys" | "log" | "search";
 
 export interface Toast {
   readonly id: string;

@@ -4,10 +4,11 @@ import { fieldHasFocus, resolveManuscriptBinding, resolveOverlayBinding } from "
 import type { OverlayKind } from "./state.js";
 
 /**
- * The app's keybindings beyond native browser behavior. `/` (focus search)
- * stays first and always wins, checked before any screen's own keys ever
- * get a look (owner decision — `open-search` is not itself in the TUI table
- * this reads from `app/keymap-dom.ts`'s step-6 addition on).
+ * The app's keybindings beyond native browser behavior. `/` (full-text
+ * search, as in the TUI) stays first and always wins, checked before any
+ * screen's own keys ever get a look. Where there is no open story to search
+ * (the Library, the map), `/` focuses the Library's title filter instead; the
+ * filter is also reached by click.
  *
  * A screen registers its own key handler with `registerScreenKeys` while it
  * is mounted (`story/StoryView.tsx`) instead of
@@ -34,6 +35,8 @@ import type { OverlayKind } from "./state.js";
 export interface Keymap {
   readonly searchRef: RefObject<HTMLInputElement | null>;
   readonly stopGeneration: () => boolean;
+  /** Opens search; `false` when there is no story page to search. */
+  readonly openSearch: () => boolean;
   /** `:` palette, `?` keys help, `!` notice log. */
   readonly openOverlay: (kind: OverlayKind) => void;
 }
@@ -105,7 +108,7 @@ export function useKeymap(keymap: Keymap): void {
       if (event.defaultPrevented) return;
       if (event.key === "/" && !event.metaKey && !event.ctrlKey && !event.altKey && !fieldHasFocus()) {
         event.preventDefault();
-        keymap.searchRef.current?.focus();
+        if (!keymap.openSearch()) keymap.searchRef.current?.focus();
         return;
       }
       if (!fieldHasFocus()) {
@@ -128,5 +131,5 @@ export function useKeymap(keymap: Keymap): void {
     };
     addEventListener("keydown", onKeyDown);
     return () => removeEventListener("keydown", onKeyDown);
-  }, [keymap.searchRef, keymap.stopGeneration, keymap.openOverlay]);
+  }, [keymap.searchRef, keymap.stopGeneration, keymap.openOverlay, keymap.openSearch]);
 }

@@ -7,7 +7,7 @@ import { renderStoryScreen } from "../src/screens/story.js";
 import { plainLine } from "../src/screens/story/frame.js";
 import { runSearch } from "../src/search-request.js";
 import { adoptSameStoryPayload, adoptStoryState } from "../src/story-adoption.js";
-import { searchInFlight, searchRows, type SearchGroupRow, type SearchHitRow } from "../src/search-model.js";
+import { searchInFlight, searchRows, type SearchGroupRow, type SearchHitRow } from "../../shared/search-model.js";
 import { createWrapCache, type ProseStyle } from "../src/wrap.js";
 import { searchCorpus, type SearchCorpus } from "../../shared/story-search.js";
 

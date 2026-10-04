@@ -18,7 +18,7 @@ import { openAsideUseMenu } from "../src/aside-use.js";
 import { createStoryViewModel, rowIndexForNode } from "../src/model.js";
 import { setComposerText } from "../src/composer-model.js";
 import { draftImagesFor } from "../src/draft-image.js";
-import { searchRows } from "../src/search-model.js";
+import { searchRows } from "../../shared/search-model.js";
 import { openTag } from "../src/story-actions.js";
 import { PNG_SIGNATURE } from "../../shared/png-text-chunk.js";
 import type { ProseStyle } from "../src/wrap.js";

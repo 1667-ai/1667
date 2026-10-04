@@ -1,0 +1,201 @@
+/**
+ * Full-text search (`search/SearchDialog.tsx`). The rows use the one menu
+ * look (`menu.css`) for height, radius and hover; only the dialog's size, the
+ * two panes and the match mark are placed here.
+ */
+
+.search-modal {
+  width: min(1000px, 100%);
+  gap: var(--s-3);
+  padding: var(--s-3);
+}
+
+.search-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--s-2);
+}
+
+.search-field {
+  flex: 1 1 260px;
+  display: flex;
+  align-items: center;
+  gap: var(--s-2);
+  min-height: var(--btn-md);
+  padding: 0 var(--s-3);
+  background: var(--surface);
+  border: var(--border);
+  border-radius: var(--r-md);
+  color: var(--dim);
+}
+
+.search-field:focus-within {
+  box-shadow: var(--focus);
+}
+
+.search-field svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  min-height: var(--btn-md);
+  background: transparent;
+  border: 0;
+  color: var(--ink);
+  font-family: var(--ui);
+  font-size: var(--fs-ui);
+}
+
+.search-input:focus-visible {
+  outline: none;
+}
+
+.search-toggles {
+  display: flex;
+  gap: var(--s-1);
+}
+
+.search-case {
+  font-family: var(--mono);
+}
+
+.search-status {
+  margin: 0;
+  padding: 0 var(--s-3);
+  color: var(--dim);
+  font-size: var(--fs-small);
+}
+
+.search-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr);
+  gap: var(--s-3);
+  min-height: 0;
+}
+
+.search-list,
+.search-preview {
+  max-height: min(460px, 55vh);
+  overflow-y: auto;
+}
+
+.search-preview {
+  padding: var(--s-2) var(--s-3);
+  border-left: var(--border);
+}
+
+.search-preview-detail {
+  margin: 0 0 var(--s-2);
+  color: var(--dim);
+  font: var(--font-meta);
+}
+
+.search-preview-text {
+  margin: 0;
+  color: var(--dim);
+  font-family: var(--prose);
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+.search-group,
+.search-hit {
+  display: flex;
+  align-items: baseline;
+  gap: var(--s-2);
+  padding: var(--s-2) var(--s-3);
+  border-radius: var(--r-sm);
+  cursor: pointer;
+  font-size: var(--fs-ui);
+}
+
+.search-group {
+  align-items: center;
+  margin-top: var(--s-2);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.search-group:first-child {
+  margin-top: 0;
+}
+
+.search-group svg {
+  width: var(--icon-sm);
+  height: var(--icon-sm);
+  flex-shrink: 0;
+  color: var(--accent);
+}
+
+.search-group-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.search-detail {
+  flex-shrink: 0;
+  color: var(--dim);
+  font: var(--font-meta);
+  font-weight: 400;
+}
+
+.search-count {
+  margin-left: auto;
+  flex-shrink: 0;
+  color: var(--summary);
+  font: var(--font-meta);
+}
+
+.search-ref {
+  flex: 0 0 4em;
+  padding-left: var(--s-4);
+  color: var(--dim);
+  font: var(--font-meta);
+}
+
+.search-snippet {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--dim);
+}
+
+.search-row-active {
+  background: var(--row-hover);
+  box-shadow: var(--bar-accent);
+}
+
+.search-row-active .search-snippet {
+  color: var(--ink);
+}
+
+.search-match {
+  background: var(--accent-soft);
+  color: var(--accent);
+  border-radius: var(--r-xs);
+}
+
+@media (max-width: 760px) {
+  .search-body {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .search-list {
+    max-height: 32vh;
+  }
+
+  .search-preview {
+    max-height: 22vh;
+    border-left: 0;
+    border-top: var(--border);
+  }
+}
