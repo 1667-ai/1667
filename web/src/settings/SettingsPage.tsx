@@ -22,6 +22,7 @@ import {
   sectionAnchor,
   TextInputRow
 } from "./SettingsFields.js";
+import { SamplingSection } from "./SamplingSection.js";
 import {
   ConnectionAdvancedRows,
   GenerationSection,
@@ -213,7 +214,7 @@ function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; r
     : "Allows plain HTTP for a server you control. Turn it on for a local or LAN server.";
 
   const prompts = WRITING_PROMPT_FIELD_DEFINITIONS.filter((definition) => advanced || definition.view === "simple");
-  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Thoughts", "Routing"];
+  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing"];
   const showPlainHttp = advanced ? !dryRun : plainHttp;
   return (
     <div className="settings-scroll">
@@ -328,6 +329,7 @@ function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; r
           {advanced && (
             <>
               <GenerationSection loaded={loaded} />
+              <SamplingSection loaded={loaded} />
               <ThoughtsSection loaded={loaded} />
               <RoutingSection loaded={loaded} />
             </>

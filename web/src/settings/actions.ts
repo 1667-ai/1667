@@ -27,6 +27,7 @@ import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import {
+  applyStarterProfile,
   applyCachePolicyChoice,
   applyEffortChoice,
   applyGenerationScalarText,
@@ -43,6 +44,8 @@ import {
   applyTimeoutText,
   applyTokenProbabilities
 } from "./advanced-model.js";
+import { applySamplingList, applySamplingScalar } from "./sampling-model.js";
+import type { SamplingListPanel, SamplingScalarKnob } from "../../../shared/sampling-row-presentation.js";
 import {
   applyAllowInsecureHttp,
   applyApiKey,
@@ -96,7 +99,11 @@ export interface SettingsActions {
   /** A new profile copies the selected one's settings; a duplicate copies its
    * name too. Both select the new profile. */
   createProfile(duplicate: boolean): void;
+  /** A new profile that starts from a starter profile, and selects it. */
+  createProfileFromStarter(index: number): void;
   renameProfile(name: string): void;
+  setSamplingScalar(knob: SamplingScalarKnob, text: string): void;
+  setSamplingList(panel: SamplingListPanel, text: string): void;
   /** Returns the reason when the profile is kept (the last one stays). */
   deleteProfile(): string | null;
   setRoute(purpose: SettingsRoutePurpose, profileId: string | null): void;
@@ -648,6 +655,20 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
       applyEdit(() => result.edit, { probe: null });
       clearProfileFieldText();
     },
+    createProfileFromStarter: (index) => {
+      const current = loaded();
+      if (current === null || !current.view.editable || current.busy !== null) return;
+      const result = applyStarterProfile({ draft: current.draft, secrets: current.secrets }, index);
+      if ("error" in result) {
+        pushToast(store, `Profile kept. ${result.error}`);
+        return;
+      }
+      applyEdit(() => result.edit, { probe: null });
+      clearProfileFieldText();
+      pushToast(store, result.note);
+    },
+    setSamplingScalar: (knob, text) => typedEdit(`sampling.${knob}`, text, (edit) => applySamplingScalar(edit, knob, text)),
+    setSamplingList: (panel, text) => typedEdit(`sampling.${panel}`, text, (edit) => applySamplingList(edit, panel, text)),
     renameProfile: (name) => typedEdit("profile-name", name, (edit) => applyProfileRename(edit, name)),
     deleteProfile: () => {
       const current = loaded();

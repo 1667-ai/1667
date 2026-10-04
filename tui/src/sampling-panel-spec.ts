@@ -7,7 +7,6 @@ import {
   SAMPLING_DRY_BREAKERS_POLICY,
   SAMPLING_RESOLVED_LOGIT_BIAS_POLICY,
   SAMPLING_STOP_POLICY,
-  validateSamplingLogitBiasEntry,
   validateSamplingSettings
 } from "../../shared/sampling-validation-policy.js";
 import type {
@@ -16,6 +15,7 @@ import type {
   SamplingSettingsV2,
   SettingsDocumentV2
 } from "../../shared/settings-v2-types.js";
+import { parseLogitBiasEntry } from "../../shared/sampling-list-text.js";
 import { replaceSettingsDraft } from "./settings-draft-transition.js";
 import type { SamplingListPanel, SettingsOverlayState } from "./state.js";
 
@@ -149,17 +149,9 @@ const LOGIT_BIAS_SPEC: SamplingListPanelSpec<readonly [string, number]> = {
   identityKey: (value) => value[0],
   editableText: (value) => `${value[0]}:${value[1]}`,
   set: (overlay, index, raw) => {
-    const divider = raw.indexOf(":");
-    if (divider <= 0) return "use token ID:integer bias";
-    const token = raw.slice(0, divider).trim();
-    const weightText = raw.slice(divider + 1).trim();
-    if (!/^-?\d+$/u.test(weightText)) return "bias must be an integer";
-    const weight = Number(weightText);
-    try {
-      validateSamplingLogitBiasEntry(token, weight, "logit bias");
-    } catch (error) {
-      return error instanceof Error ? error.message : String(error);
-    }
+    const parsed = parseLogitBiasEntry(raw);
+    if ("error" in parsed) return parsed.error;
+    const { token, weight } = parsed;
     const entries = samplingLogitBiasEntries(overlay);
     if (index < 0 || index > entries.length) return "logit bias row is no longer available";
     const existingToken = index < entries.length ? entries[index]![0] : null;
