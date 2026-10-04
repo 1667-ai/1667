@@ -160,7 +160,6 @@ test("case 2: after a Continue, h lists one record and opening it shows the prom
   const entries = page.getByRole("list", { name: "Prompt entries" }).getByRole("listitem");
   await entries.first().waitFor();
   expect(await entries.count()).toBeGreaterThanOrEqual(3);
-  expect(await entries.filter({ hasText: "output" }).textContent()).toContain("dry-run");
   await screenshot(page, "10g-records");
   await page.keyboard.press("Escape");
   await page.getByRole("heading", { name: "Record Story", level: 1 }).waitFor();
@@ -195,6 +194,11 @@ test("case 3: with 5 alternatives, l shows the token; the arrows move tokens and
   await page.keyboard.press("Tab");
   expect(await poll(async () => (await hash(page)) !== first)).toBeTrue();
   await page.getByRole("region", { name: /Alternatives for token 1 of/ }).waitFor();
+  // At the last part Tab is the browser's: it reaches a control on the page.
+  const last = await hash(page);
+  await page.keyboard.press("Tab");
+  expect(await hash(page)).toBe(last);
+  expect(await poll(async () => await page.evaluate(() => document.activeElement !== document.body && document.activeElement?.closest(".story-inspect") !== null))).toBeTrue();
   await page.keyboard.press("Escape");
   await page.getByRole("heading", { name: "Probability Story", level: 1 }).waitFor();
 }, 120_000);
@@ -257,6 +261,16 @@ test("case 6: T shows and hides the stored thought of a landed take; none shows 
   await page.getByRole("region", { name: "Thought" }).waitFor();
   expect((await page.getByRole("region", { name: "Thought" }).textContent())?.length).toBeGreaterThan(10);
   await screenshot(page, "10g-thought");
+  // An append rewrites the take's thought: the page shows the stored one, not a cached one.
+  const leafText = (): Promise<string> => page.locator(".part").last().locator(".prose").innerText();
+  const before = await leafText();
+  await page.getByRole("button", { name: "Continue" }).click();
+  expect(await poll(async () => (await leafText()).length > before.length, 20_000)).toBeTrue();
+  expect(await poll(async () => (await page.getByRole("button", { name: "Continue" }).count()) === 1, 20_000)).toBeTrue();
+  const leafId = (await api.loadStory(storyId)).path.at(-1)!.id;
+  const stored = (await api.getReasoning(storyId, leafId)).text;
+  await page.getByRole("region", { name: "Thought" }).filter({ hasText: stored.slice(0, 20) }).waitFor();
+  expect((await page.getByRole("region", { name: "Thought" }).textContent())?.trim()).toBe(stored.trim());
   await page.keyboard.press("Shift+T");
   await page.getByRole("region", { name: "Thought" }).waitFor({ state: "detached" });
 }, 90_000);

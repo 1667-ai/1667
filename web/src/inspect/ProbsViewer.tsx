@@ -106,9 +106,12 @@ export function ProbsViewer(
     }
     setAltIndex(Math.max(0, Math.min(rows.length - 1, altIndex + delta)));
   };
-  const nextPart = (): void => {
+  /** False at the last part, so Tab moves focus the browser's way. */
+  const nextPart = (): boolean => {
     const next = partIndex < 0 ? undefined : payload.path[partIndex + 1];
-    if (next !== undefined) navigate({ kind: "story", id: storyId, page: { kind: "probs", nodeId: next.id } }, { replace: true });
+    if (next === undefined) return false;
+    navigate({ kind: "story", id: storyId, page: { kind: "probs", nodeId: next.id } }, { replace: true });
+    return true;
   };
 
   useInspectKeys(onClose, (action) => {
@@ -116,7 +119,7 @@ export function ProbsViewer(
     else if (action === "right") moveToken(1);
     else if (action === "up") moveAlternative(-1);
     else if (action === "down") moveAlternative(1);
-    else if (action === "next") nextPart();
+    else if (action === "next") return nextPart();
     else return false;
     return true;
   });
@@ -154,7 +157,7 @@ export function ProbsViewer(
               <button type="button" className="icon-btn" title="Next token (→)" aria-label="Next token (→)" disabled={tokenIndex >= total - 1} onClick={() => moveToken(1)}>
                 <Icon path={ICONS.chevronRight} />
               </button>
-              <button type="button" className="btn btn-ghost btn-small" title="Next part (Tab)" disabled={partIndex < 0 || partIndex >= payload.path.length - 1} onClick={nextPart}>
+              <button type="button" className="btn btn-ghost btn-small" title="Next part (Tab)" disabled={partIndex < 0 || partIndex >= payload.path.length - 1} onClick={() => { nextPart(); }}>
                 Next part
               </button>
             </span>

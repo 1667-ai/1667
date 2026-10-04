@@ -26,6 +26,10 @@ export function initialThoughtsState(): ThoughtsState {
   return { flipped: new Set(), entries: {} };
 }
 
+export function thoughtKey(partId: string, version: number): string {
+  return `${partId}:${version}`;
+}
+
 export const THOUGHTS_OFF_TOAST = "thoughts are off · settings turns them on";
 export const NO_THOUGHT_TOAST = "no thought on this take";
 
@@ -38,7 +42,7 @@ export interface ThoughtActions {
   /** `T`: shows or hides the thought of this part, or the focused one. */
   readonly toggle: (partId?: string) => void;
   /** Reads the thought when its part is unfolded and it is not read yet. */
-  readonly ensureLoaded: (storyId: string, partId: string) => void;
+  readonly ensureLoaded: (storyId: string, partId: string, version: number) => void;
 }
 
 export function createThoughtActions(store: Store<AppState>): ThoughtActions {
@@ -49,14 +53,16 @@ export function createThoughtActions(store: Store<AppState>): ThoughtActions {
     });
   };
 
-  const ensureLoaded = (storyId: string, partId: string): void => {
+  /** An append rewrites a take's thought, so an entry belongs to the text length it was read at. */
+  const ensureLoaded = (storyId: string, partId: string, version: number): void => {
+    const key = thoughtKey(partId, version);
     const state = store.get();
-    if (state.thoughts.entries[partId] !== undefined || state.connection.kind !== "connected") return;
+    if (state.thoughts.entries[key] !== undefined || state.connection.kind !== "connected") return;
     const api = state.connection.api;
-    patch((thoughts) => ({ ...thoughts, entries: { ...thoughts.entries, [partId]: { status: "loading" } } }));
+    patch((thoughts) => ({ ...thoughts, entries: { ...thoughts.entries, [key]: { status: "loading" } } }));
     void api.getReasoning(storyId, partId).then(
-      (record) => patch((thoughts) => ({ ...thoughts, entries: { ...thoughts.entries, [partId]: { status: "ready", record } } })),
-      () => patch((thoughts) => ({ ...thoughts, entries: { ...thoughts.entries, [partId]: { status: "error" } } }))
+      (record) => patch((thoughts) => ({ ...thoughts, entries: { ...thoughts.entries, [key]: { status: "ready", record } } })),
+      () => patch((thoughts) => ({ ...thoughts, entries: { ...thoughts.entries, [key]: { status: "error" } } }))
     );
   };
 
@@ -81,7 +87,7 @@ export function createThoughtActions(store: Store<AppState>): ThoughtActions {
         if (!flipped.delete(node.id)) flipped.add(node.id);
         return { ...thoughts, flipped };
       });
-      if (thoughtUnfolded(reasoning, store.get().thoughts.flipped, node.id)) ensureLoaded(state.story.payload.id, node.id);
+      if (thoughtUnfolded(reasoning, store.get().thoughts.flipped, node.id)) ensureLoaded(state.story.payload.id, node.id, node.text.length);
     }
   };
 }

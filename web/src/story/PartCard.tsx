@@ -258,7 +258,7 @@ function PartCardImpl({
           <AsideMark payload={payload} part={part} />
           <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
-        {node.reasoning === true && !editing && <ThoughtBlock storyId={payload.id} partId={part.id} streaming={continuation !== null} />}
+        {node.reasoning === true && !editing && <ThoughtBlock storyId={payload.id} partId={part.id} version={node.text.length} streaming={continuation !== null} />}
         {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}
         {!editing && showDirections && node.instruction.length > 0 && (
           <div className="part-instruction">{node.instruction}</div>

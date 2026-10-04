@@ -115,13 +115,13 @@ export function RecordViewer(
     }));
     const warning = humanEditWarning(node);
     const onLine = payload.path.find((candidate) => candidate.id === nodeId);
-    // An append names the characters it wrote; a new take wrote all of its text.
-    const output = onLine !== undefined && warning === null && resolved.kind !== "unsupported"
-      ? (resolved.range === undefined ? onLine.text : onLine.text.slice(resolved.range.start, resolved.range.end))
+    // Only an event that names its own characters can show them: without a
+    // range the take's current text may hold later appends or rewrites.
+    const output = onLine !== undefined && warning === null && resolved.range !== undefined
+      ? onLine.text.slice(resolved.range.start, resolved.range.end)
       : null;
     if (output !== null && output.length > 0) {
-      const where = resolved.range === undefined ? "the take" : `characters ${resolved.range.start}–${resolved.range.end}`;
-      messages.push({ key: "output", role: "assistant", label: `output · ${where}`, content: output });
+      messages.push({ key: "output", role: "assistant", label: `output · characters ${resolved.range!.start}–${resolved.range!.end}`, content: output });
     }
     const sections: DocSection[] = [
       { label: "Human edit", lines: warning === null ? [] : [warning] },

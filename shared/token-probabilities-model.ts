@@ -1,8 +1,5 @@
-import {
-  probabilityOf,
-  type TokenProbabilityRecord,
-  type TokenProbabilityStep
-} from "./token-probabilities.js";
+import type { TokenProbabilityRecord, TokenProbabilityStep } from "./token-probabilities.js";
+import { probabilityOf } from "./token-probability-wire.js";
 import {
   resolveTokenProbabilities,
   tokenProbabilityUnavailableReason,
