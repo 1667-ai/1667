@@ -41,3 +41,25 @@
 .aside-mark:hover { background: var(--accent-soft); }
 .aside-mark-elsewhere { color: var(--dim); }
 .aside-mark svg { height: var(--icon-sm); width: var(--icon-sm); }
+
+/* The Use menu of an answer. */
+.aside-use { position: relative; }
+.aside-use-popover { left: 0; top: calc(100% + var(--s-1)); }
+
+/* Choosing where an answer goes: the bar, and the targets between parts. */
+.placement-banner {
+  align-items: center; background: var(--accent-soft); border-bottom: var(--border); color: var(--ink); display: flex;
+  flex-wrap: wrap; font-size: var(--fs-small); gap: var(--s-2); justify-content: space-between; outline: none;
+  padding: var(--s-2) var(--s-4);
+}
+.placement-banner-actions { display: flex; gap: var(--s-2); }
+.placement-gap { list-style: none; padding: var(--s-1) 0; }
+.placement-target {
+  align-items: center; background: transparent; border: 1px dashed var(--line); border-radius: var(--r-md); color: var(--dim);
+  cursor: pointer; display: flex; font-family: var(--ui); font-size: var(--fs-small); gap: var(--s-2); min-height: var(--btn-sm);
+  padding: 0 var(--s-3); width: 100%;
+}
+.placement-target svg { height: var(--icon-sm); width: var(--icon-sm); }
+.placement-target:hover { color: var(--ink); }
+.placement-target[aria-pressed="true"] { background: var(--accent-soft); border: 1px solid var(--accent); color: var(--accent); }
+.placement-target-meta { color: var(--dim); font: var(--font-meta); margin-left: auto; }

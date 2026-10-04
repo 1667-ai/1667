@@ -5,6 +5,7 @@ import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
 import { Modal } from "../ui/Modal.js";
 import { Icon, ICONS } from "../ui/icons.js";
+import { AsideUseMenu } from "./AsideUseMenu.js";
 import { hopEntries, surfaceHeading } from "./model.js";
 import { currentSession, type AsideConfirm, type AsideRun, type AsideSurface } from "./state.js";
 
@@ -183,6 +184,7 @@ export function AsidePanel({ payload, onClose }: { readonly payload: StoryPayloa
                 <p className="aside-a">{turn.a}</p>
                 {selected && (
                   <div className="aside-turn-actions">
+                    <AsideUseMenu answer={turn.a} disabled={!idle} />
                     {index === lastIndex && (
                       <>
                         <button

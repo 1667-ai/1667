@@ -19,6 +19,7 @@ import {
  * up by `AI_1667_DRY_RUN_WORD_DELAY_MS`. Every case checks what the server
  * saved (`getAsideV2`), not only what is on screen. The forked story's part 2
  * (`B1`) has three takes, so an anchor can be told from its sibling takes.
+ * Step 10e adds the Use menu: copy, compose, story (placement) and Fact.
  */
 
 const WORD_DELAY_MS = 20;
@@ -259,4 +260,91 @@ test("case 6: another take of part 2 has no sessions; back on the first "
   await panel(page).getByRole("heading", { name: "Part 2 · take 1/3" }).waitFor();
   await waitForCount(turns(page), 1);
   await panel(page).locator(".aside-q", { hasText: "Question on take one" }).waitFor();
+}, 60_000);
+
+/** Asks one question on part 2 and opens the Use menu of its answer. Returns the saved answer. */
+async function askAndUse(page: Page, api: StoryApi, storyId: string, b1: string, item: string): Promise<string> {
+  await page.keyboard.press("a");
+  await ask(page, "What should happen next?");
+  await waitForCount(turns(page), 1, 10_000);
+  const saved = await savedTurns(api, storyId, b1);
+  await panel(page).getByRole("button", { name: "Use" }).click();
+  await page.getByRole("menuitem", { name: item }).click();
+  return saved[0]!.a;
+}
+
+test("case 7: Insert into compose puts the answer at the composer caret", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  const composer = page.getByRole("textbox", { name: "What happens next?" });
+  await composer.fill("Start End");
+  await composer.press("Home");
+  for (let step = 0; step < 6; step += 1) await composer.press("ArrowRight");
+  await part(page, "B1:").click();
+  const answer = await askAndUse(page, api, storyId, b1, "Insert into compose");
+
+  expect(await composer.inputValue()).toBe(`Start ${answer}End`);
+}, 60_000);
+
+test("case 8: Insert into story after part 2 adds a take that becomes part 3, "
+  + "with 2 takes", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  const answer = await askAndUse(page, api, storyId, b1, "Insert into story…");
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor();
+  // The choice starts on part 2; one step down is the place after it.
+  await page.keyboard.press("ArrowDown");
+  await page.getByRole("button", { name: /^Insert here new take of part 3/ }).and(page.locator("[aria-pressed='true']")).waitFor();
+  await page.keyboard.press("Enter");
+
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor({ state: "detached" });
+  const placed = await api.loadStory(storyId);
+  expect(placed.path.length).toBe(3);
+  const leaf = placed.path[2]!;
+  expect(leaf.parentId).toBe(b1);
+  expect(leaf.text).toBe(answer.trim());
+  expect(leaf.instruction).toBe("» from aside");
+  const third = page.locator(".part").nth(2);
+  await third.getByRole("button", { name: /^Take 2 of 2, show every take$/ }).waitFor();
+}, 60_000);
+
+test("case 9: Insert as new Fact opens the Fact editor with the answer; Save creates it", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  const answer = await askAndUse(page, api, storyId, b1, "Insert as new Fact");
+  const editor = page.getByRole("form", { name: "New fact" });
+  await editor.waitFor();
+  expect(await editor.getByRole("textbox", { name: "Text" }).inputValue()).toBe(answer);
+  await editor.getByRole("button", { name: "Save" }).click();
+
+  expect(await poll(async () => (await api.loadStory(storyId)).facts.length === 1)).toBeTrue();
+  expect((await api.loadStory(storyId)).facts[0]!.states[0]).toMatchObject({ text: answer.trim() });
+}, 60_000);
+
+test("case 10: Esc during placement leaves the story unchanged", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+  const before = await api.loadStory(storyId);
+
+  await askAndUse(page, api, storyId, b1, "Insert into story…");
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor();
+  await page.keyboard.press("ArrowDown");
+  await page.keyboard.press("Escape");
+
+  await page.getByRole("region", { name: "Insert the Aside answer" }).waitFor({ state: "detached" });
+  const after = await api.loadStory(storyId);
+  expect(after.nodes.length).toBe(before.nodes.length);
+  expect(after.path.map((node) => node.id)).toEqual(before.path.map((node) => node.id));
+  await waitForCount(turns(page), 1);
 }, 60_000);

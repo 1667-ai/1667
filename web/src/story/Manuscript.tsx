@@ -8,6 +8,8 @@ import type { ManuscriptGeneration } from "../generation/state.js";
 import { StreamingPart } from "../generation/StreamingPart.js";
 import { forkTakeOf } from "./line-switch.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
+import { PlacementGap } from "../aside/PlacementBar.js";
+import { indexOfPick, placementStops, type PlacementPick } from "../aside/placement.js";
 import { PartCard } from "./PartCard.js";
 import { SummaryCard } from "../chapters/SummaryCard.js";
 import type { SummaryRun } from "../chapters/state.js";
@@ -27,6 +29,8 @@ export interface ManuscriptProps {
   readonly generation: ManuscriptGeneration | null;
   /** The chapter summary running in this story, if any. */
   readonly summaryRun: SummaryRun | null;
+  /** The place picked for an Aside answer ("Insert here"), while the writer is choosing. */
+  readonly placement: PlacementPick | null;
   readonly onFocusPart: (partId: string) => void;
   readonly onSwitch: (partId: string, direction: -1 | 1) => void;
   readonly onSwitchTo: (partId: string, targetId: string) => void;
@@ -51,7 +55,7 @@ function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): reado
  * changes (every mutation and landed switch replaces it wholesale, so
  * reference equality is exactly the right memo key).
  */
-export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, menuRequest, generation, summaryRun, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
+export function Manuscript({ payload, focusedPartId, switching, showDirections, editingPartId, menuRequest, generation, summaryRun, placement, onFocusPart, onSwitch, onSwitchTo }: ManuscriptProps) {
   const model = useMemo(() => manuscriptModelOf(payload), [payload]);
 
   const switchingAnchor = switching === null
@@ -74,6 +78,9 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
   // While this story is locked (a generation is writing into, or trying to
   // save into, it — `"unsaved"` does not lock), every take control is
   // disabled, not only the ones below a pending switch's own anchor.
+  const stops = useMemo(() => (placement === null ? [] : placementStops(payload)), [payload, placement]);
+  const pickedStop = placement === null ? -1 : indexOfPick(stops, placement);
+
   const locked = (generation !== null && generation.live) || summaryRun !== null;
 
   return (
@@ -82,25 +89,28 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
       {rows.map((row, index) => {
         if (row.kind === "part") {
           const isSwitchingAnchor = switching !== null && row.id === switching.partId;
+          const stopIndex = placement === null ? -1 : stops.findIndex((stop) => stop.kind === "take" && stop.partId === row.id);
           return (
-            <PartCard
-              key={row.id}
-              part={row}
-              payload={payload}
-              focused={row.id === focusedPartId}
-              busy={busyFromPathIndex !== null && row.pathIndex > busyFromPathIndex}
-              controlsLocked={locked}
-              showDirections={showDirections}
-              editing={row.id === editingPartId}
-              menuSerial={menuRequest?.partId === row.id ? menuRequest.serial : 0}
-              displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
-              continuation={generation !== null && generation.appendTo === row.id
-                ? { text: generation.text, thinking: generation.thinking, live: generation.live }
-                : null}
-              onFocus={onFocusPart}
-              onSwitch={onSwitch}
-              onSwitchTo={onSwitchTo}
-            />
+            <Fragment key={row.id}>
+              {stopIndex >= 0 && <PlacementGap stop={stops[stopIndex]!} selected={stopIndex === pickedStop} />}
+              <PartCard
+                part={row}
+                payload={payload}
+                focused={row.id === focusedPartId}
+                busy={busyFromPathIndex !== null && row.pathIndex > busyFromPathIndex}
+                controlsLocked={locked}
+                showDirections={showDirections}
+                editing={row.id === editingPartId}
+                menuSerial={menuRequest?.partId === row.id ? menuRequest.serial : 0}
+                displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
+                continuation={generation !== null && generation.appendTo === row.id
+                  ? { text: generation.text, thinking: generation.thinking, live: generation.live }
+                  : null}
+                onFocus={onFocusPart}
+                onSwitch={onSwitch}
+                onSwitchTo={onSwitchTo}
+              />
+            </Fragment>
           );
         }
         if (row.kind === "chapter-divider") {
@@ -124,6 +134,9 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
           />
         );
       })}
+      {placement !== null && stops.at(-1)?.kind === "leaf" && (
+        <PlacementGap stop={stops.at(-1)!} selected={pickedStop === stops.length - 1} />
+      )}
       {generation !== null && generation.mode === "take" && (
         <StreamingPart
           partNumber={generation.partNumber}
