@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` shows the next request, the generation records, and the token
+  probabilities.** Open the command palette and choose "next request" to read
+  the exact messages of the next request. On a Mac, press Control+R. Press `h`
+  to read the generation records of a take. Press `l` to read the token
+  probabilities of a take. Press Esc or the Back button to close a page. Press
+  Shift+T to show or hide the stored thought of a take.
+
 - **The map of `1667 web` has a mass view and a Fact lens.** Press `m` to
   change the view from path to tree to mass. In the mass view, press `s` to
   change the order. In the tree view, press `f` to see one Fact on the map. Press
@@ -18,6 +25,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   press Control+G to open and close it. Each Fact shows if the next request
   sends it, if it did not match, or if the request drops it. The chapter table
   shows which chapters the next request holds.
+
+- **`1667 web` can import files.** In the Library, click Import or drop a
+  `.md`, `.jsonl`, `.story`, or `.scenario` file on the page. Each file makes a
+  new story and opens it. In an open story, press `:` and choose "import
+  character card" to add the Facts of a card. Choose "import archive" to add the
+  Facts of a `.lorebook`, `.json`, or `.png` file, or to make a new story from
+  a `.story` or `.scenario` file. A dialog lists the Facts that the import added
+  and what it left out. The page refuses a file above 20 MB.
 
 - **`1667 web` can check a chapter or a story line against the Facts.** Press
   `:` and choose "check chapter against Facts" or "check story line against

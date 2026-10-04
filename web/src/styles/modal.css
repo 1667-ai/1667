@@ -57,3 +57,15 @@ dialog.modal::backdrop {
   gap: var(--s-2);
   justify-content: flex-end;
 }
+
+/* The import result and the file-drop hint (#409 step 10i). */
+.import-modal { max-height: calc(100vh - 2 * var(--s-12)); overflow-y: auto; }
+.import-section { display: flex; flex-direction: column; gap: var(--s-2); }
+.import-section h3 { color: var(--dim); font: var(--font-meta); margin: 0; }
+.import-list { margin: 0; max-height: 40vh; overflow-y: auto; padding-left: var(--s-5); font-size: var(--fs-ui); }
+.import-drop {
+  align-items: center; background: var(--scrim); color: var(--ink); display: flex; flex-direction: column;
+  font-size: var(--fs-title); gap: var(--s-2); inset: 0; justify-content: center; pointer-events: none;
+  position: fixed; z-index: 90;
+}
+.import-drop-hint { color: var(--dim); font: var(--font-meta); }
