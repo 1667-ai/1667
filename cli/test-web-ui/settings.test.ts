@@ -359,7 +359,11 @@ test("case 6b: after a save the key row says Stored, Check sends the key, and Re
   await page.getByText(/Server is ready/).waitFor();
   expect(fake.authorizations).toContain(`Bearer ${KEY}`);
 
+  // A refused key does not keep Save off once the stored key is removed.
+  await page.getByLabel("API key", { exact: true }).fill(" spaced ");
+  expect(await saveButton(page).isDisabled()).toBeTrue();
   await page.getByRole("button", { name: "Remove" }).click();
+  expect(await saveButton(page).isDisabled()).toBeFalse();
   await saveWithKeyboard(page);
   const removed = (await settingsOf(api)).document!;
   const removedModel = removed.models[removed.profiles[removed.routing.default]!.modelId]!;
@@ -481,6 +485,15 @@ test("case 11: refused values show their reason and keep Save off", async () => 
   await brief.fill("x".repeat(70_000));
   await page.getByText(/at most 65,536/).waitFor();
   expect(await saveButton(page).isDisabled()).toBeTrue();
+
+  // Refused text is still the writer's: leaving and coming back keeps it.
+  await leaveField(page);
+  await page.keyboard.press("Escape");
+  await waitForHash(page, /^(#\/?)?$/);
+  await page.getByRole("button", { name: "Settings (,) · unsaved changes" }).waitFor();
+  await page.keyboard.press(",");
+  await page.getByLabel("Author brief", { exact: true }).waitFor();
+  expect((await brief.inputValue()).length).toBe(70_000);
   await brief.fill("A short brief again.");
   expect(await saveButton(page).isDisabled()).toBeFalse();
 }, 60_000);

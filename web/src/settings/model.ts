@@ -235,9 +235,16 @@ export function draftsEqual(left: SettingsTextDraft, right: SettingsTextDraft): 
     && settingsTextDraftProjectionIdentity(left) === settingsTextDraftProjectionIdentity(right);
 }
 
+/** Refused text of a field that is not a key. It exists only in `invalid`, so
+ * it counts as an unsaved change: leaving or reloading must keep it. */
+function refusedFieldText(loaded: LoadedSettings): string[] {
+  return Object.entries(loaded.invalid).filter(([key]) => key !== "api-key").map(([key]) => key);
+}
+
 export function isDirty(loaded: LoadedSettings): boolean {
   return loaded.view.editable
-    && (Object.keys(loaded.secrets).length > 0 || !draftsEqual(loaded.draft, loaded.base));
+    && (Object.keys(loaded.secrets).length > 0 || refusedFieldText(loaded).length > 0
+      || !draftsEqual(loaded.draft, loaded.base));
 }
 
 export function invalidCount(loaded: LoadedSettings): number {
@@ -271,7 +278,8 @@ export function changedPromptText(loaded: LoadedSettings): string {
   if (draft.document === null || base.document === null) return "";
   const parts: string[] = [];
   for (const field of WRITING_PROMPT_FIELD_IDS) {
-    const text = draft.document.writing[field];
+    // Refused text is the writer's latest; it never reached the draft.
+    const text = loaded.invalid[field]?.text ?? draft.document.writing[field];
     if (text === base.document.writing[field]) continue;
     parts.push(`${writingPromptFieldDefinition(field).title}:\n${text}`);
   }

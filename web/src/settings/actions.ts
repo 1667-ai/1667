@@ -272,9 +272,12 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         }));
         return;
       }
-      applyEdit((edit) => applyDetectedContext(edit, contextWindow), { probe: {
-        kind: "done", state: "ready", message: `The server reports ${contextWindow.toLocaleString("en-US")} tokens.`
-      } });
+      // The status settles even when a running save keeps the draft locked.
+      patch((state) => ({
+        ...state,
+        probe: { kind: "done", state: "ready", message: `The server reports ${contextWindow.toLocaleString("en-US")} tokens.` }
+      }));
+      applyEdit((edit) => applyDetectedContext(edit, contextWindow));
     } catch (error) {
       if (stale()) return;
       patch((state) => ({
@@ -527,6 +530,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         const result = applyApiKey(edit, "");
         return "edit" in result ? result.edit : edit;
       });
+      setInvalid("api-key", null);
       patch((state) => ({ ...state, keyEpoch: state.keyEpoch + 1 }));
     },
     setModel: (text) => applyEdit((edit) => applyModel(edit, text.trim())),
@@ -589,6 +593,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     discardDraft: () => {
       const current = loaded();
       if (current === null || current.busy !== null) return;
+      const uncertain = current.saveIntent !== null;
       patch((state) => ({
         ...state,
         draft: state.base,
@@ -600,6 +605,19 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         keyEpoch: state.keyEpoch + 1
       }));
       syncDiscovery(false);
+      // An uncertain save may have landed: the old base is not known to be
+      // what the server holds, so read it back.
+      if (uncertain) {
+        void reloadView().then((view) => {
+          if (view === null) return;
+          patch((state) => {
+            if (state.busy !== null || isDirty(state)) return state;
+            const base = settingsTextDraftForView(view, state.draft.selectedProfileId);
+            return { ...state, view, base, draft: base, keyEpoch: state.keyEpoch + 1 };
+          });
+          syncDiscovery(false);
+        });
+      }
     },
     discardPending
   };
