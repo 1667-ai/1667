@@ -14,7 +14,8 @@
 alternative takes, and select the story line that you want to read. Connect a
 model when you want generated prose, or write every take yourself.
 
-This repository contains the terminal user interface (TUI) and its backend.
+This repository contains the terminal user interface (TUI), the web UI, and
+the backend. Run `1667 web` to write in a browser. See [Web UI](docs/web.md).
 
 [![1667 in a terminal: a direction is composed, the model streams the next part, two sibling takes are compared, and the path map opens](https://1667.ai/demo-4.gif)](https://1667.ai)
 
@@ -59,6 +60,7 @@ because PowerShell treats it as a number.
 - [Summary branches](docs/summary-branches.md)
 - [Story line copy and paste](docs/story-line-copy-paste.md)
 - [Automatic story names](docs/autoname.md)
+- [Web UI](docs/web.md)
 - [CLI reference](cli/README.md)
 - [TUI reference](tui/README.md)
 

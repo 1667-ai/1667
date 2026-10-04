@@ -35,10 +35,11 @@ HTTP server mode is available only on Linux. See
 [Run 1667 from source](../docs/run-from-source.md) and
 [Story storage](../docs/story-storage.md).
 
-## `1667 web` (experimental)
+## `1667 web`
 
 `1667 web` opens your project and serves a page in your browser. The server
-answers requests from your computer only.
+answers requests from your computer only. Read [Web UI](../docs/web.md) for
+the full guide.
 
 ```sh
 bun start -- web

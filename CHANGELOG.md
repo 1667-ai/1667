@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` is ready to use, and it has a guide.** The command is not
+  experimental now. `1667 web --help` describes the web UI, and `1667 --help`
+  lists the command. The new [Web UI](docs/web.md) guide explains how to start
+  it, the token URL, the project lock, the keys that differ from the TUI, and
+  how to import, export, and set the API key.
+
 - **`1667 web` shows how much the next request holds.** The composer bar shows
   the size of the next request and the context window. Click it to see the
   parts of the request: voice, facts, recent text, summary, and note. On a Mac,

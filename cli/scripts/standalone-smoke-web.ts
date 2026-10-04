@@ -1,7 +1,13 @@
 import path from "node:path";
-import { webBridgeProtocols } from "../../client/web-bridge-transport.js";
+import { chromium } from "playwright-core";
+import {
+  openWebBridgeTransport,
+  webBridgeProtocols,
+  webBridgeUrl
+} from "../../client/web-bridge-transport.js";
+import { storyApiFromWorkerTransport } from "../../client/worker-story-api.js";
 import { WEB_BRIDGE_PATH } from "../../shared/web-bridge-protocol.js";
-import { READY_LINE } from "../test/web-e2e-fixture.js";
+import { BunWebSocket, READY_LINE } from "../test/web-e2e-fixture.js";
 import { runStandalone } from "./standalone-smoke-process.js";
 
 /**
@@ -81,6 +87,8 @@ export async function smokeStandaloneWeb(
       });
     });
     socket.close();
+
+    await smokeRoutesInBrowser(parsed, token);
   } finally {
     child.kill("SIGINT");
     const exitCode = await child.exited;
@@ -93,6 +101,52 @@ export async function smokeStandaloneWeb(
           + await new Response(child.stderr).text()
       );
     }
+  }
+}
+
+/**
+ * Opens a story route and its map route in a real Chrome and requires a
+ * clean console. A build machine with no Chrome skips this step, except in CI,
+ * where a missing Chrome is a failure.
+ */
+async function smokeRoutesInBrowser(url: URL, token: string): Promise<void> {
+  const browser = await chromium.launch({ channel: "chrome" }).catch((error: unknown) => {
+    if (process.env.CI !== undefined && process.env.CI !== "") throw error;
+    console.warn(`Standalone web smoke skipped the browser step: no Chrome (${String(error)})`);
+    return null;
+  });
+  if (browser === null) return;
+  try {
+    const bridge = await openWebBridgeTransport(
+      new BunWebSocket(webBridgeUrl({ host: url.host }), {
+        protocols: webBridgeProtocols(token),
+        headers: { origin: url.origin }
+      })
+    );
+    const api = storyApiFromWorkerTransport(bridge.transport);
+    const story = await api.createStory("Smoke Story");
+    await api.createNode(story.id, { text: "The smoke story opens.", parentId: null });
+
+    bridge.transport.close();
+
+    const page = await browser.newPage();
+    const problems: string[] = [];
+    page.on("console", (message) => {
+      if (message.type() === "error" || message.type() === "warning") problems.push(message.text());
+    });
+    page.on("pageerror", (error) => problems.push(error.message));
+    await page.goto(url.href);
+    await page.getByRole("button", { name: "New story" }).waitFor({ timeout: 15_000 });
+    await page.evaluate((id) => { location.hash = `#/story/${id}`; }, story.id);
+    await page.getByRole("heading", { name: "Smoke Story" }).waitFor({ timeout: 15_000 });
+    await page.getByText("The smoke story opens.").waitFor({ timeout: 15_000 });
+    await page.evaluate((id) => { location.hash = `#/story/${id}/map`; }, story.id);
+    await page.getByRole("listbox", { name: "Story map" }).waitFor({ timeout: 15_000 });
+    if (problems.length > 0) {
+      throw new Error(`Standalone web smoke console was not clean: ${problems.join(" | ")}`);
+    }
+  } finally {
+    await browser.close();
   }
 }
 
