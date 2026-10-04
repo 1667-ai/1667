@@ -54,7 +54,7 @@ The web UI listens on the loopback address `127.0.0.1` only. Other computers
 cannot reach it.
 
 The token URL holds a private token in its fragment. The browser does not send
-the fragment to the server. The page reads the token and removes it from the
+the fragment to the server. The page reads the token. Then it removes the token from the
 address bar. The page keeps the token for this tab only. Each run makes a new
 token.
 
@@ -151,8 +151,8 @@ findings" to open the last check again.
 ### Aside
 
 Aside is a chat about the story. It does not change the story. Press `a` to
-open it. Ask a question and read the answer. Use the use menu to place the text
-of an answer in the story.
+open it. Ask a question and read the answer. Use the Use menu of an answer to put
+its text in the story.
 
 ### Search
 
@@ -243,5 +243,5 @@ field. Choose Save.
 after you save it. It shows only that a key is stored. To replace the key, type
 a new key.
 
-A subscription sign-in is not part of the web UI. Run `1667 auth login` in a
-terminal instead. See [Facts, context, and model providers](model-providers.md).
+The web UI cannot sign in to a subscription plan. Run `1667 auth login` in a
+terminal. See [Facts, context, and model providers](model-providers.md).

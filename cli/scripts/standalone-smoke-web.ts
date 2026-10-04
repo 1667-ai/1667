@@ -139,7 +139,7 @@ async function smokeRoutesInBrowser(url: URL, token: string): Promise<void> {
     await page.getByRole("button", { name: "New story" }).waitFor({ timeout: 15_000 });
     await page.evaluate((id) => { location.hash = `#/story/${id}`; }, story.id);
     await page.getByRole("heading", { name: "Smoke Story" }).waitFor({ timeout: 15_000 });
-    await page.getByText("The smoke story opens.").waitFor({ timeout: 15_000 });
+    await page.locator("p", { hasText: "The smoke story opens." }).waitFor({ timeout: 15_000 });
     await page.evaluate((id) => { location.hash = `#/story/${id}/map`; }, story.id);
     await page.getByRole("listbox", { name: "Story map" }).waitFor({ timeout: 15_000 });
     if (problems.length > 0) {

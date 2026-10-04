@@ -36,7 +36,7 @@ test("a story route and the map route open with a clean console", async () => {
   await page.getByRole("button", { name: "New story" }).waitFor();
   await page.evaluate((id) => { location.hash = `#/story/${id}`; }, story.id);
   await page.getByRole("heading", { name: "Packaged Story" }).waitFor();
-  await page.getByText("The packaged story opens.").waitFor();
+  await page.locator("p", { hasText: "The packaged story opens." }).waitFor();
   await page.evaluate((id) => { location.hash = `#/story/${id}/map`; }, story.id);
   await page.getByRole("listbox", { name: "Story map" }).waitFor();
 
