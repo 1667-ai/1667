@@ -54,6 +54,9 @@ export interface LoadedSettings {
    * key is `null`. It never goes to storage, a toast, or the Copy text. */
   readonly secrets: Readonly<Record<string, string | null>>;
   readonly invalid: Readonly<Record<string, InvalidField>>;
+  /** Refused text of the fields that belong to a profile, kept for the
+   * profiles the writer is not looking at. They come back with the profile. */
+  readonly stashedInvalid: Readonly<Record<string, Readonly<Record<string, InvalidField>>>>;
   readonly discovery: DiscoveryState | null;
   readonly check: CheckState | null;
   readonly probe: ProbeState | null;

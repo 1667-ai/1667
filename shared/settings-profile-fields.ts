@@ -31,6 +31,8 @@ import { MAX_SETTINGS_TIMEOUT_MS, MIN_SETTINGS_TIMEOUT_MS } from "./settings-val
 import { scalarChipText, scalarInvalidReason, typedScalarValue, type SettingsScalar } from "./settings-scalar.js";
 import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import { settingsTextDraftForDocument, type SettingsTextDraft } from "./settings-text-draft.js";
+import { isolateSettingsProfileConnection } from "./settings-profile-draft.js";
+import { GENERATION_EFFORT_V4_VALUES } from "./settings-v4-types.js";
 import {
   CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES,
   type ContinuationPromptOptimizationV2
@@ -177,8 +179,13 @@ export function generationEffortChoices(
   document: SettingsDocumentV2,
   profileId: string
 ): readonly (typeof GENERATION_EFFORT_V2_VALUES)[number][] {
-  if (document.profiles[profileId] === undefined) return ["default"];
-  return generationEffortChoicesForRoute(resolveSettingsProfile(document, profileId) as never);
+  const profile = document.profiles[profileId];
+  if (profile === undefined) return ["default"];
+  const choices = generationEffortChoicesForRoute(resolveSettingsProfile(document, profileId) as never);
+  // An independent reasoning record cannot hold every effort a legacy one can.
+  return profile.generationReasoning.kind === "independent"
+    ? choices.filter((effort) => (GENERATION_EFFORT_V4_VALUES as readonly string[]).includes(effort))
+    : choices;
 }
 
 export function effortChoicesForDraft(draft: SettingsTextDraft): readonly (typeof GENERATION_EFFORT_V2_VALUES)[number][] {
@@ -326,12 +333,13 @@ export function splitThinkTags(draft: SettingsTextDraft): boolean {
 export function draftWithSplitThinkTags(draft: SettingsTextDraft, on: boolean): SettingsTextDraft | null {
   const chosen = selection(draft);
   if (chosen === null || draft.generation.provider !== "text-completion") return null;
-  const route = resolveSettingsProfile(chosen.document, chosen.profileId);
+  const document = isolateSettingsProfileConnection(chosen.document, chosen.profileId);
+  const route = resolveSettingsProfile(document, chosen.profileId);
   const { splitThinkTags: _dropped, ...rest } = route.connection;
   return settingsTextDraftForDocument(withSupportedReasoningDisplays({
-    ...chosen.document,
+    ...document,
     connections: {
-      ...chosen.document.connections,
+      ...document.connections,
       [route.model.connectionId]: on ? { ...rest, splitThinkTags: true as const } : rest
     }
   }), chosen.profileId);
@@ -356,11 +364,12 @@ export function textPromptFormatChoices(draft: SettingsTextDraft): readonly Text
 export function draftWithTextPromptFormat(draft: SettingsTextDraft, format: TextPromptFormatV2): SettingsTextDraft | null {
   const chosen = selection(draft);
   if (chosen === null || draft.generation.provider !== "text-completion") return null;
-  const route = resolveSettingsProfile(chosen.document, chosen.profileId);
+  const document = isolateSettingsProfileConnection(chosen.document, chosen.profileId);
+  const route = resolveSettingsProfile(document, chosen.profileId);
   return settingsTextDraftForDocument({
-    ...chosen.document,
+    ...document,
     connections: {
-      ...chosen.document.connections,
+      ...document.connections,
       [route.model.connectionId]: { ...route.connection, textPromptFormat: format }
     }
   }, chosen.profileId);
@@ -496,12 +505,13 @@ export function draftWithConnectionTimeoutValue(
   const chosen = selection(draft);
   if (chosen === null) return draft;
   const spec = CONNECTION_TIMEOUT_ROW_SPECS[row];
-  const route = resolveSettingsProfile(chosen.document, chosen.profileId);
+  const document = isolateSettingsProfileConnection(chosen.document, chosen.profileId);
+  const route = resolveSettingsProfile(document, chosen.profileId);
   const milliseconds = Math.round(displayValue * unitDivisor(spec.unit));
   return settingsTextDraftForDocument({
-    ...chosen.document,
+    ...document,
     connections: {
-      ...chosen.document.connections,
+      ...document.connections,
       [route.model.connectionId]: {
         ...route.connection,
         timeouts: { ...route.connection.timeouts, [spec.field]: milliseconds }

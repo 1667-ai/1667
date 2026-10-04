@@ -673,3 +673,54 @@ test("case 12c: temperature, effort and the other advanced values are saved", as
   await page.getByLabel("Idle timeout", { exact: true }).fill("0");
   await page.getByText(/min is/).waitFor();
 }, 120_000);
+
+test("case 12d: a key, a refused name and an edit belong to their own profile", async () => {
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await chooseFrom(page, /^Provider/, "OpenAI");
+  await page.getByLabel("API key", { exact: true }).fill(KEY);
+  await page.getByText(/not saved yet/).waitFor();
+
+  // A second profile starts with an empty key field.
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  await page.getByLabel("Profile name", { exact: true }).waitFor();
+  expect(await page.getByLabel("API key", { exact: true }).inputValue()).toBe("");
+  await page.getByLabel("API key", { exact: true }).fill("x");
+  await page.getByLabel("API key", { exact: true }).fill("");
+  expect(await page.content()).not.toContain(KEY);
+
+  // A refused name waits for its profile, and a selection that changes nothing keeps it.
+  const profileButton = page.getByRole("button", { name: /^Profile / });
+  const nameField = page.getByLabel("Profile name", { exact: true });
+  await nameField.fill("Default");
+  await page.getByText("profile names must be unique").waitFor();
+  await profileButton.click();
+  await page.getByRole("menuitemradio", { name: "Default copy", exact: true }).click();
+  await page.getByText("profile names must be unique").waitFor();
+  await profileButton.click();
+  await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  expect(await page.getByText("profile names must be unique").count()).toBe(0);
+  await profileButton.click();
+  await page.getByRole("menuitemradio", { name: "Default copy", exact: true }).click();
+  await page.getByText("profile names must be unique").waitFor();
+  await nameField.fill("Copy of default");
+  await page.getByText("profile names must be unique").waitFor({ state: "detached" });
+
+}, 120_000);
+
+test("case 12e: an edit of a duplicated profile does not reach the original", async () => {
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  await page.getByLabel("Profile name", { exact: true }).fill("Copy of default");
+  // A timeout edit on the copy leaves the original alone.
+  await page.getByLabel("Total timeout", { exact: true }).fill("900");
+  await page.getByLabel("Idle timeout", { exact: true }).fill("45");
+  await page.keyboard.press("ControlOrMeta+s");
+  await page.getByText("Settings saved", { exact: true }).waitFor();
+  const saved = (await settingsOf(api)).document!;
+  const copy = Object.values(saved.profiles).find((profile) => profile.name === "Copy of default")!;
+  const original = Object.values(saved.profiles).find((profile) => profile.name !== "Copy of default")!;
+  expect(saved.connections[saved.models[copy.modelId]!.connectionId]!.timeouts.idleMs).toBe(45_000);
+  expect(saved.connections[saved.models[original.modelId]!.connectionId]!.timeouts.idleMs).not.toBe(45_000);
+}, 120_000);

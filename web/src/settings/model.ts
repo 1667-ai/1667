@@ -245,6 +245,7 @@ function refusedFieldText(loaded: LoadedSettings): string[] {
 export function isDirty(loaded: LoadedSettings): boolean {
   return loaded.view.editable
     && (Object.keys(loaded.secrets).length > 0 || refusedFieldText(loaded).length > 0
+      || Object.keys(loaded.stashedInvalid).length > 0
       || !draftsEqual(loaded.draft, loaded.base));
 }
 
