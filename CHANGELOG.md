@@ -18,6 +18,23 @@ This file records notable changes to 1667. Product terms use the definitions in
   sends it, if it did not match, or if the request drops it. The chapter table
   shows which chapters the next request holds.
 
+- **`1667 web` can import files.** In the Library, click Import or drop a
+  `.md`, `.jsonl`, `.story`, or `.scenario` file on the page. Each file makes a
+  new story and opens it. In an open story, press `:` and choose "import
+  character card" to add the Facts of a card. Choose "import archive" to add the
+  Facts of a `.lorebook`, `.json`, or `.png` file, or to make a new story from
+  a `.story` or `.scenario` file. A dialog lists the Facts that the import added
+  and what it left out. The page refuses a file above 20 MB.
+
+- **`1667 web` can check a chapter or a story line against the Facts.** Press
+  `:` and choose "check chapter against Facts" or "check story line against
+  Facts". The page shows how many parts and requests the check uses. Choose
+  Check to start it. The Findings view of the right panel lists each Fact, the
+  quote, and the contradiction. Click a finding to go to its part. Choose
+  "show Fact findings" to open the last check again. The Fact editor can also
+  re-anchor a Fact State, convert it between text and an End State, and compare
+  it with the State before it.
+
 - **`1667 web` can search the text of your stories.** Press `/` to open the
   search. Type at least two characters. Press Tab to search all stories, and
   press Ctrl+S to match case. Press Enter to go to a hit.

@@ -14,13 +14,19 @@ import { changedFields, type FactForm } from "./form.js";
  * its text on the Fact itself; any other Fact edits one state at a time. */
 export type FactBody =
   | { readonly kind: "fact" }
-  /** An existing state. `baseText` is its text as the editor opened. */
+  /** An existing state. `baseText`, `baseAnchorPartId` and `baseEnds` are the
+   * state as the editor opened; `anchorPartId` and `ends` are the draft (re-anchor
+   * and convert change them). */
   | {
       readonly kind: "state";
       readonly stateId: string;
       readonly anchorPartId: string | null;
       readonly ends: boolean;
       readonly baseText: string;
+      readonly baseAnchorPartId: string | null;
+      readonly baseEnds: boolean;
+      /** The text typed before Convert to end, kept until Convert to text brings it back. */
+      readonly heldText?: string;
     }
   /** A state that does not exist yet. `baseText` is what the body started with. */
   | {
@@ -92,6 +98,7 @@ export function factEditorDirty(editor: FactEditor): boolean {
   if (changedFields(editor.base, editor.form).some((field) => field !== "text")) return true;
   const body = editor.body;
   if (body.kind === "fact") return editor.form.text !== editor.base.text;
+  if (body.kind === "state" && (body.anchorPartId !== body.baseAnchorPartId || body.ends !== body.baseEnds)) return true;
   if (body.ends) return false;
   return editor.form.text !== body.baseText;
 }
