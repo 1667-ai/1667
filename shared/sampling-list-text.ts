@@ -45,5 +45,25 @@ export function parseLogitBiasText(
 /** The non-empty lines. A line keeps its own spaces: a stop sequence may
  * start or end with one. */
 export function lines(text: string): string[] {
-  return text.split("\n").filter((line) => line.trim().length > 0);
+  return text.split("\n").filter((line) => line.length > 0);
+}
+
+/** An entry as one line of text: a newline, a tab, a carriage return and a
+ * backslash are written as `\n`, `\t`, `\r` and `\\`, so an entry such as a
+ * single newline survives the round trip. */
+export function encodeListEntry(entry: string): string {
+  return entry.replace(/[\\\n\t\r]/gu, (char) => (
+    char === "\\" ? "\\\\" : char === "\n" ? "\\n" : char === "\t" ? "\\t" : "\\r"
+  ));
+}
+
+export function decodeListEntry(line: string): string {
+  return line.replace(/\\([\\ntr])/gu, (_match, code: string) => (
+    code === "n" ? "\n" : code === "t" ? "\t" : code === "r" ? "\r" : "\\"
+  ));
+}
+
+/** The entries of a list written one per line with those escapes. */
+export function decodeListLines(text: string): string[] {
+  return lines(text).map(decodeListEntry);
 }

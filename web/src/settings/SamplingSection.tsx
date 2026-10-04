@@ -28,6 +28,8 @@ import { LinesRow, Section, TextInputRow } from "./SettingsFields.js";
 import type { LoadedSettings } from "./state.js";
 
 const PREVIEW_DELAY_MS = 600;
+/** The lists whose entries are text that may hold a newline. */
+const ESCAPES: ReadonlySet<string> = new Set(["stop", "dry-breakers", "banned-strings"]);
 
 /** The story's own overlay, for the preview of "This story". */
 export interface StoryBiasOverlay {
@@ -149,7 +151,7 @@ export function SamplingSection({ loaded }: { readonly loaded: LoadedSettings })
               value={text}
               refused={loaded.invalid[`sampling.${list.panel}`]}
               disabled={locked || !presentation.available && count === 0}
-              hint={presentation.available ? `${list.help} Up to ${limit}.` : presentation.reason}
+              hint={presentation.available ? `${list.help}${ESCAPES.has(list.panel) ? " Write \\n for a newline and \\\\ for a backslash." : ""} Up to ${limit}.` : presentation.reason}
               onChange={(next) => actions.settings.setSamplingList(list.panel, next)}
             />
           </div>

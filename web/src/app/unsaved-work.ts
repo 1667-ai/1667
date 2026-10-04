@@ -3,6 +3,7 @@ import { editorCopyText, editorDirty, type EditorState } from "../editor/state.j
 import { noteDraftDirty, noteFieldLabel, type NotesState } from "../notes/state.js";
 import { changedPromptText, isDirty } from "../settings/model.js";
 import type { SettingsState } from "../settings/state.js";
+import { STORY_LIST_LABELS, type StoryListDrafts, type StoryListField } from "../settings/story-lists.js";
 import { factEditorCopyText, factEditorDirty, type FactsState } from "../facts/state.js";
 
 /**
@@ -22,7 +23,8 @@ export function unsavedWork(
   compose: ComposeState,
   facts: FactsState,
   notes: NotesState,
-  settings: SettingsState
+  settings: SettingsState,
+  storyLists: StoryListDrafts = {}
 ): UnsavedItem[] {
   const items: UnsavedItem[] = [];
   if (editor !== null && editorDirty(editor)) {
@@ -39,6 +41,11 @@ export function unsavedWork(
   // in the draft's memory, and nowhere that could be copied.
   if (settings.kind === "loaded" && isDirty(settings)) {
     items.push({ id: "settings", label: "Unsaved settings", text: changedPromptText(settings) });
+  }
+  for (const [storyId, fields] of Object.entries(storyLists)) {
+    for (const [field, text] of Object.entries(fields)) {
+      items.push({ id: `story-list:${storyId}:${field}`, label: `Unsaved ${STORY_LIST_LABELS[field as StoryListField].toLowerCase()} for a story`, text: text ?? "" });
+    }
   }
   for (const storyId of Object.keys(compose.drafts)) {
     const draft = composeDraftOf(compose, storyId);

@@ -2,6 +2,8 @@ import { useEffect, useState } from "react";
 import { formatBannedStringsText, formatPhraseBiasText, parseBannedStringsText, parsePhraseBiasText } from "../../../shared/story-sampling-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
+import { useStore } from "../app/store.js";
+import { withStoryListDraft } from "./story-lists.js";
 import { failureToast, runStoryMutation } from "../app/story-mutation.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { storyChangeRefusal } from "../story/story-policy.js";
@@ -31,7 +33,7 @@ export function ThisStorySection({ loaded, storyId }: { readonly loaded: LoadedS
   const { store, actions } = useAppContext();
   const [story, setStory] = useState<StoryPayload | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
-  const [texts, setTexts] = useState<Record<Field, string> | null>(null);
+  const drafts = useStore(store, (state) => state.storyListDrafts[storyId]);
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
@@ -42,10 +44,6 @@ export function ThisStorySection({ loaded, storyId }: { readonly loaded: LoadedS
       (payload) => {
         if (cancelled) return;
         setStory(payload);
-        setTexts({
-          "phrase-bias": formatPhraseBiasText(payload.phraseBias ?? []),
-          "banned-strings": formatBannedStringsText(payload.bannedStrings ?? [])
-        });
       },
       (error: unknown) => { if (!cancelled) setFailure(errorMessage(error)); }
     );
@@ -55,17 +53,27 @@ export function ThisStorySection({ loaded, storyId }: { readonly loaded: LoadedS
   if (failure !== null) {
     return <Section title="This story"><p className="settings-note">The story did not load: {failure}</p></Section>;
   }
-  if (story === null || texts === null) return null;
+  if (story === null) return null;
+  const savedText: Record<Field, string> = {
+    "phrase-bias": formatPhraseBiasText(story.phraseBias ?? []),
+    "banned-strings": formatBannedStringsText(story.bannedStrings ?? [])
+  };
+  const texts: Record<Field, string> = {
+    "phrase-bias": drafts?.["phrase-bias"] ?? savedText["phrase-bias"],
+    "banned-strings": drafts?.["banned-strings"] ?? savedText["banned-strings"]
+  };
+  const setText = (field: Field, text: string | null): void => {
+    store.set((state) => ({
+      ...state,
+      storyListDrafts: withStoryListDraft(state.storyListDrafts, storyId, field, text === savedText[field] ? null : text)
+    }));
+  };
 
   const parsedPhrase = parsePhraseBiasText(texts["phrase-bias"]);
   const parsedBanned = parseBannedStringsText(texts["banned-strings"]);
   const reasons: Record<Field, string | null> = {
     "phrase-bias": parsedPhrase.ok ? null : parsedPhrase.toast,
     "banned-strings": parsedBanned.ok ? null : parsedBanned.toast
-  };
-  const savedText: Record<Field, string> = {
-    "phrase-bias": formatPhraseBiasText(story.phraseBias ?? []),
-    "banned-strings": formatBannedStringsText(story.bannedStrings ?? [])
   };
 
   const save = async (field: Field): Promise<void> => {
@@ -95,6 +103,7 @@ export function ThisStorySection({ loaded, storyId }: { readonly loaded: LoadedS
     setBusy(false);
     if (outcome.kind === "saved") {
       setStory(outcome.payload);
+      store.set((state) => ({ ...state, storyListDrafts: withStoryListDraft(state.storyListDrafts, storyId, field, null) }));
       actions.story.adoptPayload(storyId, outcome.payload);
       pushToast(store, field === "phrase-bias" ? "Phrase bias saved for this story" : "Banned strings saved for this story");
       return;
@@ -127,7 +136,12 @@ export function ThisStorySection({ loaded, storyId }: { readonly loaded: LoadedS
                 value={texts[field]}
                 disabled={busy}
                 spellCheck={false}
-                onChange={(event) => setTexts({ ...texts, [field]: event.currentTarget.value })}
+                onChange={(event) => setText(field, event.currentTarget.value)}
+                onKeyDown={(event) => {
+                  if (event.key !== "Escape") return;
+                  event.preventDefault();
+                  event.currentTarget.blur();
+                }}
               />
             </div>
             {dirty && (
@@ -146,7 +160,7 @@ export function ThisStorySection({ loaded, storyId }: { readonly loaded: LoadedS
                   type="button"
                   className="btn btn-small"
                   disabled={busy}
-                  onClick={() => setTexts({ ...texts, [field]: savedText[field] })}
+                  onClick={() => setText(field, null)}
                 >
                   Revert
                 </button>

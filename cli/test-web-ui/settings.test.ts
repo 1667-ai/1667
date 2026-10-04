@@ -791,3 +791,64 @@ test("case 13c: a story's own phrase bias is saved for the story from the settin
   await page.keyboard.press("Escape");
   await page.keyboard.press("Escape");
 }, 120_000);
+
+test("case 13d: a stop sequence that is a newline survives an edit of another entry", async () => {
+  const fake = await fakeModelServer();
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await configureFakeServer(page, fake);
+  const stop = page.getByLabel("Stop sequences", { exact: true });
+  await stop.fill("\\n\n:");
+  await saveWithKeyboard(page);
+  const profileOf = async () => {
+    const document = (await settingsOf(api)).document!;
+    return document.profiles[document.routing.default]!;
+  };
+  expect((await profileOf()).sampling?.stop).toEqual(["\n", ":"]);
+
+  expect(await stop.inputValue()).toBe("\\n\n:");
+  await stop.fill("\\n\n;");
+  await saveWithKeyboard(page);
+  expect((await profileOf()).sampling?.stop).toEqual(["\n", ";"]);
+}, 120_000);
+
+test("case 13e: a refused name of another profile still blocks Save", async () => {
+  const { page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  await page.getByLabel("Profile name", { exact: true }).fill("Default");
+  await page.getByText("profile names must be unique").waitFor();
+  await page.getByRole("button", { name: /^Profile / }).click();
+  await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  await page.getByLabel("Temperature", { exact: true }).fill("0.5");
+  await saveBar(page).getByText(/Fix 1 field/).waitFor();
+  expect(await saveButton(page).isDisabled()).toBeTrue();
+}, 90_000);
+
+test("case 13f: unsaved story lists stay when the view changes, and Esc leaves the field", async () => {
+  const { api, page } = await openLibrary();
+  await seedForkedStory(api);
+  await page.reload();
+  await page.getByRole("button", { name: /^Forked Story/ }).click();
+  await page.getByRole("heading", { name: "Forked Story", level: 1 }).waitFor();
+  await page.keyboard.press(",");
+  const view = page.getByRole("group", { name: "Settings view" });
+  await view.getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+  const field = page.getByLabel("Banned strings", { exact: true }).last();
+  await field.fill("however");
+  await page.keyboard.press("Escape");
+  expect(await page.evaluate(() => document.activeElement?.tagName)).not.toBe("TEXTAREA");
+  expect(page.url()).toContain("settings");
+
+  await view.getByRole("button", { name: "Simple" }).click();
+  await view.getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+  expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");
+
+  await page.keyboard.press("Escape");
+  await waitForHash(page, /^#\/story\//);
+  await page.keyboard.press(",");
+  await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
+  expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");
+}, 120_000);

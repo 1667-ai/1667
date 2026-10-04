@@ -250,7 +250,9 @@ export function isDirty(loaded: LoadedSettings): boolean {
 }
 
 export function invalidCount(loaded: LoadedSettings): number {
-  return Object.keys(loaded.invalid).length;
+  // A refused text of another profile still blocks Save: it is the writer's.
+  return Object.keys(loaded.invalid).length
+    + Object.values(loaded.stashedInvalid).reduce((total, fields) => total + Object.keys(fields).length, 0);
 }
 
 /** The saved draft as it reads for the profile the writer has selected, so

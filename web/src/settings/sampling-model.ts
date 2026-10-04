@@ -4,8 +4,9 @@ import {
   type SamplingKnobV2
 } from "../../../shared/sampling-capabilities.js";
 import {
+  decodeListLines,
+  encodeListEntry,
   formatLogitBiasText,
-  lines,
   parseLogitBiasText
 } from "../../../shared/sampling-list-text.js";
 import {
@@ -36,7 +37,7 @@ export const SAMPLING_LISTS: readonly {
   readonly label: string;
   readonly help: string;
 }[] = [
-  { panel: "stop", knob: "stop", label: "Stop sequences", help: "One per line. The model stops when it writes one." },
+  { panel: "stop", knob: "stop", label: "Stop sequences", help: "One per line. The model stops when it writes one. Write \\n for a newline and \\\\ for a backslash." },
   { panel: "logit-bias", knob: "logitBias", label: "Logit bias", help: "One per line, as token ID:bias. The bias is a whole number." },
   { panel: "phrase-bias", knob: "phraseBias", label: "Phrase bias", help: "One per line, as phrase: weight. The weight is a whole number from -100 to 100." },
   { panel: "banned-strings", knob: "bannedStrings", label: "Banned strings", help: "One per line. The model does not write them." },
@@ -85,9 +86,9 @@ export function samplingScalarShown(draft: SettingsTextDraft, knob: SamplingScal
 export function samplingListText(draft: SettingsTextDraft, panel: SamplingListPanel): string {
   const sampling = draft.sampling;
   switch (panel) {
-    case "stop": return sampling.stop.join("\n");
-    case "dry-breakers": return sampling.dryBreakers.join("\n");
-    case "banned-strings": return sampling.bannedStrings.join("\n");
+    case "stop": return sampling.stop.map(encodeListEntry).join("\n");
+    case "dry-breakers": return sampling.dryBreakers.map(encodeListEntry).join("\n");
+    case "banned-strings": return sampling.bannedStrings.map(encodeListEntry).join("\n");
     case "logit-bias": return formatLogitBiasText(sampling.logitBias);
     case "phrase-bias": return formatPhraseBiasText(sampling.phraseBias);
   }
@@ -97,9 +98,9 @@ export function applySamplingList(edit: SettingsEdit, panel: SamplingListPanel, 
   const sampling = edit.draft.sampling;
   let next: SamplingSettingsV2;
   switch (panel) {
-    case "stop": next = { ...sampling, stop: lines(text) }; break;
-    case "dry-breakers": next = { ...sampling, dryBreakers: lines(text) }; break;
-    case "banned-strings": next = { ...sampling, bannedStrings: lines(text) }; break;
+    case "stop": next = { ...sampling, stop: decodeListLines(text) }; break;
+    case "dry-breakers": next = { ...sampling, dryBreakers: decodeListLines(text) }; break;
+    case "banned-strings": next = { ...sampling, bannedStrings: decodeListLines(text) }; break;
     case "logit-bias": {
       const parsed = parseLogitBiasText(text);
       if ("error" in parsed) return { error: parsed.error };
