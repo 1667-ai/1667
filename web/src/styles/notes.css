@@ -1,0 +1,24 @@
+/**
+ * The Author's Note and author brief dialog (#409 step 10b): a text area, the
+ * depth stepper, and the story-header toggle for typewriter mode. The dialog
+ * frame is `.modal` (`modal.css`).
+ */
+
+.note-modal { width: min(640px, 100%); }
+.note-text {
+  font-family: var(--prose); font-size: var(--fs-body); line-height: 1.6; min-height: 160px;
+  padding: var(--s-3); resize: vertical; width: 100%;
+}
+.note-meta { color: var(--dim); font-size: var(--fs-small); }
+.note-meta-error { color: var(--danger); }
+
+.note-depth { align-items: center; display: flex; flex-wrap: wrap; gap: var(--s-3); }
+.note-depth-label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); text-transform: uppercase; }
+.note-stepper { align-items: center; display: inline-flex; gap: var(--s-1); }
+.note-depth-value { font-size: var(--fs-ui); font-variant-numeric: tabular-nums; min-width: 2ch; text-align: center; }
+.note-depth-hint { color: var(--dim); font-size: var(--fs-small); }
+.note-discard { margin-right: auto; }
+
+/* Typewriter mode: room above the first part and below the last, so each can
+   reach the middle of the view. */
+.story-scroll-typewriter .story-body { padding-block: max(var(--s-8), 42vh); }

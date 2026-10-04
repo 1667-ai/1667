@@ -18,6 +18,9 @@ export const ASIDE_LOCKED_TOAST = "Aside is answering… Esc stops it first.";
 
 /** A generation's text is not saved yet; nothing may start or remove the
  * part it hangs below until the writer retries or discards it. */
+/** The story is being named: a provider call that cannot be stopped. */
+export const NAMING_LOCKED_TOAST = "Naming the story… Wait for it.";
+
 export const UNSAVED_TOAST = "The last text is not saved yet. Retry or discard it first.";
 
 /** True while a generation is running or settling in `storyId`, or a chapter
@@ -26,14 +29,16 @@ export const UNSAVED_TOAST = "The last text is not saved yet. Retry or discard i
 export function storyRunLocked(state: AppState, storyId: string): boolean {
   return generationLocks(state.generation, storyId)
     || state.chapters.summaryRun?.storyId === storyId
-    || state.aside.run?.storyId === storyId;
+    || state.aside.run?.storyId === storyId
+    || state.notes.naming?.storyId === storyId;
 }
 
 /** The toast for a change refused because `storyId` is locked. */
 export function lockedToast(state: AppState, storyId: string): string {
   if (generationLocks(state.generation, storyId)) return STORY_LOCKED_TOAST;
   if (state.chapters.summaryRun?.storyId === storyId) return SUMMARY_LOCKED_TOAST;
-  return state.aside.run?.storyId === storyId ? ASIDE_LOCKED_TOAST : STORY_LOCKED_TOAST;
+  if (state.aside.run?.storyId === storyId) return ASIDE_LOCKED_TOAST;
+  return state.notes.naming?.storyId === storyId ? NAMING_LOCKED_TOAST : STORY_LOCKED_TOAST;
 }
 
 /** Why a start of a run in `storyId` is refused by a run that already exists
@@ -49,6 +54,10 @@ export function runBusyToast(state: AppState, storyId: string): string | null {
     return run.storyId === storyId ? SUMMARY_LOCKED_TOAST : `Already summarizing in ${run.storyTitle}. Esc stops it.`;
   }
   const aside = state.aside.run;
-  if (aside === null) return null;
-  return aside.storyId === storyId ? ASIDE_LOCKED_TOAST : `Aside is answering in ${aside.storyTitle}. Esc stops it.`;
+  if (aside !== null) {
+    return aside.storyId === storyId ? ASIDE_LOCKED_TOAST : `Aside is answering in ${aside.storyTitle}. Esc stops it.`;
+  }
+  const naming = state.notes.naming;
+  if (naming === null) return null;
+  return naming.storyId === storyId ? NAMING_LOCKED_TOAST : `Already naming ${naming.storyTitle}. Wait for it.`;
 }

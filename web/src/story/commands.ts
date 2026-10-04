@@ -101,6 +101,15 @@ registerCommands([
     }
   },
   {
+    id: "typewriter",
+    title: "typewriter mode",
+    description: "keep the focused part in the middle of the page",
+    section: "view",
+    shortcut: "z",
+    available: onStoryPage,
+    run: (context) => context.actions.story.toggleTypewriter()
+  },
+  {
     id: "prompts",
     title: "toggle directions",
     description: "show or hide directions above each part",

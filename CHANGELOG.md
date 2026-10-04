@@ -5,6 +5,10 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` can search the text of your stories.** Press `/` to open the
+  search. Type at least two characters. Press Tab to search all stories, and
+  press Ctrl+S to match case. Press Enter to go to a hit.
+
 - **The map of `1667 web` opens in the path view.** The path view shows the
   line that you read, part by part. Press `m` to show the tree view.
 
@@ -19,6 +23,13 @@ This file records notable changes to 1667. Product terms use the definitions in
   and the Default Continue direction. The page keeps the API key on the
   computer and never shows it again. Press Ctrl+S or Cmd+S to save. Press Esc
   to close the page. An unsaved draft stays when you leave the page.
+
+- **`1667 web` can copy text, write an Author's Note, and keep a part in the
+  middle of the page.** Press `y` to copy the part that has focus. Press `Y` to
+  copy the whole line. Press `n` to write an Author's Note with a depth. Press
+  `z` to keep the part that has focus in the middle of the page. The command
+  palette can set an author brief, name a story, and download a story as a
+  Markdown file.
 
 - **`1667 web` has Aside.** Press `a` on a part to ask a question about its
   take. The answer shows in the side panel and never changes the story. Press

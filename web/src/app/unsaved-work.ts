@@ -1,6 +1,7 @@
 import { initialAsideState, type AsideState } from "../aside/state.js";
 import { composeDraftOf, type ComposeState } from "../compose/state.js";
 import { editorCopyText, editorDirty, type EditorState } from "../editor/state.js";
+import { noteDraftDirty, noteFieldLabel, type NotesState } from "../notes/state.js";
 import { changedPromptText, isDirty } from "../settings/model.js";
 import type { SettingsState } from "../settings/state.js";
 import { factEditorCopyText, factEditorDirty, type FactsState } from "../facts/state.js";
@@ -21,6 +22,7 @@ export function unsavedWork(
   editor: EditorState | null,
   compose: ComposeState,
   facts: FactsState,
+  notes: NotesState,
   settings: SettingsState,
   aside: AsideState = initialAsideState()
 ): UnsavedItem[] {
@@ -30,6 +32,10 @@ export function unsavedWork(
   }
   if (facts.editor !== null && factEditorDirty(facts.editor)) {
     items.push({ id: "fact", label: "Unsaved fact", text: factEditorCopyText(facts.editor) });
+  }
+  for (const [key, draft] of Object.entries(notes.drafts)) {
+    if (!noteDraftDirty(draft)) continue;
+    items.push({ id: `note:${key}`, label: `Unsaved ${noteFieldLabel(key.endsWith(":brief") ? "brief" : "note")}`, text: draft.text });
   }
   // The Copy text is the changed prompt text only. A key is write-only: it is
   // in the draft's memory, and nowhere that could be copied.

@@ -187,7 +187,7 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
 
   if (isFactPartAction(action)) return factActionRefusal(state, story, action);
 
-  if (action !== "direct" && partSwitchPending(story, partId)) return PART_SWITCHING_TOAST;
+  if (action !== "direct" && action !== "copy" && partSwitchPending(story, partId)) return PART_SWITCHING_TOAST;
 
   switch (action) {
     case "continue":

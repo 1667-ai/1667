@@ -12,6 +12,7 @@ import { storyAggregateVersionIsAtLeast } from "../../../shared/story-aggregate-
 import type { StoryPayload } from "../../../shared/types.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import { persistShowDirections } from "../reading/directions.js";
+import { persistTypewriter } from "../reading/typewriter.js";
 import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import type { Store } from "../app/store.js";
@@ -120,6 +121,8 @@ export interface StoryActions {
    * switch. A switch lands later; watch `story.switching`. */
   switchLine(targetId: string): boolean;
   toggleDirections(): void;
+  /** `z`: keeps the focused part centered while the reader moves. */
+  toggleTypewriter(): void;
   /** Forces the debounced reading-position write out immediately — called on
    * `pagehide`/visibility hidden (`app/bootstrap.ts`) with `keepalive: true`
    * so the browser still sends it while the tab is going away. */
@@ -487,6 +490,12 @@ export function createStoryActions(
       const next = !store.get().reading.showDirections;
       persistShowDirections(next);
       store.set((state) => ({ ...state, reading: { ...state.reading, showDirections: next } }));
+    },
+
+    toggleTypewriter: () => {
+      const next = !store.get().reading.typewriter;
+      persistTypewriter(next);
+      store.set((state) => ({ ...state, reading: { ...state.reading, typewriter: next } }));
     },
 
     flushReadingPosition: () => {
