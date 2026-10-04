@@ -25,6 +25,7 @@ export const ICONS = {
   flag: "M5 21V4 M5 5h11l-2 4 2 4H5",
   summary: "M4 6h16 M4 12h10 M4 18h7",
   facts: "M9 6h11 M9 12h11 M9 18h11 M4 6h.01 M4 12h.01 M4 18h.01",
+  upload: "M12 16V4 M6 10l6-6 6 6 M4 20h16",
   arrowUp: "M12 19V5 M6 11l6-6 6 6",
   arrowDown: "M12 5v14 M6 13l6 6 6-6",
   diamond: "M12 3l9 9-9 9-9-9Z",

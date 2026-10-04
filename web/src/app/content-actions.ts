@@ -2,6 +2,7 @@ import { createAsideActions, type AsideActions } from "../aside/actions.js";
 import { createComposeActions, type ComposeActions } from "../compose/actions.js";
 import { createEditorActions, type EditorActions } from "../editor/actions.js";
 import { createFactActions, type FactActions } from "../facts/index.js";
+import { createImportActions, type ImportActions } from "../imports/actions.js";
 import { createFactCheckActions, type FactCheckActions } from "../factcheck/actions.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
@@ -30,6 +31,7 @@ export interface ContentActions {
   readonly aside: AsideActions;
   readonly facts: FactActions;
   readonly factCheck: FactCheckActions;
+  readonly imports: ImportActions;
   readonly notes: NotesActions;
   readonly settings: SettingsActions;
 }
@@ -74,9 +76,10 @@ export function createContentActions(
   const aside = createAsideActions(store, { story, panel });
   const facts = createFactActions(store, { story, panel });
   const factCheck = createFactCheckActions(store, { story, panel });
+  const imports = createImportActions(store, { story, library });
   const notes = createNotesActions(store, { story });
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
   const settings = createSettingsActions(store);
-  return { library, story, generation, part, compose, editor, tags, chapters, panel, aside, facts, factCheck, notes, settings };
+  return { library, story, generation, part, compose, editor, tags, chapters, panel, aside, facts, factCheck, imports, notes, settings };
 }
 

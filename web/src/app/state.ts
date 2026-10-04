@@ -3,6 +3,7 @@ import { initialAsideState, type AsideState } from "../aside/state.js";
 import { initialChaptersState, type ChaptersState } from "../chapters/state.js";
 import { initialComposeState, type ComposeState } from "../compose/state.js";
 import type { EditorState } from "../editor/state.js";
+import { initialImportsState, type ImportsState } from "../imports/state.js";
 import { initialFactCheckState, type FactCheckState } from "../factcheck/state.js";
 import { initialFactsState, type FactsState } from "../facts/state.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
@@ -72,6 +73,8 @@ export interface AppState {
   readonly facts: FactsState;
   /** The Fact consistency check (#409 step 10h): its confirmation, its run and its findings. See `factcheck/state.ts`. */
   readonly factCheck: FactCheckState;
+  /** File imports (#409 step 10i): the result dialog. See `imports/state.ts`. */
+  readonly imports: ImportsState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
   /** The Author's Note and brief editors, and the story naming run (#409 step 10b). See `notes/state.ts`. */
@@ -111,6 +114,7 @@ export function initialAppState(
     tags: initialTagsState(),
     facts: initialFactsState(),
     factCheck: initialFactCheckState(),
+    imports: initialImportsState(),
     panel: initialPanelState(),
     notes: initialNotesState(),
     settings: initialSettingsState(),

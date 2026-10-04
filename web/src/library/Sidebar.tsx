@@ -85,18 +85,29 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
           </div>
         </div>
 
-        <button
-          type="button"
-          className="btn btn-primary btn-block"
-          title="New story"
-          onClick={() => {
-            onClose();
-            void actions.library.create();
-          }}
-        >
-          <Icon path={ICONS.plus} />
-          New story
-        </button>
+        <div className="sidebar-new">
+          <button
+            type="button"
+            className="btn btn-primary btn-block"
+            title="New story"
+            onClick={() => {
+              onClose();
+              void actions.library.create();
+            }}
+          >
+            <Icon path={ICONS.plus} />
+            New story
+          </button>
+          <button
+            type="button"
+            className="icon-btn sidebar-import"
+            title="Import a story file (.md, .jsonl, .story, .scenario)"
+            aria-label="Import story"
+            onClick={actions.imports.pickStoryFiles}
+          >
+            <Icon path={ICONS.upload} />
+          </button>
+        </div>
 
         <div className="field sidebar-search">
           <input

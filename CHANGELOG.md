@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` can import files.** In the Library, click Import or drop a
+  `.md`, `.jsonl`, `.story`, or `.scenario` file on the page. Each file makes a
+  new story and opens it. In an open story, press `:` and choose "import
+  character card" to add the Facts of a card. Choose "import archive" to add the
+  Facts of a `.lorebook`, `.json`, or `.png` file, or to make a new story from
+  a `.story` or `.scenario` file. A dialog lists the Facts that the import added
+  and what it left out. The page refuses a file above 20 MB.
+
 - **`1667 web` can check a chapter or a story line against the Facts.** Press
   `:` and choose "check chapter against Facts" or "check story line against
   Facts". The page shows how many parts and requests the check uses. Choose
