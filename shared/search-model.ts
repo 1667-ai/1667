@@ -3,13 +3,13 @@ import {
   lineName,
   workingName,
   type StoryIndex
-} from "../../shared/story-model.js";
+} from "./story-model.js";
 import type {
   SearchHit,
   SearchResponse,
   SearchScope
-} from "../../shared/story-search.js";
-import type { StoryPayload, StorySummary, Tag } from "../../shared/types.js";
+} from "./story-search.js";
+import type { StoryPayload, StorySummary, Tag } from "./types.js";
 
 /** Everything the search navigator renders from. Hits arrive from the backend;
  * grouping, ordering and folding are decided here. */

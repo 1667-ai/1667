@@ -1,6 +1,6 @@
 import { searchQueryIsRunnable } from "../../shared/story-search.js";
 import type { AppSource } from "./app.js";
-import { firstHitCursor, searchRows, type SearchState } from "./search-model.js";
+import { firstHitCursor, searchRows, type SearchState } from "../../shared/search-model.js";
 import type { RuntimeState } from "./state.js";
 
 /** How long typing must pause before a scan starts.

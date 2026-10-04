@@ -17,7 +17,7 @@ import {
   type SearchGroupRow,
   type SearchRowModel,
   type SearchState
-} from "./search-model.js";
+} from "../../shared/search-model.js";
 import { adoptStoryState } from "./story-adoption.js";
 import { paletteSessionReturningTo, restorePaletteSession } from "./palette-owner.js";
 import {
