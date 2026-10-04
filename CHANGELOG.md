@@ -31,6 +31,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette can set an author brief, name a story, and download a story as a
   Markdown file.
 
+- **The settings page of `1667 web` has an advanced view.** Click Advanced in
+  the page header to show it. You can add, copy, rename, and delete a
+  profile. You can choose the profile for each task. You can also set the
+  temperature, the maximum tokens, the effort, the alternatives, the prompt
+  cache, the prompt layout, the reasoning display, the timeouts, and the four
+  guidance prompts. A row that does not apply to the provider shows the
+  reason. On a wide screen, a list of sections stays beside the form.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line

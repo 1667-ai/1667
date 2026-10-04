@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { resolveReferenceBinding } from "../../../shared/reference-bindings.js";
 import { WRITING_PROMPT_FIELD_DEFINITIONS, type WritingPromptFieldId } from "../../../shared/settings-v5-writing.js";
 import { settingsSubscriptionLoginHint } from "../../../shared/settings-subscription-plan.js";
@@ -13,15 +13,50 @@ import { Icon, ICONS } from "../ui/icons.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 import {
   ApiKeyRow,
+  Choice,
   ModelRow,
   PromptRow,
   ProviderRow,
   Row,
+  Section,
+  sectionAnchor,
   TextInputRow
 } from "./SettingsFields.js";
+import {
+  ConnectionAdvancedRows,
+  GenerationSection,
+  ImageInputRow,
+  ProfileRows,
+  RoutingSection,
+  ThoughtsSection,
+  TimeoutRows
+} from "./AdvancedSections.js";
 import { SaveBar } from "./SaveBar.js";
 import { isDirty, isSubscriptionDraft, selectedPreset, targetIdentity } from "./model.js";
 import type { LoadedSettings } from "./state.js";
+
+type SettingsViewMode = "simple" | "advanced";
+const VIEW_MODE_KEY = "1667.web.settingsView";
+
+/** Simple or advanced: which rows show. It is a browser preference, never
+ * part of the settings draft. */
+function useViewMode(): readonly [SettingsViewMode, (mode: SettingsViewMode) => void] {
+  const [mode, setMode] = useState<SettingsViewMode>(() => {
+    try {
+      return localStorage.getItem(VIEW_MODE_KEY) === "advanced" ? "advanced" : "simple";
+    } catch {
+      return "simple";
+    }
+  });
+  return [mode, (next) => {
+    setMode(next);
+    try {
+      localStorage.setItem(VIEW_MODE_KEY, next);
+    } catch {
+      // The choice then lasts until the page closes.
+    }
+  }];
+}
 
 const READ_ONLY_TEXT: Record<string, string> = {
   "successor-schema": "These settings are newer than this version of 1667 and are read-only here. Update 1667 to change them.",
@@ -73,6 +108,7 @@ export function SettingsPage({ onOpenSidebar }: { readonly onOpenSidebar: () => 
     return () => removeEventListener("focus", onFocus);
   }, [actions]);
 
+  const [viewMode, setViewMode] = useViewMode();
   const loaded = settings.kind === "loaded" ? settings : null;
   return (
     <div className="story-view settings-page">
@@ -88,6 +124,12 @@ export function SettingsPage({ onOpenSidebar }: { readonly onOpenSidebar: () => 
           <span className="story-stats">Applies to every story in this project</span>
         </div>
         <div className="story-actions">
+          <Choice
+            label="Settings view"
+            value={viewMode}
+            options={[{ id: "simple", name: "Simple" }, { id: "advanced", name: "Advanced" }]}
+            onSelect={setViewMode}
+          />
           <button type="button" className="icon-btn" title="Close (Esc)" aria-label="Close settings (Esc)" onClick={closeSettings}>
             <Icon path={ICONS.x} />
           </button>
@@ -103,43 +145,9 @@ export function SettingsPage({ onOpenSidebar }: { readonly onOpenSidebar: () => 
               <button type="button" className="btn btn-primary" onClick={actions.settings.retryLoad}>Try again</button>
             </div>
           )
-          : <SettingsForm loaded={settings} />}
+          : <SettingsForm loaded={settings} advanced={viewMode === "advanced"} />}
       {loaded !== null && <SaveBar loaded={loaded} />}
       <GenerationBar />
-    </div>
-  );
-}
-
-function Section({ title, children }: { readonly title: string; readonly children: React.ReactNode }) {
-  return (
-    <section className="settings-section" aria-label={title}>
-      <h2 className="settings-heading">{title}</h2>
-      {children}
-    </section>
-  );
-}
-
-function Choice<T extends string>(
-  { label, value, options, onSelect }: {
-    readonly label: string;
-    readonly value: T;
-    readonly options: readonly { readonly id: T; readonly name: string }[];
-    readonly onSelect: (id: T) => void;
-  }
-) {
-  return (
-    <div className="settings-choice" role="group" aria-label={label}>
-      {options.map((option) => (
-        <button
-          key={option.id}
-          type="button"
-          className="chip-btn"
-          aria-pressed={option.id === value}
-          onClick={() => onSelect(option.id)}
-        >
-          {option.name}
-        </button>
-      ))}
     </div>
   );
 }
@@ -179,7 +187,7 @@ function DisplaySection() {
   );
 }
 
-function SettingsForm({ loaded }: { readonly loaded: LoadedSettings }) {
+function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; readonly advanced: boolean }) {
   const { store, actions } = useAppContext();
   const editable = loaded.view.editable;
   const locked = !editable || loaded.busy !== null;
@@ -204,96 +212,127 @@ function SettingsForm({ loaded }: { readonly loaded: LoadedSettings }) {
     ? "Not needed for a local address on this system."
     : "Allows plain HTTP for a server you control. Turn it on for a local or LAN server.";
 
+  const prompts = WRITING_PROMPT_FIELD_DEFINITIONS.filter((definition) => advanced || definition.view === "simple");
+  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Thoughts", "Routing"];
+  const showPlainHttp = advanced ? !dryRun : plainHttp;
   return (
     <div className="settings-scroll">
-      <div className="settings-body">
-        {!editable && (
-          <p className="settings-banner" role="status">
-            {READ_ONLY_TEXT[loaded.view.readOnlyReason ?? "legacy-migration"]}
-          </p>
+      <div className={`settings-layout${advanced ? " settings-layout-rail" : ""}`}>
+        {advanced && (
+          <nav className="settings-rail" aria-label="Sections">
+            {sections.map((title) => (
+              <button
+                key={title}
+                type="button"
+                className="menu-item"
+                title={`Jump to ${title}`}
+                onClick={() => document.getElementById(sectionAnchor(title))?.scrollIntoView({ block: "start" })}
+              >
+                {title}
+              </button>
+            ))}
+          </nav>
         )}
-        <DisplaySection />
-        <Section title="Prompts">
-          {WRITING_PROMPT_FIELD_DEFINITIONS.filter((definition) => definition.view === "simple").map((definition) => (
-            <PromptRow
-              key={definition.field}
-              definition={definition}
-              value={writing[definition.field as WritingPromptFieldId]}
-              refused={loaded.invalid[definition.field]}
-              disabled={locked}
-              onChange={(text) => actions.settings.setWriting(definition.field, text)}
-            />
-          ))}
-        </Section>
-        <Section title="Connection">
-          <ProviderRow loaded={loaded} />
-          {plan && preset !== undefined && (preset === "chatgpt-plan" || preset === "claude-plan") && (
-            <p className="settings-note">{settingsSubscriptionLoginHint(preset, loaded.view.subscriptionAuth)}</p>
+        <div className="settings-body">
+          {!editable && (
+            <p className="settings-banner" role="status">
+              {READ_ONLY_TEXT[loaded.view.readOnlyReason ?? "legacy-migration"]}
+            </p>
           )}
-          {!plan && (
-            <>
-              <TextInputRow
-                label="Base URL"
-                value={draft.generation.baseUrl}
-                disabled={locked || dryRun}
-                placeholder={dryRun ? "" : "http://127.0.0.1:1234/v1"}
-                hint={check === null
-                  ? dryRun ? "Dry-run needs no server." : "The address of the server, for example http://127.0.0.1:1234/v1."
-                  : check.kind === "checking" ? "Checking the server…" : check.result.message}
-                tone={check?.kind === "done" ? (check.result.state === "ready" ? "ready" : "warning") : undefined}
-                extra={(
-                  <button
-                    type="button"
-                    className="btn btn-small"
-                    title="Check the connection"
-                    disabled={locked || check?.kind === "checking"}
-                    onClick={() => { void actions.settings.check(); }}
-                  >
-                    Check
-                  </button>
-                )}
-                onChange={actions.settings.setBaseUrl}
+          <DisplaySection />
+          <Section title="Prompts">
+            {prompts.map((definition) => (
+              <PromptRow
+                key={definition.field}
+                definition={definition}
+                value={writing[definition.field as WritingPromptFieldId]}
+                refused={loaded.invalid[definition.field]}
+                disabled={locked}
+                onChange={(text) => actions.settings.setWriting(definition.field, text)}
               />
-              {plainHttp && (
-                <Row label="Plain HTTP" labelId="settings-plain-http" hint={plainHttpHint}>
-                  <Choice
-                    label="Plain HTTP"
-                    value={draft.generation.allowInsecureHttp === true ? "on" : "off"}
-                    options={[{ id: "on", name: "On" }, { id: "off", name: "Off" }]}
-                    onSelect={(id) => { if (!locked) actions.settings.setAllowInsecureHttp(id === "on"); }}
-                  />
-                </Row>
+            ))}
+          </Section>
+          <Section title="Connection">
+            <ProviderRow loaded={loaded} />
+            {plan && preset !== undefined && (preset === "chatgpt-plan" || preset === "claude-plan") && (
+              <p className="settings-note">{settingsSubscriptionLoginHint(preset, loaded.view.subscriptionAuth)}</p>
+            )}
+            {advanced && <ConnectionAdvancedRows loaded={loaded} />}
+            {!plan && (
+              <>
+                <TextInputRow
+                  label="Base URL"
+                  value={draft.generation.baseUrl}
+                  disabled={locked || dryRun}
+                  placeholder={dryRun ? "" : "http://127.0.0.1:1234/v1"}
+                  hint={check === null
+                    ? dryRun ? "Dry-run needs no server." : "The address of the server, for example http://127.0.0.1:1234/v1."
+                    : check.kind === "checking" ? "Checking the server…" : check.result.message}
+                  tone={check?.kind === "done" ? (check.result.state === "ready" ? "ready" : "warning") : undefined}
+                  extra={(
+                    <button
+                      type="button"
+                      className="btn btn-small"
+                      title="Check the connection"
+                      disabled={locked || check?.kind === "checking"}
+                      onClick={() => { void actions.settings.check(); }}
+                    >
+                      Check
+                    </button>
+                  )}
+                  onChange={actions.settings.setBaseUrl}
+                />
+                {showPlainHttp && (
+                  <Row label="Plain HTTP" labelId="settings-plain-http" hint={plainHttpHint}>
+                    <Choice
+                      label="Plain HTTP"
+                      value={draft.generation.allowInsecureHttp === true ? "on" : "off"}
+                      options={[{ id: "on", name: "On" }, { id: "off", name: "Off" }]}
+                      onSelect={(id) => { if (!locked) actions.settings.setAllowInsecureHttp(id === "on"); }}
+                    />
+                  </Row>
+                )}
+                <ApiKeyRow loaded={loaded} disabled={locked || dryRun} />
+              </>
+            )}
+            {advanced && <TimeoutRows loaded={loaded} />}
+          </Section>
+          <Section title="Model">
+            {advanced && <ProfileRows loaded={loaded} />}
+            <ModelRow loaded={loaded} disabled={locked} dryRun={dryRun} />
+            {advanced && <ImageInputRow loaded={loaded} />}
+            <TextInputRow
+              label="Context size"
+              value={contextWindow === null ? "" : String(contextWindow)}
+              refused={refusedContext}
+              disabled={locked}
+              placeholder="Auto"
+              hint={probe === null
+                ? "How many tokens the model can read. Empty means auto."
+                : probe.kind === "probing" ? "Asking the server…" : probe.message}
+              tone={probe?.kind === "done" ? (probe.state === "ready" ? "ready" : "warning") : undefined}
+              extra={(
+                <button
+                  type="button"
+                  className="btn btn-small"
+                  title="Ask the server for the context size"
+                  disabled={locked || dryRun || probe?.kind === "probing"}
+                  onClick={() => { void actions.settings.probeContext(); }}
+                >
+                  Probe
+                </button>
               )}
-              <ApiKeyRow loaded={loaded} disabled={locked || dryRun} />
+              onChange={actions.settings.setContextSize}
+            />
+          </Section>
+          {advanced && (
+            <>
+              <GenerationSection loaded={loaded} />
+              <ThoughtsSection loaded={loaded} />
+              <RoutingSection loaded={loaded} />
             </>
           )}
-        </Section>
-        <Section title="Model">
-          <ModelRow loaded={loaded} disabled={locked} dryRun={dryRun} />
-          <TextInputRow
-            label="Context size"
-            value={contextWindow === null ? "" : String(contextWindow)}
-            refused={refusedContext}
-            disabled={locked}
-            placeholder="Auto"
-            hint={probe === null
-              ? "How many tokens the model can read. Empty means auto."
-              : probe.kind === "probing" ? "Asking the server…" : probe.message}
-            tone={probe?.kind === "done" ? (probe.state === "ready" ? "ready" : "warning") : undefined}
-            extra={(
-              <button
-                type="button"
-                className="btn btn-small"
-                title="Ask the server for the context size"
-                disabled={locked || dryRun || probe?.kind === "probing"}
-                onClick={() => { void actions.settings.probeContext(); }}
-              >
-                Probe
-              </button>
-            )}
-            onChange={actions.settings.setContextSize}
-          />
-        </Section>
+        </div>
       </div>
     </div>
   );

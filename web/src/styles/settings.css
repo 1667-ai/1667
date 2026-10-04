@@ -8,6 +8,19 @@
 .settings-scroll { flex: 1 1 0; min-height: 0; overflow-y: auto; }
 .settings-body { margin: 0 auto; max-width: 720px; padding: var(--s-6) var(--s-6) var(--s-12); }
 
+/* Advanced view, wide screens: a sticky list of the sections beside the form. */
+.settings-rail { display: none; }
+@media (min-width: 1100px) {
+  .settings-layout-rail { display: grid; gap: var(--s-4); grid-template-columns: 180px minmax(0, 720px); justify-content: center; }
+  .settings-layout-rail .settings-body { margin: 0; padding-left: 0; }
+  .settings-layout-rail .settings-rail {
+    align-self: start; display: flex; flex-direction: column; gap: var(--s-1); padding-top: var(--s-6);
+    position: sticky; top: 0;
+  }
+}
+.settings-header .settings-choice { padding-top: 0; }
+.settings-static { color: var(--ink); font-size: var(--fs-ui); line-height: var(--btn-md); }
+
 .settings-header .story-title { min-width: 0; }
 .settings-header .story-title-wrap { gap: var(--s-2); }
 
