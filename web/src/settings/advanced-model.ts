@@ -34,6 +34,8 @@ import {
   type ConnectionTimeoutRow
 } from "../../../shared/settings-profile-fields.js";
 import { updateSettingsDocumentV5 } from "../../../shared/settings-document-update.js";
+import { STARTER_PROFILES } from "../../../shared/generation-profile-starters.js";
+import { applyProfileTransfer } from "../../../shared/profile-transfer-apply.js";
 import type { EditResult, SettingsEdit } from "./model.js";
 
 /** The edits the advanced view makes. Each takes the draft and its keys and
@@ -164,4 +166,28 @@ export function applySplitThinkTags(edit: SettingsEdit, on: boolean): SettingsEd
 export function applyTimeoutText(edit: SettingsEdit, row: ConnectionTimeoutRow, text: string): EditResult {
   const result = draftWithConnectionTimeoutText(edit.draft, row, text);
   return "error" in result ? result : { edit: { ...edit, draft: result.draft } };
+}
+
+export const STARTER_NAMES: readonly string[] = STARTER_PROFILES.map((starter) => starter.name);
+
+/** A new profile, selected, that starts from one of the starter profiles. The
+ * route fits the starter: a value this provider cannot take is left out, and
+ * `note` says how many were taken. */
+export function applyStarterProfile(
+  edit: SettingsEdit,
+  index: number
+): { readonly edit: SettingsEdit; readonly note: string } | { readonly error: string } {
+  const { document, selectedProfileId } = edit.draft;
+  const starter = STARTER_PROFILES[index];
+  if (document === null || selectedProfileId === null || starter === undefined) {
+    return { error: "These settings are read-only." };
+  }
+  const fitted = applyProfileTransfer(document as never, selectedProfileId, starter);
+  if ("error" in fitted) return { error: fitted.error };
+  const name = fitted.document.profiles[fitted.profileId]!.name;
+  const left = fitted.fidelity.length === 0 ? "" : ` ${fitted.fidelity.join(" ")}`;
+  return {
+    edit: { ...edit, draft: settingsTextDraftForDocument(fitted.document as never, fitted.profileId) },
+    note: `Added "${name}" with ${fitted.importedCount} of ${fitted.candidateCount} values. Save to keep it.${left}`
+  };
 }

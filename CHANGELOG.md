@@ -59,6 +59,14 @@ This file records notable changes to 1667. Product terms use the definitions in
   the story, you choose a place with the arrow keys or a click. Nothing is
   written until you press Enter. Press Esc to cancel.
 
+- **The advanced settings of `1667 web` have sampling, starter profiles, and
+  story lists.** The sampling section has the sampling numbers and the lists for
+  stop sequences, logit bias, phrase bias, banned strings, and DRY breakers.
+  A row that the provider does not accept shows the reason. A preview shows how
+  many token entries the phrases make. The button From starter adds a profile
+  from a starter profile. When you open the settings from a story, the section
+  This story has the phrase bias and the banned strings of that story.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line

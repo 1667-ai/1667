@@ -87,9 +87,9 @@ export function createApp(initialTheme: ThemeMode | null, initialPalette: string
       // nowhere else; reloading past this dialog without saving or copying
       // it first would lose the writer's only copy for good.
       const onBeforeUnload = (event: BeforeUnloadEvent): void => {
-        const { generation, editor, compose, facts, notes, settings, aside } = store.get();
+        const { generation, editor, compose, facts, notes, settings, aside, storyListDrafts } = store.get();
         // A changed editor, changed settings and unsent composer text exist only in this page.
-        if (generation.kind === "idle" && unsavedWork(editor, compose, facts, notes, settings, aside).length === 0) return;
+        if (generation.kind === "idle" && unsavedWork(editor, compose, facts, notes, settings, aside, storyListDrafts).length === 0) return;
         event.preventDefault();
         event.returnValue = "";
       };
