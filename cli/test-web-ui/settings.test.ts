@@ -267,9 +267,10 @@ test("case 3: the simple view shows the simple rows and nothing more", async () 
   await page.getByRole("group", { name: "Palette" }).waitFor();
   await page.getByRole("group", { name: "Theme" }).waitFor();
   await page.getByRole("group", { name: "Show directions" }).waitFor();
-  for (const advanced of ["Temperature", "Profile", "Max tokens", "Routing", "Sampling", "Simple", "Advanced"]) {
+  for (const advanced of ["Temperature", "Profile", "Max tokens", "Routing", "Sampling"]) {
     expect(await page.getByText(advanced, { exact: true }).count()).toBe(0);
   }
+  await page.getByRole("group", { name: "Settings view" }).getByRole("button", { name: "Simple" }).waitFor();
 
   // The display choices apply at once.
   await page.getByRole("group", { name: "Theme" }).getByRole("button", { name: "Dark" }).click();
@@ -505,3 +506,221 @@ test("case 11: refused values show their reason and keep Save off", async () => 
   await brief.fill("A short brief again.");
   expect(await saveButton(page).isDisabled()).toBeFalse();
 }, 60_000);
+
+async function openAdvancedSettings(page: Page): Promise<void> {
+  await openSettingsPage(page);
+  await page.getByRole("group", { name: "Settings view" }).getByRole("button", { name: "Advanced" }).click();
+  await page.getByRole("heading", { name: "Generation", level: 2 }).waitFor();
+}
+
+const chooseFrom = async (page: Page, name: RegExp | string, option: string): Promise<void> => {
+  await page.getByRole("button", { name }).click();
+  await page.getByRole("menuitemradio", { name: option, exact: true }).click();
+};
+
+test("case 3b: the advanced view shows the extra sections and a section list, and the choice survives a reload", async () => {
+  const { page } = await openLibrary();
+  await openAdvancedSettings(page);
+
+  expect(await page.getByRole("heading", { level: 2 }).allTextContents()).toEqual(
+    ["Display", "Prompts", "Connection", "Model", "Generation", "Thoughts", "Routing"]
+  );
+  for (const label of ["Rewrite guidance", "Title guidance", "Summary guidance", "Aside guidance", "Temperature", "Max tokens"]) {
+    await page.getByLabel(label, { exact: true }).waitFor();
+  }
+  for (const label of ["Profile", "Effort", "Alternatives", "Prompt cache", "Reasoning display", "Default profile", "Prose profile", "Utility profile"]) {
+    await page.getByRole("button", { name: new RegExp(`^${label}`) }).waitFor();
+  }
+  for (const label of ["Header timeout", "Idle timeout", "Total timeout", "Profile name"]) {
+    await page.getByLabel(label, { exact: true }).waitFor();
+  }
+  await page.getByRole("group", { name: "Prompt layout" }).waitFor();
+  await page.getByRole("group", { name: "Save thoughts" }).waitFor();
+  await page.getByText("Image input", { exact: true }).waitFor();
+
+  // The section list jumps to a section.
+  const rail = page.getByRole("navigation", { name: "Sections" });
+  await rail.getByRole("button", { name: "Routing" }).click();
+  expect(await page.getByRole("heading", { name: "Routing", level: 2 }).evaluate((element) => {
+    const top = element.getBoundingClientRect().top;
+    return top >= 0 && top < innerHeight / 2;
+  })).toBeTrue();
+
+  await page.reload();
+  await page.getByRole("heading", { name: "Generation", level: 2 }).waitFor();
+  await page.getByRole("group", { name: "Settings view" }).getByRole("button", { name: "Simple" }).click();
+  await page.getByRole("heading", { name: "Generation", level: 2 }).waitFor({ state: "detached" });
+  await page.reload();
+  await page.getByLabel("Author brief", { exact: true }).waitFor();
+  expect(await page.getByRole("heading", { name: "Generation", level: 2 }).count()).toBe(0);
+  expect(await rail.count()).toBe(0);
+}, 90_000);
+
+test("case 12: profiles are added, renamed, routed and deleted; the last one stays", async () => {
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+
+  // One profile: it cannot be deleted.
+  const deleteButton = page.getByRole("button", { name: /^Delete/ });
+  await deleteButton.click();
+  await deleteButton.click();
+  await page.getByText("Profile kept. The last profile cannot be removed.").waitFor();
+
+  await page.getByRole("button", { name: "New profile" }).click();
+  await page.getByLabel("Profile name", { exact: true }).fill("Fast drafts");
+  await chooseFrom(page, /^Prose profile/, "Fast drafts");
+  await saveBar(page).waitFor();
+  await saveWithKeyboard(page);
+
+  const saved = (await settingsOf(api)).document!;
+  const fast = Object.entries(saved.profiles).find(([, profile]) => profile.name === "Fast drafts");
+  expect(fast).toBeDefined();
+  expect(saved.routing.prose).toBe(fast![0]);
+  expect(Object.keys(saved.profiles).length).toBe(2);
+
+  // A name another profile has is refused with its reason.
+  const other = Object.values(saved.profiles).find((profile) => profile.name !== "Fast drafts")!.name;
+  await page.getByLabel("Profile name", { exact: true }).fill(other);
+  await page.getByText("profile names must be unique").waitFor();
+  expect(await saveButton(page).isDisabled()).toBeTrue();
+  await page.getByLabel("Profile name", { exact: true }).fill("Fast drafts");
+  expect(await saveButton(page).count()).toBe(0);
+
+  // The second click deletes; the routes that used the profile are repaired.
+  await deleteButton.click();
+  await page.getByRole("button", { name: "Delete? Click again" }).click();
+  await saveBar(page).waitFor();
+  await saveWithKeyboard(page);
+  const after = (await settingsOf(api)).document!;
+  expect(Object.keys(after.profiles).length).toBe(1);
+  expect(after.routing.prose).toBeUndefined();
+}, 90_000);
+
+test("case 12b: rows that do not apply are off and show why", async () => {
+  const { page } = await openLibrary();
+  await openAdvancedSettings(page);
+
+  expect(await page.getByRole("button", { name: /^Prompt format/ }).isDisabled()).toBeTrue();
+  expect(await page.getByText("Available with text-completion providers.").count()).toBe(2);
+  expect(await page.getByRole("group", { name: "Split thoughts" }).getByRole("button", { name: "On" }).isDisabled()).toBeTrue();
+  expect(await page.getByRole("button", { name: /^Effort/ }).isDisabled()).toBeTrue();
+  await page.getByText("This model does not support reasoning effort.").waitFor();
+
+  // Choosing a text-completion provider turns the two connection rows on.
+  await chooseFrom(page, /^Provider/, "OpenAI-compatible text");
+  expect(await page.getByRole("button", { name: /^Prompt format/ }).isDisabled()).toBeFalse();
+  expect(await page.getByText("Available with text-completion providers.").count()).toBe(0);
+
+  // A provider with no alternative token data says so.
+  await chooseFrom(page, /^Provider/, "Anthropic");
+  expect(await page.getByRole("button", { name: /^Alternatives/ }).isDisabled()).toBeTrue();
+  await page.getByText("This provider does not offer alternative token data.").waitFor();
+}, 90_000);
+
+test("case 12c: temperature, effort and the other advanced values are saved", async () => {
+  const { api, page } = await openLibrary();
+  // A model that supports reasoning effort, set up through the API.
+  const view = await settingsOf(api);
+  const original = view.document!;
+  const modelId = original.profiles[original.routing.default]!.modelId;
+  const document = {
+    ...original,
+    models: {
+      ...original.models,
+      [modelId]: {
+        ...original.models[modelId]!,
+        capabilities: { ...original.models[modelId]!.capabilities, reasoningEffort: "supported" as const }
+      }
+    }
+  };
+  await api.saveSettings({
+    transportOperationId: crypto.randomUUID(),
+    mutationId: createDurableMutationId(),
+    expectedStateGeneration: view.stateGeneration!,
+    document
+  });
+  await page.reload();
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await openAdvancedSettings(page);
+
+  await page.getByLabel("Temperature", { exact: true }).fill("0.4");
+  await page.getByLabel("Max tokens", { exact: true }).fill("900");
+  await chooseFrom(page, /^Effort/, "high");
+  await page.getByRole("group", { name: "Prompt layout" }).getByRole("button", { name: "On" }).click();
+  await page.getByRole("group", { name: "Save thoughts" }).getByRole("button", { name: "Off" }).click();
+  await page.getByLabel("Total timeout", { exact: true }).fill("900");
+  await page.getByLabel("Idle timeout", { exact: true }).fill("45");
+  await page.getByLabel("Rewrite guidance", { exact: true }).fill("Keep the rewrite close to the original.");
+  await saveWithKeyboard(page);
+
+  const saved = (await settingsOf(api)).document!;
+  const profile = saved.profiles[saved.routing.default]!;
+  expect(profile.temperature).toBe(0.4);
+  expect(profile.maxOutputTokens).toBe(900);
+  expect(profile.generationReasoning.effort).toBe("high");
+  expect(profile.continuationPromptOptimization).toBe("late-cache-stable");
+  expect(profile.discardReasoning).toBe(true);
+  const model = saved.models[profile.modelId]!;
+  expect(saved.connections[model.connectionId]!.timeouts.idleMs).toBe(45_000);
+  expect(saved.connections[model.connectionId]!.timeouts.totalMs).toBe(900_000);
+  expect(saved.writing.rewriteGuidance).toBe("Keep the rewrite close to the original.");
+
+  // A value past a limit shows its reason and keeps Save off.
+  await page.getByLabel("Temperature", { exact: true }).fill("9");
+  await page.getByText(/max is 2/).waitFor();
+  expect(await saveButton(page).isDisabled()).toBeTrue();
+  await page.getByLabel("Temperature", { exact: true }).fill("");
+  await page.getByLabel("Idle timeout", { exact: true }).fill("0");
+  await page.getByText(/min is/).waitFor();
+}, 120_000);
+
+test("case 12d: a key, a refused name and an edit belong to their own profile", async () => {
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await chooseFrom(page, /^Provider/, "OpenAI");
+  await page.getByLabel("API key", { exact: true }).fill(KEY);
+  await page.getByText(/not saved yet/).waitFor();
+
+  // A second profile starts with an empty key field.
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  await page.getByLabel("Profile name", { exact: true }).waitFor();
+  expect(await page.getByLabel("API key", { exact: true }).inputValue()).toBe("");
+  await page.getByLabel("API key", { exact: true }).fill("x");
+  await page.getByLabel("API key", { exact: true }).fill("");
+  expect(await page.content()).not.toContain(KEY);
+
+  // A refused name waits for its profile, and a selection that changes nothing keeps it.
+  const profileButton = page.getByRole("button", { name: /^Profile / });
+  const nameField = page.getByLabel("Profile name", { exact: true });
+  await nameField.fill("Default");
+  await page.getByText("profile names must be unique").waitFor();
+  await profileButton.click();
+  await page.getByRole("menuitemradio", { name: "Default copy", exact: true }).click();
+  await page.getByText("profile names must be unique").waitFor();
+  await profileButton.click();
+  await page.getByRole("menuitemradio", { name: "Default", exact: true }).click();
+  expect(await page.getByText("profile names must be unique").count()).toBe(0);
+  await profileButton.click();
+  await page.getByRole("menuitemradio", { name: "Default copy", exact: true }).click();
+  await page.getByText("profile names must be unique").waitFor();
+  await nameField.fill("Copy of default");
+  await page.getByText("profile names must be unique").waitFor({ state: "detached" });
+
+}, 120_000);
+
+test("case 12e: an edit of a duplicated profile does not reach the original", async () => {
+  const { api, page } = await openLibrary();
+  await openAdvancedSettings(page);
+  await page.getByRole("button", { name: "Duplicate" }).click();
+  await page.getByLabel("Profile name", { exact: true }).fill("Copy of default");
+  // A timeout edit on the copy leaves the original alone.
+  await page.getByLabel("Total timeout", { exact: true }).fill("900");
+  await page.getByLabel("Idle timeout", { exact: true }).fill("45");
+  await page.keyboard.press("ControlOrMeta+s");
+  await page.getByText("Settings saved", { exact: true }).waitFor();
+  const saved = (await settingsOf(api)).document!;
+  const copy = Object.values(saved.profiles).find((profile) => profile.name === "Copy of default")!;
+  const original = Object.values(saved.profiles).find((profile) => profile.name !== "Copy of default")!;
+  expect(saved.connections[saved.models[copy.modelId]!.connectionId]!.timeouts.idleMs).toBe(45_000);
+  expect(saved.connections[saved.models[original.modelId]!.connectionId]!.timeouts.idleMs).not.toBe(45_000);
+}, 120_000);
