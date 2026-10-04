@@ -1,3 +1,5 @@
+import { createAsideActions, type AsideActions } from "../aside/actions.js";
+import { createAsideUseActions, type AsideUseActions } from "../aside/use-actions.js";
 import { createComposeActions, type ComposeActions } from "../compose/actions.js";
 import { createContextActions, type ContextActions } from "../context/actions.js";
 import { createEditorActions, type EditorActions } from "../editor/actions.js";
@@ -27,6 +29,7 @@ export interface ContentActions {
   readonly tags: TagsActions;
   readonly chapters: ChapterActions;
   readonly panel: PanelActions;
+  readonly aside: AsideActions & AsideUseActions;
   readonly facts: FactActions;
   readonly notes: NotesActions;
   readonly settings: SettingsActions;
@@ -71,9 +74,10 @@ export function createContentActions(
   const chapters = createChapterActions(store, { story });
   const panel = createPanelActions(store);
   const facts = createFactActions(store, { story, panel });
+  const aside = { ...createAsideActions(store, { story, panel }), ...createAsideUseActions(store, { story, compose, facts, panel }) };
   const notes = createNotesActions(store, { story });
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
   const settings = createSettingsActions(store);
-  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, facts, notes, settings };
+  return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, notes, settings };
 }
 

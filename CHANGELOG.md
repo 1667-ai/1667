@@ -38,6 +38,27 @@ This file records notable changes to 1667. Product terms use the definitions in
   palette can set an author brief, name a story, and download a story as a
   Markdown file.
 
+- **The settings page of `1667 web` has an advanced view.** Click Advanced in
+  the page header to show it. You can add, copy, rename, and delete a
+  profile. You can choose the profile for each task. You can also set the
+  temperature, the maximum tokens, the effort, the alternatives, the prompt
+  cache, the prompt layout, the reasoning display, the timeouts, and the four
+  guidance prompts. A row that does not apply to the provider shows the
+  reason. On a wide screen, a list of sections stays beside the form.
+
+- **`1667 web` has Aside.** Press `a` on a part to ask a question about its
+  take. The answer shows in the side panel and never changes the story. Press
+  Esc to stop an answer. You can write the last answer again, write it again
+  from an edited question, delete a turn, reset a session to a turn, and clear
+  a session. A part that has Aside sessions shows a speech mark. The `[` and `]`
+  keys go to the next part that has sessions.
+
+- **`1667 web` can use an Aside answer.** Press Enter on an answer, or click
+  Use. You can copy the answer, insert it into the composer at the caret,
+  insert it into the story, or insert it as a new Fact. When you insert it into
+  the story, you choose a place with the arrow keys or a click. Nothing is
+  written until you press Enter. Press Esc to cancel.
+
 ## 0.11.0-beta.7 - 2026-10-04
 
 - **`1667 web` can tag a line and manage chapters.** Press `t` to name a line

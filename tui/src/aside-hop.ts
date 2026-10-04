@@ -1,21 +1,23 @@
-import type {
-  AsideAnchorView,
-  AsideSessionAnchor
-} from "./aside-surface.js";
+import {
+  asideHopAnchorIndex,
+  asideHopEntries,
+  asideHopTarget,
+  orderAsideAnchors,
+  UNANCHORED_ASIDE_ID,
+  type AsideAnchorView,
+  type AsideHopEntry,
+  type AsideSessionAnchor
+} from "../../shared/aside-hop-model.js";
+export {
+  asideHopAnchorIndex,
+  asideHopEntries,
+  asideHopTarget,
+  orderAsideAnchors,
+  UNANCHORED_ASIDE_ID,
+  type AsideHopEntry
+};
 import { graphemeCells } from "./cell-width.js";
 import { truncate, visibleWidth } from "./screens/story/frame.js";
-
-/** Internal address used for the unanchored hop entry. Never send it to the
- * backend; the action layer maps this entry back to `anchor: null`. */
-export const UNANCHORED_ASIDE_ID = "__aside_unanchored__";
-
-/** One hop-strip entry after story-order projection. */
-export interface AsideHopEntry {
-  readonly anchor: AsideAnchorView;
-  readonly index: number;
-  readonly current: boolean;
-  readonly label: string;
-}
 
 export interface AsideHopWindow {
   readonly entries: readonly AsideHopEntry[];
@@ -80,110 +82,6 @@ export function clipAsideHopStripLayout(
     : { text, segments: [] };
 }
 
-function numberOrInfinity(value: number | undefined): number {
-  return value === undefined || !Number.isFinite(value) ? Number.POSITIVE_INFINITY : value;
-}
-
-function anchorKey(anchor: AsideSessionAnchor): string {
-  return `${anchor.partId}\u0000${anchor.takeId}`;
-}
-
-function partKey(anchor: AsideAnchorView): string {
-  return anchor.partNumber === undefined
-    ? `id:${anchor.partId}`
-    : `number:${anchor.partNumber}`;
-}
-
-function sameAnchor(left: AsideAnchorView, right: AsideSessionAnchor | null): boolean {
-  if (left.unanchored === true) return right === null;
-  if (right === null) return false;
-  return anchorKey(left) === anchorKey(right);
-}
-
-/** Return the index used by the ordered hop projection for an anchor. */
-export function asideHopAnchorIndex(
-  anchors: readonly AsideAnchorView[],
-  current: AsideSessionAnchor | null
-): number {
-  const ordered = orderAsideAnchors(anchors);
-  if (ordered.length === 0) return -1;
-  const match = ordered.findIndex((anchor) => sameAnchor(anchor, current));
-  return match >= 0 ? match : 0;
-}
-
-function sessionCount(anchor: AsideAnchorView): number {
-  return Math.max(0, Math.floor(anchor.sessionCount));
-}
-
-/** Sort anchored entries by their display projection. Unanchored entries stay last. */
-export function orderAsideAnchors(anchors: readonly AsideAnchorView[]): AsideAnchorView[] {
-  return anchors
-    .map((anchor, sourceIndex) => ({ anchor, sourceIndex }))
-    .sort((left, right) => {
-      const leftUnanchored = left.anchor.unanchored === true;
-      const rightUnanchored = right.anchor.unanchored === true;
-      if (leftUnanchored !== rightUnanchored) return leftUnanchored ? 1 : -1;
-      if (!leftUnanchored) {
-        const leftPartNumber = numberOrInfinity(left.anchor.partNumber);
-        const rightPartNumber = numberOrInfinity(right.anchor.partNumber);
-        if (leftPartNumber !== rightPartNumber) {
-          if (leftPartNumber === Number.POSITIVE_INFINITY) return 1;
-          if (rightPartNumber === Number.POSITIVE_INFINITY) return -1;
-          return leftPartNumber - rightPartNumber;
-        }
-        const leftPart = left.anchor.partId.localeCompare(right.anchor.partId);
-        if (leftPart !== 0) return leftPart;
-        const leftTakeIndex = numberOrInfinity(left.anchor.takeIndex);
-        const rightTakeIndex = numberOrInfinity(right.anchor.takeIndex);
-        if (leftTakeIndex !== rightTakeIndex) {
-          if (leftTakeIndex === Number.POSITIVE_INFINITY) return 1;
-          if (rightTakeIndex === Number.POSITIVE_INFINITY) return -1;
-          return leftTakeIndex - rightTakeIndex;
-        }
-        const takeId = left.anchor.takeId.localeCompare(right.anchor.takeId);
-        if (takeId !== 0) return takeId;
-      }
-      return left.sourceIndex - right.sourceIndex;
-    })
-    .map(({ anchor }) => anchor);
-}
-
-/** Add display labels and current-anchor state to the ordered hop entries. */
-export function asideHopEntries(
-  anchors: readonly AsideAnchorView[],
-  current: AsideSessionAnchor | null
-): AsideHopEntry[] {
-  const ordered = orderAsideAnchors(anchors);
-  const repeatedParts = new Set<string>();
-  const seenParts = new Set<string>();
-  for (const anchor of ordered) {
-    if (anchor.unanchored === true) continue;
-    const key = partKey(anchor);
-    if (seenParts.has(key)) repeatedParts.add(key);
-    seenParts.add(key);
-  }
-  return ordered.map((anchor, index) => {
-    if (anchor.unanchored === true) {
-      return {
-        anchor,
-        index,
-        current: sameAnchor(anchor, current),
-        label: `· unanchored ×${sessionCount(anchor)}`
-      };
-    }
-    const part = anchor.partNumber === undefined ? "?" : String(anchor.partNumber);
-    const qualifier = repeatedParts.has(partKey(anchor))
-      ? ` · t${anchor.takeIndex === undefined ? "?" : anchor.takeIndex}`
-      : "";
-    return {
-      anchor,
-      index,
-      current: sameAnchor(anchor, current),
-      label: `¶ ${part}${qualifier} ×${sessionCount(anchor)}`
-    };
-  });
-}
-
 /** Stable identity for one ordered hop target. Anchor addresses survive
  * presence refreshes and are not tied to the target's current index. */
 export function asideHopRowId(entry: AsideHopEntry): string {
@@ -232,14 +130,6 @@ export function moveAsideHopIndex(
   if (length <= 0) return -1;
   const current = currentIndex >= 0 && currentIndex < length ? currentIndex : 0;
   return (current + direction + length) % length;
-}
-
-/** Resolve a hop target by its ordered index. */
-export function asideHopTarget(
-  anchors: readonly AsideAnchorView[],
-  index: number
-): AsideAnchorView | null {
-  return orderAsideAnchors(anchors)[index] ?? null;
 }
 
 /** Render the compact strip text. The caller adds the `g` reroute keyline. */

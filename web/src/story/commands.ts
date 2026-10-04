@@ -78,6 +78,15 @@ registerCommands([
     run: (context) => context.actions.panel.open("facts")
   },
   {
+    id: "aside",
+    title: "aside",
+    description: "discuss this story without changing it",
+    section: "story",
+    shortcut: "a",
+    available: onStoryPage,
+    run: (context) => context.actions.aside.open()
+  },
+  {
     id: "map",
     title: "story map",
     description: "see every line and fork of the story",
