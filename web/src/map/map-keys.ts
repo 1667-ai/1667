@@ -19,6 +19,12 @@ export interface MapKeyContext {
   readonly close: () => void;
 }
 
+/** The key actions `handleMapKey` handles; keys help lists only handled actions. */
+export const MAP_KEY_ACTIONS: readonly string[] = [
+  "cancel", "cycle-map-view", "toggle-sketches", "toggle-path-takes", "apply",
+  "focus-next", "focus-previous", "take-next", "take-previous"
+];
+
 /** The map's keys, after `keymap-dom.ts` resolved them through the TUI's MAP
  * table. Returns whether the key was used (and so should not scroll the list
  * or do anything else natively). */

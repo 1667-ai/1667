@@ -1,4 +1,4 @@
-import { useEffect, useRef, type ReactNode } from "react";
+import { useEffect, useRef, useState, type ReactNode } from "react";
 
 /**
  * The shared `<dialog>` lifecycle (review fix C8) `RenameDialog` and
@@ -11,13 +11,20 @@ import { useEffect, useRef, type ReactNode } from "react";
  * `react-hooks/exhaustive-deps` disable.
  */
 export function Modal(
-  { onCancel, ariaLabel, children }: {
+  { onCancel, ariaLabel, className, children }: {
     readonly onCancel: () => void;
     readonly ariaLabel: string;
+    /** Added to `modal`, for a dialog that sizes itself differently. */
+    readonly className?: string;
     readonly children: ReactNode;
   }
 ) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  // Who had the keyboard before this dialog drew: React removes the dialog
+  // from the page before the cleanup below runs, and a removed dialog gives
+  // focus back to nobody. Read during the first render, before an
+  // `autoFocus` field in the dialog takes the keyboard.
+  const [opener] = useState(() => (typeof document === "undefined" ? null : document.activeElement));
   const onCancelRef = useRef(onCancel);
   onCancelRef.current = onCancel;
 
@@ -33,11 +40,12 @@ export function Modal(
     return () => {
       dialog.removeEventListener("cancel", onCancelEvent);
       if (dialog.open) dialog.close();
+      if (opener instanceof HTMLElement && opener.isConnected && !opener.closest("dialog")) opener.focus();
     };
-  }, []);
+  }, [opener]);
 
   return (
-    <dialog ref={dialogRef} className="modal" aria-label={ariaLabel}>
+    <dialog ref={dialogRef} className={className === undefined ? "modal" : `modal ${className}`} aria-label={ariaLabel}>
       {children}
     </dialog>
   );

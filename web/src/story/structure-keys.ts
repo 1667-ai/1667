@@ -2,6 +2,11 @@ import type { ReferenceBinding } from "../../../shared/reference-bindings.js";
 import type { ContentActions } from "../app/content-actions.js";
 import { effectiveFocusedPartId, type StoryState } from "./state.js";
 
+/** The key actions this file handles; keys help lists only handled actions. */
+export const STRUCTURE_KEY_ACTIONS: readonly string[] = [
+  "tag", "create-chapter", "open-chapters", "open-facts", "toggle-rail", "undo"
+];
+
 /**
  * The keys that change the story's structure rather than its prose: the TUI's
  * `t` (tag the line), `C` (end the chapter here), `c` and `f` (the chapters and facts panels), `F` (dock the facts panel),

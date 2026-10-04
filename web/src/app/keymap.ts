@@ -1,6 +1,7 @@
 import { useEffect, type RefObject } from "react";
 import type { ReferenceBinding } from "../../../shared/reference-bindings.js";
-import { fieldHasFocus, resolveManuscriptBinding } from "./keymap-dom.js";
+import { fieldHasFocus, resolveManuscriptBinding, resolveOverlayBinding } from "./keymap-dom.js";
+import type { OverlayKind } from "./state.js";
 
 /**
  * The app's keybindings beyond native browser behavior. `/` (focus search)
@@ -33,7 +34,15 @@ import { fieldHasFocus, resolveManuscriptBinding } from "./keymap-dom.js";
 export interface Keymap {
   readonly searchRef: RefObject<HTMLInputElement | null>;
   readonly stopGeneration: () => boolean;
+  /** `:` palette, `?` keys help, `!` notice log. */
+  readonly openOverlay: (kind: OverlayKind) => void;
 }
+
+const OVERLAY_OF_ACTION: Readonly<Record<string, OverlayKind>> = {
+  "open-commands": "palette",
+  "open-keys": "keys",
+  "open-log": "log"
+};
 
 /** Returns `true` when it handled the binding (and so `preventDefault` should
  * run) — a `ReferenceBinding` whose action this screen does not implement
@@ -99,6 +108,14 @@ export function useKeymap(keymap: Keymap): void {
         keymap.searchRef.current?.focus();
         return;
       }
+      if (!fieldHasFocus()) {
+        const overlay = OVERLAY_OF_ACTION[resolveOverlayBinding(event)?.action ?? ""];
+        if (overlay !== undefined) {
+          event.preventDefault();
+          keymap.openOverlay(overlay);
+          return;
+        }
+      }
       const layer = topLayer();
       if (event.key === "Escape" && layer?.claimsEscape !== true && !fieldHasFocus() && keymap.stopGeneration()) {
         event.preventDefault();
@@ -111,5 +128,5 @@ export function useKeymap(keymap: Keymap): void {
     };
     addEventListener("keydown", onKeyDown);
     return () => removeEventListener("keydown", onKeyDown);
-  }, [keymap.searchRef, keymap.stopGeneration]);
+  }, [keymap.searchRef, keymap.stopGeneration, keymap.openOverlay]);
 }
