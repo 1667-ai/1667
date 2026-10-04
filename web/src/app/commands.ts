@@ -1,5 +1,5 @@
 import { registerCommands } from "../palette/registry.js";
-import { openSettings } from "./router.js";
+import { openSettings, isStoryPage } from "./router.js";
 
 registerCommands([
   {
@@ -33,8 +33,7 @@ registerCommands([
     section: "system",
     shortcut: ",",
     // As `,`: from the Library and story pages, not the map or settings itself.
-    available: ({ state }) => state.route.kind === "library"
-      || (state.route.kind === "story" && state.route.map !== true),
+    available: ({ state }) => state.route.kind === "library" || isStoryPage(state.route),
     run: () => openSettings()
   }
 ]);

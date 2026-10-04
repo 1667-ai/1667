@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` shows the next request, the generation records, and the token
+  probabilities.** Open the command palette and choose "next request" to read
+  the exact messages of the next request. On a Mac, press Control+R. Press `h`
+  to read the generation records of a take. Press `l` to read the token
+  probabilities of a take. Press Esc or the Back button to close a page. Press
+  Shift+T to show or hide the stored thought of a take.
+
 - **`1667 web` shows how much the next request holds.** The composer bar shows
   the size of the next request and the context window. Click it to see the
   parts of the request: voice, facts, recent text, summary, and note. On a Mac,

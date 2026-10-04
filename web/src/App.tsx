@@ -13,6 +13,7 @@ import { Overlays } from "./palette/Overlays.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
+import { InspectPage } from "./inspect/InspectPage.js";
 import { StoryMap } from "./map/StoryMap.js";
 import { SettingsPage } from "./settings/SettingsPage.js";
 import { StoryView } from "./story/StoryView.js";
@@ -102,9 +103,11 @@ function Shell() {
         {route.kind === "settings"
           ? <SettingsPage onOpenSidebar={openSidebar} />
           : route.kind === "story"
-          ? (route.map === true
-            ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
-            : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
+          ? (route.page !== undefined
+            ? <InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} />
+            : route.map === true
+              ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
+              : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
           : (
             <>
               <div className="main-toolbar"><SidebarToggle onOpen={openSidebar} /></div>

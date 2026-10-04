@@ -2,7 +2,7 @@ import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
-import { navigate, openMap, openSettings } from "../app/router.js";
+import { navigate, openMap, openSettings, openStoryPage } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
 import { PlacementBanner } from "../aside/PlacementBar.js";
@@ -169,6 +169,15 @@ export function StoryView(
       case "open-library": navigate({ kind: "library" }); return true;
       case "open-settings": openSettings(); return true;
       case "toggle-context-meter": actions.context.toggleExpanded(); return true;
+      case "open-request": openStoryPage(storyId, { kind: "request" }); return true;
+      case "open-records":
+      case "open-probs": {
+        const nodeId = effectiveFocusedPartId(current.story);
+        if (nodeId === null) return false;
+        openStoryPage(storyId, { kind: binding.action === "open-records" ? "records" : "probs", nodeId });
+        return true;
+      }
+      case "toggle-thought": actions.thoughts.toggle(); return true;
       case "open-map":
         if (current.story.payload.nodes.length === 0) pushToast(store, NOTHING_TO_MAP_TOAST);
         else openMap(storyId);

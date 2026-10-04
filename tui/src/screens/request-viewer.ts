@@ -11,6 +11,12 @@ import {
   type ResolvedTokenCount
 } from "../rail.js";
 import { imageAttachmentLabel, imageMediaTypeLabel } from "../../../shared/image-attachment.js";
+import {
+  activationNotices,
+  requestEntrySource as entrySource,
+  substitutionNotices,
+  tokenSourceLabel
+} from "../../../shared/request-document-model.js";
 import { formatImageBytes } from "../draft-image.js";
 import { wrapText } from "../wrap.js";
 import type { PromptTokenCount, TokenCountGrade } from "../../../shared/tokenize-source.js";
@@ -152,14 +158,6 @@ function requestBreadcrumb(
   });
 }
 
-/** `tokens exact`, `tokens near-exact`, or `tokens estimated` — the route
- *  line's statement of where the header's and the body's numbers came from. */
-function tokenSourceLabel(grade: TokenCountGrade): string {
-  return grade === "exact" ? "tokens exact"
-    : grade === "near-exact" ? "tokens near-exact"
-    : "tokens estimated";
-}
-
 function requestHeader(
   context: NextRequestContext,
   estimate: NextRequestEstimate,
@@ -209,32 +207,6 @@ function requestHeader(
     )]
   ];
   return lines.map((line) => fitLine(line, width));
-}
-
-function substitutionNotices(estimate: NextRequestEstimate): string[] {
-  return estimate.substitutions.map((substitution) => {
-    if (substitution.kind === "legacy-summary") {
-      const count = substitution.omittedPartCount;
-      return `Summary take ${substitution.summaryId} starts the raw context. ${count} earlier ${count === 1 ? "part is" : "parts are"} omitted.`;
-    }
-    const count = substitution.replacedPartIds.length;
-    const ids = substitution.replacedPartIds.join(", ");
-    return `Chapter ${substitution.chapterNumber} uses summary ${substitution.summaryId} (${formatTokensEstimate(substitution.tokens)}) instead of ${count} raw ${count === 1 ? "part" : "parts"}${ids.length === 0 ? "." : `: ${ids}.`}`;
-  });
-}
-function activationNotices(estimate: NextRequestEstimate): string[] {
-  const notices: string[] = [];
-  for (const fact of estimate.activation.facts) {
-    const trace = estimate.activation.traces.get(fact.id);
-    if (trace === undefined || trace.kind === "always") continue;
-    const identity = fact.tag?.trim() || fact.text.split("\n", 1)[0]?.trim() || fact.id;
-    const gate = trace.gate === null ? "" : ` with ${trace.gate} secondary keys`;
-    notices.push(`Fact ${identity} activated by ${trace.kind} key ${trace.key ?? ""}${gate}${trace.round > 0 ? ` in chain round ${trace.round}` : ""}.`);
-  }
-  if (estimate.activation.unevaluated.length > 0) {
-    notices.push(`${estimate.activation.unevaluated.length} Fact regex key checks were not evaluated because the evaluation budget was reached.`);
-  }
-  return notices;
 }
 
 function requestBody(
@@ -321,17 +293,4 @@ function requestRowIdentity(entry: NextRequestEstimate["plan"]["entries"][number
     entry.turn.blocks.map((block) => block.kind),
     entry.partId ?? null
   ])}`;
-}
-
-function entrySource(entry: NextRequestEstimate["plan"]["entries"][number]): string {
-  const kind = entry.turn.blocks[0]?.kind ?? "source";
-  if (entry.partId !== undefined) return `${kind} ${entry.partId}`;
-  const label = kind.replaceAll("-", " ");
-  // The placement the request really used, which may be clamped short of the
-  // requested depth. No part follows the note when the story has none, and
-  // "depth 0" is not a depth the writer can set, so name that placement.
-  if (entry.category !== "note") return label;
-  return entry.partsAfterNote === 0
-    ? `${label} · before the request`
-    : `${label} · depth ${entry.partsAfterNote}`;
 }

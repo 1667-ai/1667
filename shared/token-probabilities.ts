@@ -5,7 +5,7 @@ import {
   serializeTokenProbabilities,
   TokenProbabilityFormatError
 } from "./token-probability-wire.js";
-export { TokenProbabilityFormatError } from "./token-probability-wire.js";
+export { probabilityOf, TokenProbabilityFormatError } from "./token-probability-wire.js";
 export {
   MAX_ALTERNATIVE_TOKENS,
   MAX_TOKEN_PROBABILITY_BYTES,
@@ -98,16 +98,6 @@ export interface TokenProbabilityRecord {
 }
 
 const HASH_PATTERN = /^[a-f0-9]{64}$/u;
-
-/** Every displayed probability is derived from the stored logprob, never
- *  itself stored — the clamp only guards the floating-point edge where a
- *  logprob at or near 0 exponentiates a hair past 1. */
-export function probabilityOf(logprob: number): number {
-  const value = Math.exp(logprob);
-  if (value < 0) return 0;
-  if (value > 1) return 1;
-  return value;
-}
 
 /** The result of reconciling a stream's captured steps with the text a take
  *  actually stored. See `alignTokenProbabilities` below for why this can

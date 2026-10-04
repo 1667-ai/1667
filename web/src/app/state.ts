@@ -7,6 +7,7 @@ import type { EditorState } from "../editor/state.js";
 import { initialImportsState, type ImportsState } from "../imports/state.js";
 import { initialFactCheckState, type FactCheckState } from "../factcheck/state.js";
 import { initialFactsState, type FactsState } from "../facts/state.js";
+import { initialThoughtsState, type ThoughtsState } from "../inspect/thoughts.js";
 import { initialGenerationState, type GenerationState } from "../generation/state.js";
 import { initialLibraryState, type LibraryState } from "../library/state.js";
 import { readStoredShowDirections } from "../reading/directions.js";
@@ -81,6 +82,8 @@ export interface AppState {
   readonly imports: ImportsState;
   /** The story panel (#409 step 7a). See `panel/state.ts`. */
   readonly panel: PanelState;
+  /** The stored thoughts that are unfolded and read (#409 step 10g). See `inspect/thoughts.ts`. */
+  readonly thoughts: ThoughtsState;
   /** The Author's Note and brief editors, and the story naming run (#409 step 10b). See `notes/state.ts`. */
   readonly notes: NotesState;
   /** The settings page (#409 step 9b): the loaded settings, the draft, and the
@@ -123,6 +126,7 @@ export function initialAppState(
     factCheck: initialFactCheckState(),
     imports: initialImportsState(),
     panel: initialPanelState(),
+    thoughts: initialThoughtsState(),
     notes: initialNotesState(),
     settings: initialSettingsState(),
     storyListDrafts: {},
