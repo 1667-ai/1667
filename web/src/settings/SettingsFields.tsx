@@ -138,24 +138,40 @@ export function PromptRow(
 }
 
 function promptLabel(definition: WritingPromptFieldDefinition): string {
-  return definition.field === "defaultAuthorBrief" ? "Author brief" : "Continue direction";
+  return definition.field === "defaultAuthorBrief"
+    ? "Author brief"
+    : definition.field === "defaultContinueDirection"
+      ? "Continue direction"
+      : definition.title;
 }
 
 function emptyHelp(definition: WritingPromptFieldDefinition): string {
   return definition.emptyBehavior === "omit-global-brief"
     ? "Empty leaves out the global brief."
-    : "Empty uses the built-in direction.";
+    : definition.emptyBehavior === "reset-to-builtin"
+      ? "Empty uses the built-in direction."
+      : "Empty adds no request block.";
 }
 
-export function ProviderRow({ loaded }: { readonly loaded: LoadedSettings }) {
-  const { actions } = useAppContext();
+/** One closed choice: a button that opens the menu of options. The row's
+ * own hint says what the choice does; a refusal replaces it. */
+export function SelectRow<T extends string>(
+  { label, hint, tone, value, options, disabled, onSelect }: {
+    readonly label: string;
+    readonly hint?: ReactNode;
+    readonly tone?: "ready" | "warning";
+    /** What the button shows, which is not always one of the options. */
+    readonly value: string;
+    readonly options: readonly { readonly id: T; readonly label: string; readonly current: boolean }[];
+    readonly disabled: boolean;
+    readonly onSelect: (id: T) => void;
+  }
+) {
   const id = useId();
   const labelId = `${id}-label`;
   const { open, setOpen, containerRef } = usePopover();
-  const choice = currentProviderChoice(loaded.draft);
-  const editable = loaded.view.editable && loaded.busy === null;
   return (
-    <Row label="Provider" labelId={labelId} hint="Where the writing comes from. Dry-run writes sample text and needs no server.">
+    <Row label={label} labelId={labelId} hint={hint} tone={tone}>
       <div className="settings-popover-wrap" ref={containerRef}>
         <button
           type="button"
@@ -164,29 +180,101 @@ export function ProviderRow({ loaded }: { readonly loaded: LoadedSettings }) {
           aria-labelledby={`${labelId} ${id}-button`}
           aria-haspopup="menu"
           aria-expanded={open}
-          disabled={!editable}
+          disabled={disabled}
           onClick={() => setOpen(!open)}
         >
-          <span>{choice.label}</span>
+          <span>{value}</span>
           <Icon path={ICONS.chevronDown} />
         </button>
         {open && (
-          <div ref={showMenu} className="menu settings-menu" role="menu" aria-label="Provider">
-            {SETTINGS_PROVIDER_CHOICES.map((candidate) => (
+          <div ref={showMenu} className="menu settings-menu" role="menu" aria-label={label}>
+            {options.map((option) => (
               <button
-                key={candidate.id}
+                key={option.id}
                 type="button"
                 role="menuitemradio"
-                aria-checked={candidate.id === choice.id}
-                className={`menu-item${candidate.id === choice.id ? " settings-menu-current" : ""}`}
-                onClick={() => { actions.settings.chooseProvider(candidate.id); setOpen(false); }}
+                aria-checked={option.current}
+                className={`menu-item${option.current ? " settings-menu-current" : ""}`}
+                onClick={() => { onSelect(option.id); setOpen(false); }}
               >
-                {candidate.label}
+                {option.label}
               </button>
             ))}
           </div>
         )}
       </div>
+    </Row>
+  );
+}
+
+export function ProviderRow({ loaded }: { readonly loaded: LoadedSettings }) {
+  const { actions } = useAppContext();
+  const choice = currentProviderChoice(loaded.draft);
+  return (
+    <SelectRow
+      label="Provider"
+      hint="Where the writing comes from. Dry-run writes sample text and needs no server."
+      value={choice.label}
+      options={SETTINGS_PROVIDER_CHOICES.map((candidate) => ({
+        id: candidate.id,
+        label: candidate.label,
+        current: candidate.id === choice.id
+      }))}
+      disabled={!loaded.view.editable || loaded.busy !== null}
+      onSelect={actions.settings.chooseProvider}
+    />
+  );
+}
+
+/** A short choice as a segmented control. */
+export function Choice<T extends string>(
+  { label, value, options, disabled, onSelect }: {
+    readonly label: string;
+    readonly value: T;
+    readonly options: readonly { readonly id: T; readonly name: string }[];
+    readonly disabled?: boolean;
+    readonly onSelect: (id: T) => void;
+  }
+) {
+  return (
+    <div className="settings-choice" role="group" aria-label={label}>
+      {options.map((option) => (
+        <button
+          key={option.id}
+          type="button"
+          className="chip-btn"
+          aria-pressed={option.id === value}
+          disabled={disabled}
+          onClick={() => onSelect(option.id)}
+        >
+          {option.name}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** A choice between on and off, as a row. */
+export function ToggleRow(
+  { label, hint, tone, on, disabled, onChange }: {
+    readonly label: string;
+    readonly hint?: ReactNode;
+    readonly tone?: "ready" | "warning";
+    readonly on: boolean;
+    readonly disabled: boolean;
+    readonly onChange: (on: boolean) => void;
+  }
+) {
+  const labelId = `${useId()}-label`;
+  return (
+    <Row label={label} labelId={labelId} hint={hint} tone={tone}>
+      <Choice
+        label={label}
+        value={on ? "on" : "off"}
+        disabled={disabled}
+        options={[{ id: "on", name: "On" }, { id: "off", name: "Off" }]}
+        onSelect={(id) => onChange(id === "on")}
+      />
     </Row>
   );
 }
@@ -318,4 +406,18 @@ export function ModelRow({ loaded, disabled, dryRun }: {
       </div>
     </Row>
   );
+}
+
+export function Section({ title, children }: { readonly title: string; readonly children: ReactNode }) {
+  return (
+    <section className="settings-section" aria-label={title} id={sectionAnchor(title)}>
+      <h2 className="settings-heading">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
+/** The element id the section list scrolls to. */
+export function sectionAnchor(title: string): string {
+  return `settings-section-${title.toLowerCase().replace(/[^a-z0-9]+/gu, "-")}`;
 }

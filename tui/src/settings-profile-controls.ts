@@ -1,21 +1,27 @@
 import {
-  GENERATION_EFFORT_V2_VALUES,
   PROMPT_CACHE_POLICY_V2_VALUES,
-  TEXT_PROMPT_FORMAT_V2_VALUES,
   type SettingsPresetV2,
   type SettingsRoutePurpose,
   type TextPromptFormatV2,
   type SettingsView
 } from "../../shared/settings-v2-types.js";
-import type { GenerationProfileV5 as GenerationProfileV2 } from "../../shared/settings-v5-types.js";
 import {
-  CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES,
-  type ContinuationPromptOptimizationV2
-} from "../../shared/continuation-prompt-optimization.js";
-import { resolveSettingsProfile } from "../../shared/settings-route.js";
-import { generationEffortChoicesForRoute } from "../../shared/generation-effort-capabilities.js";
+  CONTINUATION_PROMPT_CHOICES,
+  continuationPromptHint,
+  continuationPromptValueText,
+  draftWithSplitThinkTags,
+  draftWithTextPromptFormat,
+  effortHint,
+  generationEffortChoices,
+  keepThoughts as draftKeepThoughts,
+  profileHint,
+  profileWithContinuationPromptOptimization,
+  profileWithKeepThoughts,
+  splitThinkTags as draftSplitThinkTags,
+  textPromptFormat as draftTextPromptFormat,
+  textPromptFormatChoices as draftTextPromptFormatChoices
+} from "../../shared/settings-profile-fields.js";
 import { withSettingsProfileEffort } from "../../shared/settings-document-update.js";
-import { withSupportedReasoningDisplays } from "../../shared/reasoning-display-capabilities.js";
 import type { GenerationSettings } from "../../shared/types.js";
 import {
   settingsScalar,
@@ -40,7 +46,6 @@ import { cycleProfileField, markControlMutation } from "./settings-profile-cycle
 import {
   cycleSettingsProfile as cycleProfile,
   cycleSettingsRoute as cycleRoute,
-  profileRouteState,
   settingsProfileIds
 } from "./settings-profile-draft.js";
 import {
@@ -48,7 +53,6 @@ import {
   settingsTextDraftWithCachePolicy,
   settingsTextDraftWithGeneration
 } from "./settings-text.js";
-import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import type { SettingsOverlayState } from "./state.js";
 
 /** C-08 stepping, applied to the draft. Only a row with a sentinel can reach
@@ -87,28 +91,13 @@ export function positionDots<T>(choices: readonly T[], current: T | undefined): 
   return choices.map((_, at) => at === index ? "●" : "○").join("");
 }
 
-const CONTINUATION_PROMPT_CHOICES: readonly (ContinuationPromptOptimizationV2 | null)[] = [
-  null,
-  ...CONTINUATION_PROMPT_OPTIMIZATION_V2_VALUES
-];
-
 export function continuationPromptRowValue(overlay: SettingsOverlayState): string {
-  if (overlay.view.readOnlyReason === "successor-schema") {
-    const layout = overlay.view.effectiveProseContinuationPromptLayout;
-    return layout === undefined
-      ? "‹ successor-owned ›"
-      : `[ ${layout === "compatibility" ? "off" : "on"} ]`;
-  }
-  return `[ ${continuationPromptOptimization(overlay) === null ? "off" : "on"} ]`;
+  const text = continuationPromptValueText(overlay.view, overlay.draft);
+  return text === "successor-owned" ? "‹ successor-owned ›" : `[ ${text} ]`;
 }
 
 export function continuationPromptRowHint(overlay: SettingsOverlayState): string {
-  if (overlay.view.readOnlyReason === "successor-schema") {
-    return settingsReadOnlyMessage(overlay.view.readOnlyReason);
-  }
-  return continuationPromptOptimization(overlay) === null
-    ? "Uses the established Continue and Retake layout; the alternative is experimental."
-    : "The experimental layout moves task instructions after story context to improve prompt caching.";
+  return continuationPromptHint(overlay.view, overlay.draft);
 }
 
 /** Toggle the one persisted experiment. Off removes the optional key. */
@@ -124,27 +113,6 @@ export function cycleContinuationPromptControl(
     profileWithContinuationPromptOptimization
   );
   return next === undefined ? null : next === null ? "off" : "on";
-}
-
-function continuationPromptOptimization(
-  overlay: SettingsOverlayState
-): ContinuationPromptOptimizationV2 | null {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  return document === null || profileId === null
-    ? null
-    : document.profiles[profileId]?.continuationPromptOptimization ?? null;
-}
-
-function profileWithContinuationPromptOptimization(
-  profile: GenerationProfileV2,
-  optimization: ContinuationPromptOptimizationV2 | null
-): GenerationProfileV2 {
-  if (optimization === null) {
-    const { continuationPromptOptimization: _dropped, ...rest } = profile;
-    return rest;
-  }
-  return { ...profile, continuationPromptOptimization: optimization };
 }
 
 export function cycleProfileControl(
@@ -227,63 +195,24 @@ export function cycleKeepThoughtsControl(
   return next === undefined ? null : next ? "on" : "off";
 }
 
-function profileWithKeepThoughts(
-  profile: GenerationProfileV2,
-  keep: boolean
-): GenerationProfileV2 {
-  if (keep) {
-    const { discardReasoning: _dropped, ...rest } = profile;
-    return rest;
-  }
-  return { ...profile, discardReasoning: true };
-}
-
 export function keepThoughts(overlay: SettingsOverlayState): boolean {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return true;
-  return document.profiles[profileId]?.discardReasoning !== true;
+  return draftKeepThoughts(overlay.draft);
 }
 
 /** Whether this route's connection splits a `<think>` block out of the token
  *  stream. A chat route carries reasoning in its own field, so only a text
  *  connection ever stores this. */
 export function splitThinkTags(overlay: SettingsOverlayState): boolean {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return false;
-  return resolveSettingsProfile(document, profileId).connection.splitThinkTags === true;
+  return draftSplitThinkTags(overlay.draft);
 }
 
 /** Toggle the split for the routed connection. Returns the new state, or null
  *  when no text connection owns the row. */
 export function cycleSplitThinkTags(overlay: SettingsOverlayState): boolean | null {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (
-    document === null
-    || profileId === null
-    || overlay.draft.generation.provider !== "text-completion"
-  ) return null;
-  const route = resolveSettingsProfile(document, profileId);
-  const enabled = route.connection.splitThinkTags !== true;
-  // Absence is the off state, the same shape `allowInsecureHttp` persists.
-  const { splitThinkTags: _dropped, ...rest } = route.connection;
-  // Turning the split off lowers what this route can return, so a display the
-  // writer picked while it was on has to come off with it. Leaving it would
-  // write a document the save then refuses, with no row on screen to fix it.
-  replaceSettingsDraft(
-    overlay,
-    settingsTextDraftForDocument(withSupportedReasoningDisplays({
-      ...document,
-      connections: {
-        ...document.connections,
-        [route.model.connectionId]: enabled
-          ? { ...rest, splitThinkTags: true as const }
-          : rest
-      }
-    }), profileId)
-  );
+  const enabled = !draftSplitThinkTags(overlay.draft);
+  const next = draftWithSplitThinkTags(overlay.draft, enabled);
+  if (next === null) return null;
+  replaceSettingsDraft(overlay, next);
   markControlMutation(overlay);
   return enabled;
 }
@@ -292,52 +221,26 @@ export function cycleTextPromptFormatControl(
   overlay: SettingsOverlayState,
   step: -1 | 1
 ): TextPromptFormatV2 | null {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (
-    document === null
-    || profileId === null
-    || overlay.draft.generation.provider !== "text-completion"
-  ) return null;
-  const route = resolveSettingsProfile(document, profileId);
+  if (overlay.draft.document === null || overlay.draft.selectedProfileId === null
+    || overlay.draft.generation.provider !== "text-completion") return null;
   const choices = textPromptFormatChoices(overlay);
-  const current = route.connection.textPromptFormat ?? "raw";
-  const index = Math.max(0, choices.indexOf(current));
+  const index = Math.max(0, choices.indexOf(textPromptFormat(overlay)));
   const format = choices[(index + step + choices.length) % choices.length]!;
-  replaceSettingsDraft(
-    overlay,
-    settingsTextDraftForDocument({
-      ...document,
-      connections: {
-        ...document.connections,
-        [route.model.connectionId]: {
-          ...route.connection,
-          textPromptFormat: format
-        }
-      }
-    }, profileId)
-  );
+  const next = draftWithTextPromptFormat(overlay.draft, format);
+  if (next === null) return null;
+  replaceSettingsDraft(overlay, next);
   markControlMutation(overlay);
   return format;
 }
 
 export function textPromptFormat(overlay: SettingsOverlayState): TextPromptFormatV2 {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return "raw";
-  return resolveSettingsProfile(document, profileId).connection.textPromptFormat ?? "raw";
+  return draftTextPromptFormat(overlay.draft);
 }
 
 export function textPromptFormatChoices(
   overlay: SettingsOverlayState
 ): readonly TextPromptFormatV2[] {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) return ["raw", "chatml"];
-  const preset = resolveSettingsProfile(document, profileId).connection.preset;
-  return preset === "llama-cpp"
-    ? TEXT_PROMPT_FORMAT_V2_VALUES
-    : TEXT_PROMPT_FORMAT_V2_VALUES.filter((format) => format !== "server-template");
+  return draftTextPromptFormatChoices(overlay.draft);
 }
 
 export function promptCacheRowValue(view: SettingsView, draft?: SettingsOverlayState["draft"]): string {
@@ -359,17 +262,7 @@ export function effortRowValue(overlay: SettingsOverlayState): string {
 }
 
 export function effortRowHint(overlay: SettingsOverlayState): string {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) {
-    return overlay.view.readOnlyReason === "successor-schema"
-      ? settingsReadOnlyMessage(overlay.view.readOnlyReason)
-      : "Sets how much reasoning the model does before writing.";
-  }
-  const effort = document.profiles[profileId]?.generationReasoning.effort ?? "default";
-  return generationEffortChoices(document, profileId).includes(effort as never)
-    ? "Sets how much reasoning the model does before writing."
-    : "This model does not support reasoning effort.";
+  return effortHint(overlay.view, overlay.draft);
 }
 
 export function effortPositionDots(overlay: SettingsOverlayState): string {
@@ -399,16 +292,7 @@ export function profilePositionDots(overlay: SettingsOverlayState): string {
 }
 
 export function profileRowHint(overlay: SettingsOverlayState): string {
-  const document = overlay.draft.document;
-  const profileId = overlay.draft.selectedProfileId;
-  if (document === null || profileId === null) {
-    return overlay.view.readOnlyReason === "successor-schema"
-      ? settingsReadOnlyMessage(overlay.view.readOnlyReason)
-      : "Legacy settings are read-only.";
-  }
-  return profileRouteState(document, profileId) === "unrouted"
-    ? "No requests currently use this profile."
-    : "Groups a model with its generation settings.";
+  return profileHint(overlay.view, overlay.draft);
 }
 
 /** The chosen model's own identifier, kept out of the chip so the chip holds
@@ -433,15 +317,7 @@ export function modelRowHint(overlay: SettingsOverlayState): string {
     : `${settingsModelDisplayText(selected.remoteId)} · ${count}`;
 }
 
-/** Delegate exact route effort choices to the shared request-policy owner. */
-export function generationEffortChoices(
-  document: NonNullable<SettingsOverlayState["draft"]["document"]>,
-  profileId: string
-): readonly (typeof GENERATION_EFFORT_V2_VALUES)[number][] {
-  const profile = document.profiles[profileId];
-  if (profile === undefined) return ["default"];
-  return generationEffortChoicesForRoute(resolveSettingsProfile(document, profileId) as never);
-}
+export { generationEffortChoices };
 
 export function profileRowValue(overlay: SettingsOverlayState): string {
   const document = overlay.draft.document;

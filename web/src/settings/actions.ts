@@ -11,12 +11,38 @@ import {
 } from "../../../shared/settings-subscription-plan.js";
 import { settingsTextDraftForView } from "../../../shared/settings-text-draft.js";
 import { settingsTextDraftWithMergedWriting } from "../../../shared/settings-writing-draft.js";
-import type { DiscoveredModelV2, SettingsView } from "../../../shared/settings-v2-types.js";
-import type { WritingPromptFieldId } from "../../../shared/settings-v5-writing.js";
+import type {
+  DiscoveredModelV2,
+  GenerationEffortV2,
+  PromptCachePolicyV2,
+  ReasoningDisplayV2,
+  SettingsRoutePurpose,
+  SettingsView,
+  TextPromptFormatV2
+} from "../../../shared/settings-v2-types.js";
+import type { ConnectionTimeoutRow } from "../../../shared/settings-profile-fields.js";
+import { WRITING_PROMPT_FIELD_IDS, type WritingPromptFieldId } from "../../../shared/settings-v5-writing.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
+import {
+  applyCachePolicyChoice,
+  applyEffortChoice,
+  applyGenerationScalarText,
+  applyKeepThoughts,
+  applyPromptLayout,
+  applyProfileCreate,
+  applyProfileDelete,
+  applyProfileRename,
+  applyProfileSelect,
+  applyReasoningDisplay,
+  applyRoute,
+  applySplitThinkTags,
+  applyTextPromptFormat,
+  applyTimeoutText,
+  applyTokenProbabilities
+} from "./advanced-model.js";
 import {
   applyAllowInsecureHttp,
   applyApiKey,
@@ -34,6 +60,7 @@ import {
   probeTargetFor,
   selectedPreset,
   targetIdentity,
+  type EditResult,
   type SettingsEdit
 } from "./model.js";
 import type { LoadedSettings, InvalidField } from "./state.js";
@@ -65,6 +92,24 @@ export interface SettingsActions {
   refreshModels(): void;
   setContextSize(text: string): void;
   setWriting(field: WritingPromptFieldId, text: string): void;
+  selectProfile(profileId: string): void;
+  /** A new profile copies the selected one's settings; a duplicate copies its
+   * name too. Both select the new profile. */
+  createProfile(duplicate: boolean): void;
+  renameProfile(name: string): void;
+  /** Returns the reason when the profile is kept (the last one stays). */
+  deleteProfile(): string | null;
+  setRoute(purpose: SettingsRoutePurpose, profileId: string | null): void;
+  setGenerationScalar(row: "temperature" | "max-tokens", text: string): void;
+  setEffort(effort: GenerationEffortV2): void;
+  setCachePolicy(policy: PromptCachePolicyV2): void;
+  setPromptLayout(on: boolean): void;
+  setReasoningDisplay(display: ReasoningDisplayV2): void;
+  setKeepThoughts(keep: boolean): void;
+  setTokenProbabilities(count: number | null): void;
+  setTextPromptFormat(format: TextPromptFormatV2): void;
+  setSplitThinkTags(on: boolean): void;
+  setTimeout(row: ConnectionTimeoutRow, text: string): void;
   check(): Promise<void>;
   probeContext(): Promise<void>;
   save(): Promise<void>;
@@ -323,6 +368,31 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     applyEdit((edit) => applyModel(edit, model.remoteId, model.contextWindow));
   }
 
+  /** A field of the selected profile gives way to another profile's: what
+   * the writer typed into it (refused) belongs to the old one. */
+  function clearProfileFieldText(): void {
+    patch((state) => {
+      const next = Object.fromEntries(Object.entries(state.invalid).filter(([key]) => (
+        key === "api-key" || (WRITING_PROMPT_FIELD_IDS as readonly string[]).includes(key)
+      )));
+      return Object.keys(next).length === Object.keys(state.invalid).length ? state : { ...state, invalid: next };
+    });
+  }
+
+  /** A typed value that a rule may refuse: the refused text stays in the
+   * field with its reason; the draft keeps the last accepted value. */
+  function typedEdit(key: string, text: string, apply: (edit: SettingsEdit) => EditResult): void {
+    const current = loaded();
+    if (current === null || !current.view.editable || current.busy !== null) return;
+    const result = apply({ draft: current.draft, secrets: current.secrets });
+    if ("error" in result) {
+      setInvalid(key, { text, reason: result.error });
+      return;
+    }
+    setInvalid(key, null);
+    applyEdit(() => result.edit);
+  }
+
   // --- save ---------------------------------------------------------------
 
   async function reloadView(): Promise<SettingsView | null> {
@@ -563,6 +633,46 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
       setInvalid(field, null);
       applyEdit(() => result.edit);
     },
+    selectProfile: (profileId) => {
+      applyEdit((edit) => applyProfileSelect(edit, profileId), { probe: null });
+      clearProfileFieldText();
+    },
+    createProfile: (duplicate) => {
+      const current = loaded();
+      if (current === null || !current.view.editable || current.busy !== null) return;
+      const result = applyProfileCreate({ draft: current.draft, secrets: current.secrets }, duplicate);
+      if ("error" in result) {
+        pushToast(store, `Profile kept. ${result.error}`);
+        return;
+      }
+      applyEdit(() => result.edit, { probe: null });
+      clearProfileFieldText();
+    },
+    renameProfile: (name) => typedEdit("profile-name", name, (edit) => applyProfileRename(edit, name)),
+    deleteProfile: () => {
+      const current = loaded();
+      if (current === null || !current.view.editable || current.busy !== null) return null;
+      const result = applyProfileDelete({ draft: current.draft, secrets: current.secrets });
+      if ("error" in result) {
+        const message = `Profile kept. ${result.error.charAt(0).toUpperCase()}${result.error.slice(1)}.`;
+        pushToast(store, message);
+        return message;
+      }
+      applyEdit(() => result.edit, { probe: null });
+      clearProfileFieldText();
+      return null;
+    },
+    setRoute: (purpose, profileId) => applyEdit((edit) => applyRoute(edit, purpose, profileId)),
+    setGenerationScalar: (row, text) => typedEdit(row, text, (edit) => applyGenerationScalarText(edit, row, text)),
+    setEffort: (effort) => applyEdit((edit) => applyEffortChoice(edit, effort)),
+    setCachePolicy: (policy) => applyEdit((edit) => applyCachePolicyChoice(edit, policy)),
+    setPromptLayout: (on) => applyEdit((edit) => applyPromptLayout(edit, on)),
+    setReasoningDisplay: (display) => applyEdit((edit) => applyReasoningDisplay(edit, display)),
+    setKeepThoughts: (keep) => applyEdit((edit) => applyKeepThoughts(edit, keep)),
+    setTokenProbabilities: (count) => applyEdit((edit) => applyTokenProbabilities(edit, count)),
+    setTextPromptFormat: (format) => applyEdit((edit) => applyTextPromptFormat(edit, format)),
+    setSplitThinkTags: (on) => applyEdit((edit) => applySplitThinkTags(edit, on)),
+    setTimeout: (row, text) => typedEdit(row, text, (edit) => applyTimeoutText(edit, row, text)),
     check: async () => {
       const current = loaded();
       if (current === null || !current.view.editable || current.busy !== null) return;
