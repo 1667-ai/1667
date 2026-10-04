@@ -1,23 +1,8 @@
 import { createDurableMutationId } from "../../shared/durable-mutation-id.js";
-import {
-  applyBasicModelDiscovery,
-  applyBasicSettingsDraft
-} from "../../shared/settings-basic-draft.js";
-import {
-  promptCacheContextForProfile,
-  promptCachePolicyPresentation
-} from "../../shared/prompt-cache-capabilities.js";
-import {
-  applySamplingSettings,
-  resolveConfiguredSamplingKnobs,
-  samplingContextForRoute,
-  samplingKnobLabel,
-  samplingUnavailableReasonCompact
-} from "../../shared/sampling-capabilities.js";
 import { settingsActivationFailureText } from "../../shared/settings-activation-text.js";
 import { settingsMutationFailureAction } from "../../shared/settings-mutation-failure.js";
-import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
-import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
+import { selectSettingsRoute } from "../../shared/settings-route.js";
+import { buildSettingsSaveDocument } from "../../shared/settings-save-document.js";
 import type {
   SettingsMutationResult,
   SettingsRoutePurpose
@@ -44,18 +29,13 @@ import {
   openSettingsPasteTarget,
   openWritingPromptEditor
 } from "./settings-prompt-editor.js";
-import {
-  WRITING_PROMPT_FIELD_DEFINITIONS,
-  isWritingPromptRow
-} from "../../shared/settings-v5-writing.js";
-import { draftWriting, validateWritingPromptValue } from "./settings-writing-draft.js";
+import { isWritingPromptRow } from "../../shared/settings-v5-writing.js";
 import { activeSettingsEdit } from "./settings-edit-state.js";
 import { settingsReadOnlyMessage } from "./settings-read-only.js";
 import {
   acknowledgeAllSettingsModelSelections,
   cloneSettingsProfileDraft,
   replaceSettingsDraft,
-  settingsContextWindowIsManual,
   settingsHasAutomaticModelSelections
 } from "./settings-draft-transition.js";
 import {
@@ -80,8 +60,7 @@ import {
 import {
   createSettingsProfile,
   deleteSettingsProfile,
-  duplicateSettingsProfile,
-  isolateSettingsProfileModel
+  duplicateSettingsProfile
 } from "./settings-profile-draft.js";
 import { discardUnreferencedConnectionSecretWrites } from "./settings-secret-sidecar.js";
 import {
@@ -415,57 +394,11 @@ async function saveSettingsDraft(
     const connectionSecrets = { ...overlay.connectionSecrets };
     let document: SettingsDocumentV2;
     try {
-      if (draft.document === null || draft.selectedProfileId === null) {
-        throw new Error("Editable settings document is unavailable");
-      }
-      const writing = draftWriting(draft);
-      for (const definition of WRITING_PROMPT_FIELD_DEFINITIONS) {
-        const writingError = validateWritingPromptValue(
-          definition,
-          writing[definition.field],
-          writing
-        );
-        if (writingError !== null) throw new Error(writingError);
-      }
       const discovery = overlay.modelDiscoveryIdentity
           === settingsModelDiscoveryIdentity(draft.generation)
         ? overlay.modelDiscovery
         : null;
-      const savedDocument = applyBasicSettingsDraft(
-          draft.document as never,
-          draft.generation,
-          draft.selectedProfileId,
-          settingsContextWindowIsManual(overlay)
-      ) as unknown as SettingsDocumentV2;
-      const selectedRemoteId = resolveSettingsProfile(
-        savedDocument,
-        draft.selectedProfileId
-      ).model.remoteId;
-      const discoveryMatchesSelectedModel = discovery?.models.some(
-        (model) => model.remoteId === selectedRemoteId
-      ) === true;
-      document = applyBasicModelDiscovery(
-        (discoveryMatchesSelectedModel
-          ? isolateSettingsProfileModel(savedDocument, draft.selectedProfileId)
-          : savedDocument) as never,
-        discovery,
-        draft.generation.contextWindow,
-        draft.selectedProfileId,
-        settingsContextWindowIsManual(overlay)
-      ) as unknown as SettingsDocumentV2;
-      document = applySamplingSettings(
-        document as unknown as never,
-        draft.sampling,
-        draft.selectedProfileId
-      ) as unknown as SettingsDocumentV2;
-      assertSamplingDraftAvailable(document, draft.selectedProfileId);
-      const cacheContext = promptCacheContextForProfile(document, draft.selectedProfileId);
-      const presentation = promptCachePolicyPresentation(cacheContext, draft.cachePolicy);
-      if (!presentation.available) {
-        throw new Error(
-          presentation.unavailableReason
-        );
-      }
+      document = buildSettingsSaveDocument(draft, discovery);
     } catch (error) {
       state.toast = `settings kept · ${error instanceof Error ? error.message : String(error)}`;
       return;
@@ -536,19 +469,6 @@ async function saveSettingsDraft(
     const message = settingsSaveMessage(result);
     state.toast = newerEdits ? `${message} · newer edits kept` : message;
   });
-}
-
-function assertSamplingDraftAvailable(document: SettingsDocumentV2, profileId: string): void {
-  const route = resolveSettingsProfile(document, profileId);
-  const context = samplingContextForRoute(route as never);
-  const sampling = route.profile.sampling ?? EMPTY_SAMPLING_V2;
-  for (const { knob, resolution } of resolveConfiguredSamplingKnobs(context, sampling)) {
-    if (resolution.kind === "unavailable") {
-      throw new Error(
-        `${samplingKnobLabel(knob)} is unavailable · ${samplingUnavailableReasonCompact(resolution.reason)}`
-      );
-    }
-  }
 }
 
 /** A credential-touching save activates inside the save request, so the
