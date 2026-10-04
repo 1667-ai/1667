@@ -18,6 +18,9 @@ export const SUMMARY_LOCKED_TOAST = "Summarizing… Esc stops it first.";
 /** The story is being named: a provider call that cannot be stopped. */
 export const NAMING_LOCKED_TOAST = "Naming the story… Wait for it.";
 
+/** The Fact consistency check is running: a provider call that cannot be stopped. */
+export const CHECKING_LOCKED_TOAST = "Checking Facts… Wait for it.";
+
 export const UNSAVED_TOAST = "The last text is not saved yet. Retry or discard it first.";
 
 /** True while a generation is running or settling in `storyId`, or a chapter
@@ -26,11 +29,14 @@ export const UNSAVED_TOAST = "The last text is not saved yet. Retry or discard i
 export function storyRunLocked(state: AppState, storyId: string): boolean {
   return generationLocks(state.generation, storyId)
     || state.chapters.summaryRun?.storyId === storyId
-    || state.notes.naming?.storyId === storyId;
+    || state.notes.naming?.storyId === storyId
+    || state.factCheck.running?.storyId === storyId;
 }
 
 /** The toast for a change refused because `storyId` is locked. */
 export function lockedToast(state: AppState, storyId: string): string {
+  if (state.factCheck.running?.storyId === storyId && !generationLocks(state.generation, storyId)
+    && state.chapters.summaryRun?.storyId !== storyId) return CHECKING_LOCKED_TOAST;
   if (state.notes.naming?.storyId === storyId && !generationLocks(state.generation, storyId)
     && state.chapters.summaryRun?.storyId !== storyId) return NAMING_LOCKED_TOAST;
   return state.chapters.summaryRun?.storyId === storyId && !generationLocks(state.generation, storyId)
@@ -51,6 +57,10 @@ export function runBusyToast(state: AppState, storyId: string): string | null {
     return run.storyId === storyId ? SUMMARY_LOCKED_TOAST : `Already summarizing in ${run.storyTitle}. Esc stops it.`;
   }
   const naming = state.notes.naming;
-  if (naming === null) return null;
-  return naming.storyId === storyId ? NAMING_LOCKED_TOAST : `Already naming ${naming.storyTitle}. Wait for it.`;
+  if (naming !== null) {
+    return naming.storyId === storyId ? NAMING_LOCKED_TOAST : `Already naming ${naming.storyTitle}. Wait for it.`;
+  }
+  const checking = state.factCheck.running;
+  if (checking === null) return null;
+  return checking.storyId === storyId ? CHECKING_LOCKED_TOAST : `Already checking Facts in ${checking.storyTitle}. Wait for it.`;
 }

@@ -11,6 +11,8 @@ import { Icon, ICONS } from "../ui/icons.js";
 import { FactsPanel } from "../facts/FactsPanel.js";
 import { visibleFacts } from "../facts/rows.js";
 import { ChaptersPanel } from "./ChaptersPanel.js";
+import { findingRows } from "../factcheck/model.js";
+import { FindingsPanel } from "../factcheck/FindingsPanel.js";
 import { handleFactsKey } from "./facts-keys.js";
 
 /** The width from which the panel is docked beside the manuscript; below it
@@ -28,7 +30,7 @@ function useDockedLayout(): boolean {
   );
 }
 
-const TITLES = { chapters: "Chapters", facts: "Facts" } as const;
+const TITLES = { chapters: "Chapters", facts: "Facts", findings: "Findings" } as const;
 
 export const CHAPTER_ONE_NO_BREAK_TOAST = "Chapter One has no break to remove.";
 
@@ -53,6 +55,9 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
   const filterRef = useRef<HTMLInputElement>(null);
   const [cursor, setCursor] = useState(0);
   const [factId, setFactId] = useState<string | null>(null);
+  const [findingCursor, setFindingCursor] = useState(0);
+  const findings = useStore(store, (state) => state.factCheck.findings);
+  const findingsHere = findings !== null && findings.storyId === payload.id ? findings : null;
   const filter = useStore(store, (state) => state.facts.filter);
   const editorOpen = useStore(store, (state) => state.facts.editor !== null && state.facts.editor.storyId === payload.id);
   const picking = useStore(store, (state) => state.facts.pick !== null);
@@ -117,6 +122,23 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
       });
       return;
     }
+    if (view === "findings") {
+      if (event.defaultPrevented || event.nativeEvent.isComposing || event.metaKey || event.ctrlKey || event.altKey) return;
+      const rows = findingsHere === null ? [] : findingRows(findingsHere.run, payload);
+      const index = Math.min(findingCursor, Math.max(0, rows.length - 1));
+      if (event.key === "Escape") {
+        event.preventDefault();
+        close();
+      } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+        event.preventDefault();
+        setFindingCursor(Math.max(0, Math.min(rows.length - 1, index + (event.key === "ArrowDown" ? 1 : -1))));
+      } else if (event.key === "Enter" && !(event.target instanceof HTMLButtonElement)) {
+        event.preventDefault();
+        const row = rows[index];
+        if (row !== undefined) actions.factCheck.select(row);
+      }
+      return;
+    }
     // A field inside (a rename) handles its own keys.
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.target instanceof HTMLInputElement) return;
     if (event.metaKey || event.ctrlKey || event.altKey) return;
@@ -175,13 +197,13 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
       >
         <header className="panel-head">
           <div className="seg" role="group" aria-label="Panel view">
-            {(["chapters", "facts"] as const).map((name) => (
+            {(["chapters", "facts", ...(findingsHere !== null || view === "findings" ? ["findings" as const] : [])] as const).map((name) => (
               <button
                 key={name}
                 type="button"
                 className="seg-btn"
                 aria-pressed={view === name}
-                title={name === "chapters" ? "Chapters (c)" : "Facts (f)"}
+                title={name === "chapters" ? "Chapters (c)" : name === "facts" ? "Facts (f)" : "The last Fact check"}
                 onClick={() => actions.panel.open(name)}
               >
                 {TITLES[name]}
@@ -201,6 +223,8 @@ export function StoryPanel({ payload }: { readonly payload: StoryPayload }) {
         <div className="panel-body">
           {view === "chapters"
             ? <ChaptersPanel payload={payload} cursor={cursor} onCursor={setCursor} onJump={jump} />
+            : view === "findings"
+            ? <FindingsPanel payload={payload} cursor={findingCursor} onCursor={setFindingCursor} />
             : (
               <FactsPanel
                 payload={payload}

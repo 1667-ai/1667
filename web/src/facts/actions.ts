@@ -1,6 +1,6 @@
 import type { StoryApi } from "../../../client/api.js";
 import { factDraftOf } from "../../../shared/fact-draft.js";
-import { canonicalFactStates } from "../../../shared/fact-state.js";
+import { canonicalFactStates, firstFactText, isFactEndState } from "../../../shared/fact-state.js";
 import type { StoryFact, StoryPayload } from "../../../shared/types.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
@@ -9,6 +9,7 @@ import { pushToast } from "../app/toasts.js";
 import type { PanelActions } from "../panel/actions.js";
 import { STORY_RELOADED_TOAST, type StoryActions } from "../story/actions.js";
 import { storyChangeRefusal } from "../story/story-policy.js";
+import { effectiveFocusedPartId } from "../story/state.js";
 import {
   changedFields,
   changedMetadata,
@@ -22,7 +23,7 @@ import {
 } from "./form.js";
 import { editorOnFact, editorOnNewFact, editorOnNewState, editorOnState, formOfFactState } from "./open.js";
 import { createdFact, runFactSave, type FactSaveRequest, type FactSaveValue } from "./save.js";
-import { factEditorDirty, STATES_UNAVAILABLE_TOAST, type FactEditor, type FactsState } from "./state.js";
+import { factEditorDirty, STATES_UNAVAILABLE_TOAST, type FactBody, type FactEditor, type FactsState } from "./state.js";
 
 export interface FactEditorActionDependencies {
   readonly story: Pick<StoryActions, "adoptPayload">;
@@ -39,6 +40,10 @@ export interface FactEditorActions {
   openNewState(factId: string, anchorPartId: string | null, ends: boolean): void;
   /** Moves the editor to another state of its fact. */
   openState(stateId: string): void;
+  /** Moves the open state to the part being read (saved with Save). */
+  reanchorState(): void;
+  /** Turns the open state into an End State, or an End State back into a text state (saved with Save). */
+  convertState(): void;
   setField(field: FactFormField, value: string): void;
   save(): Promise<void>;
   /** Puts every field back to what the editor opened on. */
@@ -49,6 +54,7 @@ export interface FactEditorActions {
   discard(): void;
 }
 
+export const STATE_OCCUPIED_TOAST = "This fact already has a state at that part.";
 export const FACT_EDITOR_OPEN_TOAST = "Save or cancel the open fact first.";
 export const FACT_CHANGED_TOAST = "This fact changed in another window. Save again to overwrite.";
 export const FACT_GONE_TOAST = "This fact no longer exists. Copy your text before closing.";
@@ -61,6 +67,12 @@ type Loaded = { readonly storyId: string; readonly payload: StoryPayload };
 export function loadedStory(state: AppState): Loaded | null {
   if (state.route.kind !== "story" || state.story.kind !== "loaded") return null;
   return state.story.payload.id === state.route.id ? { storyId: state.route.id, payload: state.story.payload } : null;
+}
+
+/** True when two bodies agree on the state's anchor and End State choice. */
+function sameStateChoice(left: FactBody, right: FactBody): boolean {
+  if (left.kind === "fact" || right.kind === "fact") return left.kind === right.kind;
+  return left.anchorPartId === right.anchorPartId && left.ends === right.ends;
 }
 
 /** The form a stored fact (and the editor's state) would open with. */
@@ -134,7 +146,14 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
 
   /** What one Save sends, or why it sends nothing. */
   type Built =
-    | { readonly kind: "request"; readonly request: FactSaveRequest; readonly announcement: string; readonly form: FactForm }
+    | {
+        readonly kind: "request";
+        readonly request: FactSaveRequest;
+        readonly announcement: string;
+        readonly form: FactForm;
+        /** The body the save sent: its anchor and End State choice become the editor's baseline. */
+        readonly body: FactBody;
+      }
     | { readonly kind: "unchanged" }
     | { readonly kind: "refused"; readonly toast: string };
 
@@ -148,7 +167,7 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
     const { storyId, form } = editor;
     if (editor.factId === null) {
       return {
-        kind: "request", form, announcement: "Fact created.",
+        kind: "request", form, body, announcement: "Fact created.",
         request: {
           kind: "create", storyId, input: createInputOf(draft, editor.newAnchorPartId),
           knownFactIds: new Set(payload.facts.map((fact) => fact.id))
@@ -166,7 +185,7 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
       if (changed.length === 0) return { kind: "unchanged" };
       const textLanded = (fact: StoryFact): boolean => landed(changed)(fact) && (!changed.includes("text") || factDraftOf(fact).text === draft.text);
       return {
-        kind: "request", form, announcement: "Fact saved.",
+        kind: "request", form, body, announcement: "Fact saved.",
         request: { kind: "patch", storyId, factId, patch: changedPatch(draft, changed), landed: textLanded }
       };
     }
@@ -177,7 +196,7 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
     if (body.kind === "new-state") {
       const known = new Set(canonicalFactStates(payload.facts.find((fact) => fact.id === factId) ?? { states: [] } as never).map((state) => state.id));
       return {
-        kind: "request", form, announcement: body.ends ? "Fact end saved." : "Fact state saved.",
+        kind: "request", form, body, announcement: body.ends ? "Fact end saved." : "Fact state saved.",
         request: {
           kind: "state-create", storyId, factId, knownStateIds: known,
           body: {
@@ -188,37 +207,50 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
         }
       };
     }
-    const bodyChanged = !body.ends && editor.form.text !== body.baseText;
-    if (!bodyChanged && !metadataChanged(changed)) return { kind: "unchanged" };
+    const endsChanged = body.ends !== body.baseEnds;
+    const bodyChanged = endsChanged || (!body.ends && editor.form.text !== body.baseText);
+    const anchorChanged = body.anchorPartId !== body.baseAnchorPartId;
+    if (!bodyChanged && !anchorChanged && !metadataChanged(changed)) return { kind: "unchanged" };
     const stateLanded = (fact: StoryFact): boolean => {
       const state = canonicalFactStates(fact).find((candidate) => candidate.id === body.stateId);
-      const text = state === undefined || "ends" in state ? null : state.text;
-      return state !== undefined && landed(changed)(fact) && (!bodyChanged || text === draft.text);
+      if (state === undefined || !landed(changed)(fact)) return false;
+      if (anchorChanged && (state.anchorPartId ?? null) !== body.anchorPartId) return false;
+      if (!bodyChanged) return true;
+      return body.ends ? isFactEndState(state) : !isFactEndState(state) && state.text === draft.text;
     };
-    if (!bodyChanged) {
+    if (!bodyChanged && !anchorChanged) {
       // Only fact metadata changed: the ordinary PATCH carries it.
       return {
-        kind: "request", form, announcement: "Fact saved.",
+        kind: "request", form, body, announcement: "Fact saved.",
         request: { kind: "patch", storyId, factId, patch: changedPatch(draft, changed), landed: landed(changed) }
       };
     }
     return {
-      kind: "request", form, announcement: "Fact state saved.",
+      kind: "request", form, body, announcement: "Fact state saved.",
       request: {
         kind: "state-patch", storyId, factId, stateId: body.stateId, landed: stateLanded,
-        body: { text: draft.text, ...(metadata === undefined ? {} : { metadata }) }
+        body: {
+          ...(bodyChanged ? (body.ends ? { ends: true as const } : { text: draft.text }) : {}),
+          ...(anchorChanged ? { anchorPartId: body.anchorPartId } : {}),
+          ...(metadata === undefined ? {} : { metadata })
+        }
       }
     };
   }
 
   /** The editor after a save landed: what was sent is the new baseline, and
    * anything typed since stays as an unsaved change. */
-  function afterSaved(editor: FactEditor, sent: FactForm, value: FactSaveValue): FactEditor {
+  function afterSaved(editor: FactEditor, sent: FactForm, value: FactSaveValue, sentBody: FactBody): FactEditor {
+    const baseAnchorPartId = sentBody.kind === "fact" ? null : sentBody.anchorPartId;
+    const baseEnds = sentBody.kind !== "fact" && sentBody.ends;
     const body = editor.body.kind === "new-state"
       ? (value.stateId === null
         ? editor.body
-        : { kind: "state" as const, stateId: value.stateId, anchorPartId: editor.body.anchorPartId, ends: editor.body.ends, baseText: sent.text })
-      : editor.body.kind === "state" ? { ...editor.body, baseText: sent.text } : editor.body;
+        : {
+          kind: "state" as const, stateId: value.stateId, anchorPartId: editor.body.anchorPartId, ends: editor.body.ends,
+          baseText: sent.text, baseAnchorPartId, baseEnds
+        })
+      : editor.body.kind === "state" ? { ...editor.body, baseText: sent.text, baseAnchorPartId, baseEnds } : editor.body;
     return { ...editor, factId: value.factId ?? editor.factId, base: sent, body, saving: false, overwriteArmed: false, pending: null, discardArmed: false };
   }
 
@@ -236,10 +268,11 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
       if (!stillOpen) return;
       const live = store.get().facts.editor!;
       if (outcome.reconciled) pushToast(store, "Saved. The answer was lost, and the reload showed it.");
-      const unchanged = Object.keys(live.form).every((key) => live.form[key as FactFormField] === built.form[key as FactFormField]);
+      const unchanged = Object.keys(live.form).every((key) => live.form[key as FactFormField] === built.form[key as FactFormField])
+        && sameStateChoice(live.body, built.body);
       if (unchanged) close();
       else {
-        update((current) => afterSaved(current, built.form, outcome.value));
+        update((current) => afterSaved(current, built.form, outcome.value, built.body));
         pushToast(store, "Saved. Your newer edits are kept.");
       }
       return;
@@ -323,7 +356,7 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
       const found = createdFact(reloaded, editor.pending.input, new Set(editor.pending.knownFactIds));
       if (found !== null) {
         const sent = editor.pending.form;
-        update((current) => afterSaved({ ...current, pending: null }, sent, { factId: found.id, stateId: null }));
+        update((current) => afterSaved({ ...current, pending: null }, sent, { factId: found.id, stateId: null }, editor.body));
         pushToast(store, FACT_EARLIER_LANDED_TOAST);
         const live = store.get().facts.editor;
         if (live !== null && !factEditorDirty(live)) close();
@@ -379,6 +412,42 @@ export function createFactEditorActions(store: Store<AppState>, deps: FactEditor
       if (fact === null || target === undefined) return;
       opened += 1;
       writeFacts((facts) => ({ ...facts, editor: editorOnState(loaded.storyId, fact, target) }));
+    },
+
+    reanchorState: () => {
+      const state = store.get();
+      const loaded = loadedStory(state);
+      const editor = state.facts.editor;
+      if (loaded === null || editor === null || editor.saving || editor.body.kind === "fact") return;
+      const target = state.story.kind === "loaded" ? effectiveFocusedPartId(state.story) : null;
+      if (target === null) return;
+      const body = editor.body;
+      const fact = editor.factId === null ? null : factOf(loaded, editor.factId);
+      const occupied = fact !== null && canonicalFactStates(fact).some((candidate) =>
+        (body.kind !== "state" || candidate.id !== body.stateId) && (candidate.anchorPartId ?? null) === target);
+      if (occupied) {
+        pushToast(store, STATE_OCCUPIED_TOAST);
+        return;
+      }
+      update((current) => (current.body.kind === "fact"
+        ? current
+        : { ...current, body: { ...current.body, anchorPartId: target }, discardArmed: false }));
+    },
+
+    convertState: () => {
+      const state = store.get();
+      const loaded = loadedStory(state);
+      const editor = state.facts.editor;
+      if (loaded === null || editor === null || editor.saving || editor.body.kind !== "state") return;
+      const fact = editor.factId === null ? null : factOf(loaded, editor.factId);
+      update((current) => {
+        const body = current.body;
+        if (body.kind !== "state") return current;
+        if (!body.ends) return { ...current, body: { ...body, ends: true }, form: { ...current.form, text: "" }, discardArmed: false };
+        // Back to text: the state's own text, or else the fact's first text.
+        const text = body.baseText.length > 0 ? body.baseText : fact === null ? "" : firstFactText(fact);
+        return { ...current, body: { ...body, ends: false }, form: { ...current.form, text }, discardArmed: false };
+      });
     },
 
     setField: (field, value) => update((editor) => (
