@@ -19,6 +19,12 @@ function binding(action: string, name: string): ReferenceBinding {
  */
 export function PlacementBanner({ storyId }: { readonly storyId: string }) {
   const { store, actions } = useAppContext();
+  // Leaving the story ends the choice: nothing is written.
+  useEffect(() => () => {
+    store.set((state) => (state.aside.placement?.storyId === storyId && !state.aside.placement.placing
+      ? { ...state, aside: { ...state.aside, placement: null } }
+      : state));
+  }, [store, storyId]);
   const active = useStore(store, (state) => state.aside.placement?.storyId === storyId);
   const placing = useStore(store, (state) => state.aside.placement?.placing === true);
   const ref = useRef<HTMLDivElement>(null);

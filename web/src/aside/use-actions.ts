@@ -1,4 +1,5 @@
 import { countWords } from "../../../shared/story-text.js";
+import { runBusyToast } from "../app/run-lock.js";
 import { failureToast, runStoryMutation } from "../app/story-mutation.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
@@ -141,7 +142,8 @@ export function createAsideUseActions(
       const placement = state.aside.placement;
       const open = openStory(state);
       if (placement === null || placement.placing || open === null || open.storyId !== placement.storyId) return;
-      const refusal = storyChangeRefusal(state, open.storyId);
+      // Any Aside run (also one in another story) owns the one run slot.
+      const refusal = storyChangeRefusal(state, open.storyId) ?? runBusyToast(state, open.storyId);
       if (refusal !== null) {
         pushToast(store, refusal);
         return;

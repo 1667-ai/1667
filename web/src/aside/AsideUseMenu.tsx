@@ -31,10 +31,20 @@ export function AsideUseMenu({ answer, disabled }: { readonly answer: string; re
   const choose = (action: () => void): void => {
     closedByItem.current = true;
     setOpen(false);
+    // The keyboard comes back here first; an item that moves it elsewhere
+    // (the composer, the placement bar, the Fact editor) does so after this.
+    triggerRef.current?.focus();
     action();
   };
 
   const onKeyDown = (event: KeyboardEvent<HTMLDivElement>): void => {
+    if (event.key === "Escape") {
+      // Only the menu closes, not the panel; the trigger takes the keyboard back.
+      event.preventDefault();
+      event.stopPropagation();
+      setOpen(false);
+      return;
+    }
     const buttons = [...event.currentTarget.querySelectorAll<HTMLButtonElement>("button:not(:disabled)")];
     const at = buttons.indexOf(document.activeElement as HTMLButtonElement);
     let next: number | null = null;

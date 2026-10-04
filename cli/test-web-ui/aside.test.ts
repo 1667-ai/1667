@@ -402,3 +402,30 @@ test("case 12: Esc during placement leaves the story unchanged", async () => {
   expect(after.path.map((node) => node.id)).toEqual(before.path.map((node) => node.id));
   await waitForCount(turns(page), 1);
 }, 60_000);
+
+test("case 13: Esc in the Use menu closes only the menu; Copy keeps the keys in Aside", async () => {
+  const project = await scratchProject();
+  const web = await spawnAsideWeb(project, WORD_DELAY_MS);
+  const api = await openInspectionApi(web);
+  const { page, storyId, b1 } = await openForked(web, api);
+
+  await page.keyboard.press("a");
+  await ask(page, "A question");
+  await waitForCount(turns(page), 1, 10_000);
+  const use = panel(page).getByRole("button", { name: "Use" });
+  await use.click();
+  await page.getByRole("menuitem", { name: "Copy" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("menuitem", { name: "Copy" }).waitFor({ state: "detached" });
+  await panel(page).waitFor();
+  expect(await use.evaluate((element) => element === document.activeElement)).toBeTrue();
+
+  // Copy hands the keyboard back, so `r` retakes the answer, not the story.
+  await use.click();
+  await page.getByRole("menuitem", { name: "Copy" }).click();
+  expect(await use.evaluate((element) => element === document.activeElement)).toBeTrue();
+  await page.keyboard.press("r");
+  await panel(page).getByText("Thinking…").or(panel(page).getByText("Waiting…")).first().waitFor();
+  expect(await poll(async () => (await savedTurns(api, storyId, b1)).length === 1 && (await panel(page).getByRole("button", { name: "Stop" }).count()) === 0, 10_000)).toBeTrue();
+  expect((await api.loadStory(storyId)).path.length).toBe(3);
+}, 60_000);
