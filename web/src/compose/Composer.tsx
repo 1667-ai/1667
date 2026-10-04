@@ -52,6 +52,11 @@ export function Composer(
       // Load-bearing: without it the window listener in `app/keymap.ts` would
       // also stop a running generation on this same press.
       event.preventDefault();
+      // An open context breakdown closes first; the retake and the box stay.
+      if (store.get().context.expanded) {
+        actions.context.setExpanded(false);
+        return;
+      }
       if (draft.retake !== null) actions.compose.cancelRetake(storyId);
       leave();
       return;
