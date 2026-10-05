@@ -130,6 +130,12 @@ export function StoryView(
     focusPartElement(scrollRef.current, focusedPartId);
   }, [focusedPartId]);
 
+  // Coming back from the map or an inspector page, a docked panel may still
+  // hold the keyboard: it goes to the focused part, where the page was left.
+  useEffect(() => {
+    if (document.activeElement?.closest(".story-panel") != null) focusCurrentPart();
+  }, []);
+
   // Typewriter mode (`z`): after the move above, the focused part is brought
   // to the middle of the view. Turning the mode on centers the current part.
   useEffect(() => {

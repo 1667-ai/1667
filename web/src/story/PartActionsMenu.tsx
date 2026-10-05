@@ -76,6 +76,9 @@ const SHORT_REFUSAL: ReadonlyMap<string, string> = new Map([
   [STATES_UNAVAILABLE_TOAST, "Needs a newer backend"]
 ]);
 
+/** Space kept between the menu and the edge of the scroll area, in pixels. */
+const EDGE_GAP = 12;
+
 function shortRefusal(refusal: string): string {
   // `generationBusyToast` names the other story: "Already writing in ….".
   const known = SHORT_REFUSAL.get(refusal);
@@ -130,20 +133,11 @@ export function PartActionsMenu(
     }
     const selected = window.getSelection();
     const article = triggerRef.current?.closest("[data-part-id]") ?? null;
+    const range = selected !== null && article !== null ? selectionInPart(article, part.node.text, selected) : null;
     const inside = selected !== null && !selected.isCollapsed && article !== null
       && article.contains(selected.anchorNode) && article.contains(selected.focusNode);
-    setSelection(inside ? selected.toString() : "");
-    setRewriteRange(inside && article !== null ? selectionInPart(article, part.node.text, selected) : null);
-  }, [open]);
-
-  // Open upward when the trigger sits in the lower half of the manuscript.
-  const [up, setUp] = useState(false);
-  useLayoutEffect(() => {
-    const trigger = triggerRef.current;
-    if (!open || trigger === null) return;
-    const rect = trigger.getBoundingClientRect();
-    const area = trigger.closest(".story-scroll")?.getBoundingClientRect() ?? { top: 0, bottom: window.innerHeight };
-    setUp(rect.top + rect.height / 2 > (area.top + area.bottom) / 2);
+    setSelection(range !== null ? range.text : inside && selected !== null ? selected.toString() : "");
+    setRewriteRange(range);
   }, [open]);
 
   useEffect(() => {
@@ -165,6 +159,26 @@ export function PartActionsMenu(
   if (rewriteRange !== null) available.add("rewrite-selection");
   if (hasCopiedLine) available.add("paste-line");
   const items = ITEMS.filter((item) => available.has(item.id));
+
+  // The menu opens on the side of the trigger with more room, and is capped
+  // to that room (it scrolls inside) so it never leaves the manuscript's
+  // scroll area or the window.
+  const [place, setPlace] = useState<{ readonly up: boolean; readonly maxHeight: number | null }>({ up: false, maxHeight: null });
+  useLayoutEffect(() => {
+    const trigger = triggerRef.current;
+    const list = listRef.current;
+    if (!open || trigger === null || list === null) return;
+    const rect = trigger.getBoundingClientRect();
+    const area = trigger.closest(".story-scroll")?.getBoundingClientRect();
+    const top = Math.max(area?.top ?? 0, 0);
+    const bottom = Math.min(area?.bottom ?? window.innerHeight, window.innerHeight);
+    const below = bottom - rect.bottom - EDGE_GAP;
+    const above = rect.top - top - EDGE_GAP;
+    const natural = list.scrollHeight + (list.offsetHeight - list.clientHeight);
+    const up = natural > below && above > below;
+    const room = Math.max(0, up ? above : below);
+    setPlace({ up, maxHeight: natural > room ? room : null });
+  }, [open, items.length]);
 
   const run = (id: WebPartActionId): void => {
     closedByItem.current = true;
@@ -206,12 +220,15 @@ export function PartActionsMenu(
         aria-haspopup="menu"
         aria-expanded={open}
         disabled={disabled}
+        // A press on the button must not collapse the text selected in the
+        // part: the menu reads it when it opens.
+        onMouseDown={(event) => event.preventDefault()}
         onClick={() => setOpen(!open)}
       >
         <Icon path={ICONS.dots} />
       </button>
       {open && (
-        <div className={`menu part-menu-popover${up ? " menu-up" : ""}`} role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
+        <div className={`menu part-menu-popover${place.up ? " menu-up" : ""}`} style={place.maxHeight === null ? undefined : { maxHeight: place.maxHeight, overflowY: "auto" }} role="menu" aria-label={`Actions for part ${part.number}`} data-owns-keys ref={listRef} onKeyDown={onKeyDown}>
           {items.map((item) => {
             const refusal = state === null ? null : partActionRefusal(state, part.id, item.id);
             return (

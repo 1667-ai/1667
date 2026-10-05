@@ -41,9 +41,23 @@ export function selectionInPart(article: Element, text: string, selection: Selec
   const prose = article.querySelector(".prose");
   if (prose === null) return null;
   const range = selection.getRangeAt(0);
-  if (!prose.contains(range.startContainer) || !prose.contains(range.endContainer)) return null;
+  if (!prose.contains(range.startContainer)) return null;
+  let endContainer: Node = range.endContainer;
+  let endOffset = range.endOffset;
+  if (!prose.contains(endContainer)) {
+    // A triple click ends at the start of the next block, outside the prose.
+    // When nothing of that block is selected, the selection ends with the prose.
+    const tail = document.createRange();
+    tail.selectNodeContents(prose);
+    tail.collapse(false);
+    tail.setEnd(range.endContainer, range.endOffset);
+    const last = prose.lastElementChild;
+    if (tail.toString().trim().length > 0 || last === null) return null;
+    endContainer = last;
+    endOffset = last.childNodes.length;
+  }
   const start = offsetOf(range.startContainer, range.startOffset, prose);
-  const end = offsetOf(range.endContainer, range.endOffset, prose);
+  const end = offsetOf(endContainer, endOffset, prose);
   if (start === null || end === null || end <= start) return null;
   // A triple click reaches into the next paragraph: the spaces and line breaks
   // at either edge are not part of what the writer chose.
