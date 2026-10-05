@@ -56,10 +56,12 @@ interface FakeServer {
   readonly authorizations: (string | undefined)[];
   unauthorized: boolean;
   caFile: string;
+  /** Reported for each model, as a server that knows its context size does. */
+  contextLength: number | null;
 }
 
 async function fakeModelServer(tls = false): Promise<FakeServer> {
-  const fake: FakeServer = { baseUrl: "", authorizations: [], unauthorized: false, caFile: "" };
+  const fake: FakeServer = { baseUrl: "", authorizations: [], unauthorized: false, caFile: "", contextLength: null };
   const handler: Parameters<typeof createServer>[1] = (request, response) => {
     fake.authorizations.push(request.headers.authorization);
     if (fake.unauthorized) {
@@ -69,7 +71,9 @@ async function fakeModelServer(tls = false): Promise<FakeServer> {
     }
     if (request.method === "GET" && request.url === "/v1/models") {
       response.setHeader("content-type", "application/json");
-      response.end(JSON.stringify({ data: [{ id: "fake-model-a" }, { id: "fake-model-b" }] }));
+      response.end(JSON.stringify({
+        data: ["fake-model-a", "fake-model-b"].map((id) => (fake.contextLength === null ? { id } : { id, context_length: fake.contextLength }))
+      }));
       return;
     }
     if (request.method === "POST" && request.url === "/v1/chat/completions") {
@@ -853,3 +857,38 @@ test("case 13f: unsaved story lists stay when the view changes, and Esc leaves t
   await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
   expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");
 }, 120_000);
+
+test("case 14: after the first save the stale target error is gone, the model list shows, and no change is pending", async () => {
+  const fake = await fakeModelServer(true);
+  fake.contextLength = 32_000;
+  // The OpenAI starter reads its key from the environment: a new target of
+  // that kind can only be tested once it is saved and active.
+  const { page } = await openLibrary({ NODE_EXTRA_CA_CERTS: fake.caFile, OPENAI_API_KEY: KEY });
+  await openSettingsPage(page);
+  await page.getByRole("button", { name: /^Provider/ }).click();
+  await page.getByRole("menuitemradio", { name: "OpenAI", exact: true }).click();
+  await page.getByLabel("Base URL", { exact: true }).fill(fake.baseUrl);
+  const model = page.getByRole("combobox", { name: "Model" });
+  await model.fill("fake-model-a");
+  // Before the save the new credential target cannot be read.
+  await page.getByText(/must be saved and activated/).first().waitFor();
+  await saveWithKeyboard(page);
+
+  // After the save the error is gone and the list comes without a refresh.
+  await waitForGone(page.getByText(/must be saved and activated/));
+  await model.click();
+  await page.getByRole("option", { name: /^fake-model-b/ }).waitFor();
+  await page.keyboard.press("Escape");
+  // A context size that arrives after the save is not a pending change.
+  await page.getByText(/The server reports 32,000 tokens/).waitFor();
+  await page.waitForTimeout(500);
+  expect(await saveBar(page).count()).toBe(0);
+}, 90_000);
+
+async function waitForGone(locator: Locator, timeoutMs = 8_000): Promise<void> {
+  const start = Date.now();
+  while ((await locator.count()) > 0) {
+    if (Date.now() - start > timeoutMs) throw new Error("still showing");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}

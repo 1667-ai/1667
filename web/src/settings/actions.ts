@@ -332,7 +332,13 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         ...state,
         probe: { kind: "done", state: "ready", message: `The server reports ${contextWindow.toLocaleString("en-US")} tokens.` }
       }));
-      applyEdit((edit) => applyDetectedContext(edit, contextWindow));
+      // A size that arrives while nothing is changed is part of what the
+      // server holds, as far as the page knows: it must not show as a change.
+      const now = loaded();
+      if (now !== null && now.view.editable && now.busy === null && !isDirty(now)) {
+        const detected = applyDetectedContext({ draft: now.draft, secrets: now.secrets }, contextWindow).draft;
+        patch((state) => ({ ...state, draft: detected, base: detected }));
+      } else applyEdit((edit) => applyDetectedContext(edit, contextWindow));
     } catch (error) {
       if (stale()) return;
       patch((state) => ({
@@ -533,7 +539,10 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     } else if (!notActive) {
       pushToast(store, newerEdits ? "Settings saved. Newer edits kept." : "Settings saved");
     }
-    syncDiscovery(false);
+    // The target is active now: an error from before the save is out of date,
+    // so the model list is read again.
+    patch((state) => ({ ...state, check: null }));
+    syncDiscovery(true, loaded()?.discovery?.kind !== "ready");
     scheduleProbe();
   }
 
