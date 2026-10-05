@@ -75,6 +75,14 @@ export default defineConfig({
     // hashed file, so `cli/scripts/web-build.ts` can map it to its own
     // `/assets/...` route with its own content type.
     assetsInlineLimit: 0,
-    modulePreload: { polyfill: false }
+    modulePreload: { polyfill: false },
+    rolldownOptions: {
+      output: {
+        // Everything the first screen imports at once goes into one file: a
+        // slow connection pays for each request, and a lazy view's own chunk
+        // still only holds what only that view uses.
+        codeSplitting: { groups: [{ name: "app", tags: ["$initial"] }] }
+      }
+    }
   }
 });

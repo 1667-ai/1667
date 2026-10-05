@@ -23,6 +23,7 @@ import {
 } from "./form.js";
 import { editorOnFact, editorOnNewFact, editorOnNewState, editorOnState, formOfFactState } from "./open.js";
 import { createdFact, runFactSave, type FactSaveRequest, type FactSaveValue } from "./save.js";
+import "./editor-ops.js";
 import { factEditorDirty, STATES_UNAVAILABLE_TOAST, type FactBody, type FactEditor, type FactsState } from "./state.js";
 
 export interface FactEditorActionDependencies {

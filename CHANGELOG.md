@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` starts faster on a slow connection.** The first download holds
+  the code to read a story, write, and continue. The map, the settings page, the
+  inspector pages, the Facts, Chapters, Aside, and Findings views, and some
+  dialogs download when you first open them. While a view downloads, keys do not
+  act on the story. If a download fails, the page shows a message with a Retry
+  button.
+
 - **`1667 web` is ready to use, and it has a guide.** The command is not
   experimental now. `1667 web --help` describes the web UI, and `1667 --help`
   lists the command. The new [Web UI](docs/web.md) guide explains how to start

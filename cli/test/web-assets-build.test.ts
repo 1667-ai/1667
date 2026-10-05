@@ -5,15 +5,16 @@ import { loadWebAssets } from "../src/web-assets.js";
 /** The built app is what a slow device downloads (#409). This test runs under
  * `bun test`, which sets NODE_ENV=test: the build must still be the small
  * production build. */
-// The settings page (step 9b) brings the shared settings draft core into the
-// bundle: the provider table, the capability rules and the draft reducers.
-// The context meter (step 10f) brings the request projection into the bundle.
-// Temporary headroom while features land; step 10m splits the routes and
-// brings the first-load budget back down. The budget counts the scripts of the
-// first load only: the entry script and the scripts it imports at once. A
-// script loaded later by `import()` (the map, the prune review, the image
-// thumbnails) is not downloaded until it is needed.
-const SCRIPT_BUDGET_GZIP_BYTES = 230 * 1024;
+// The first load holds the shell, the Library, the manuscript, the composer,
+// generation, and every action that a key, the palette or a menu can call at
+// once (the editor, the notes, the chapters, the Facts, Aside, tags and
+// imports), plus the palette, the search and the note and tag dialogs, which
+// take typed text the moment a key opens them. The map, the settings page, the
+// inspector pages, the panel views, the notice log and the Fact check and import
+// dialogs download when a writer opens them (step 10m). The budget counts the
+// scripts of the first load only: the entry script and the scripts it imports
+// at once. The budget is the measured size (179 KB) plus about 10 percent.
+const SCRIPT_BUDGET_GZIP_BYTES = 197 * 1024;
 
 /** The paths of the scripts the page loads at once: the ones its HTML names. */
 function firstLoadScripts(html: string): ReadonlySet<string> {

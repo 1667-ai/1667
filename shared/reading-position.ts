@@ -1,5 +1,5 @@
 import { rowIndexForNode, lastPartRowIndex, type ManuscriptModel } from "./manuscript-model.js";
-import { STARTER_OPENING_STORY_ID } from "./starter-vault.js";
+import { STARTER_OPENING_STORY_ID } from "./starter-ids.js";
 import type { StoryPayload } from "./types.js";
 
 /**

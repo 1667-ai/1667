@@ -3,10 +3,10 @@ import { useAppContext } from "../app/context.js";
 import { useKeymap } from "../app/keymap.js";
 import { navigate, openSettings } from "../app/router.js";
 import { useStore } from "../app/store.js";
-import { searchAvailable } from "../search/commands.js";
+import { searchAvailable } from "../search/available.js";
 import { ThemeControls } from "../theme/ThemeControls.js";
 import { Icon, ICONS } from "../ui/icons.js";
-import { isDirty } from "../settings/model.js";
+import { settingsDirty } from "../settings/unsaved.js";
 import { filterAndSort } from "./filterStories.js";
 import { StoryRow } from "./StoryRow.js";
 
@@ -31,7 +31,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
   const route = useStore(store, (state) => state.route);
   const stories = useStore(store, (state) => state.library.stories);
   const query = useStore(store, (state) => state.library.query);
-  const settingsDirty = useStore(store, (state) => state.settings.kind === "loaded" && isDirty(state.settings));
+  const settingsChanged = useStore(store, (state) => settingsDirty(state.settings));
   const projectLabel = useStore(store, (state) => (
     state.connection.kind === "connected" ? state.connection.status.project : null
   ));
@@ -148,7 +148,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
           type="button"
           className={`btn btn-ghost sidebar-settings${route.kind === "settings" ? " active" : ""}`}
           title="Settings (,)"
-          aria-label={settingsDirty ? "Settings (,) · unsaved changes" : "Settings (,)"}
+          aria-label={settingsChanged ? "Settings (,) · unsaved changes" : "Settings (,)"}
           aria-keyshortcuts=","
           onClick={() => {
             onClose();
@@ -157,7 +157,7 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
         >
           <Icon path={ICONS.gear} />
           <span className="sidebar-settings-label">Settings</span>
-          {settingsDirty && <span className="unsaved-dot" aria-hidden="true" />}
+          {settingsChanged && <span className="unsaved-dot" aria-hidden="true" />}
           <span className="menu-key">,</span>
         </button>
       </aside>
