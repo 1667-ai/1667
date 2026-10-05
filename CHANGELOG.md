@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0-beta.9 - 2026-10-05
+
 - **`1667 web` has six fixes from release tests.** The part menu stays on the
   screen. A mouse click on the `···` button keeps the text selection. A
   triple-clicked paragraph counts as a selection. A stopped save no longer
