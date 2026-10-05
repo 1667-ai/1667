@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import type { Browser, Page } from "playwright-core";
+import { DRY_RUN_WORD_DELAY_VARIABLE } from "../../server/providers.js";
 import { cleanupWebProcesses, scratchProject, spawnWeb } from "../test/web-e2e-fixture.js";
 import {
   afterAllHook,
@@ -159,4 +160,55 @@ test("keys typed while a view downloads are not lost, and do not act on the stor
   await page.getByRole("dialog", { name: "Notice log" }).waitFor();
   await page.keyboard.press("Escape");
   await page.getByRole("dialog", { name: "Notice log" }).waitFor({ state: "detached" });
+}, 120_000);
+
+const slowChunks = async (page: Page): Promise<void> => {
+  await page.route(/\/assets\/[^/]+\.js$/, async (route) => {
+    if (!/\/assets\/index-/.test(route.request().url())) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.continue();
+  });
+};
+
+test("Esc still works while the map downloads during a running Continue", async () => {
+  browser ??= await launchChrome();
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], { ...project.env, [DRY_RUN_WORD_DELAY_VARIABLE]: "200" });
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Esc Story");
+  await api.createNode(created.id, { text: "Start.", parentId: null });
+
+  const page = await openTestPage(browser);
+  await slowChunks(page);
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, created.id);
+  await page.getByRole("heading", { name: "Esc Story" }).waitFor();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await page.locator(".part").first().click();
+  await page.keyboard.press("m");
+  await page.keyboard.press("Escape");
+  // During the download Esc closes the map route or stops the run; it is never dead.
+  await page.waitForFunction(() => !location.hash.endsWith("/map")
+    || ![...document.querySelectorAll("button")].some((button) => button.textContent?.trim() === "Stop"));
+}, 120_000);
+
+test("a remembered Facts dock does not block story keys on a cold load", async () => {
+  browser ??= await launchChrome();
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+
+  const page = await openTestPage(browser, { viewport: { width: 1400, height: 900 } });
+  await page.addInitScript(() => { localStorage.setItem("1667.web.factsDocked", "1"); });
+  await slowChunks(page);
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, seeded.storyId);
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor();
+  await page.locator(".part").first().click();
+  await page.keyboard.press("ArrowDown");
+  // Focus moved to the next part while the docked panel was still downloading.
+  expect(await page.evaluate(() => document.activeElement?.closest(".part")?.textContent ?? "")).toContain("B");
 }, 120_000);

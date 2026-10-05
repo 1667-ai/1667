@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { closeMap, closeStoryPage } from "./app/router.js";
 import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
@@ -104,9 +105,9 @@ function Shell() {
           ? <SettingsRoute onOpenSidebar={openSidebar} />
           : route.kind === "story"
           ? (route.page !== undefined
-            ? <InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} />
+            ? <InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} onDismiss={() => closeStoryPage(route.id)} />
             : route.map === true
-              ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
+              ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} onDismiss={() => closeMap(route.id)} />
               : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
           : (
             <>

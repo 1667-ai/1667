@@ -41,8 +41,9 @@ class ChunkBoundary extends Component<BoundaryProps, { readonly failed: boolean 
  * Esc dismisses the pending view. */
 function HoldKeys({ onDismiss }: { readonly onDismiss: (() => void) | undefined }) {
   useEffect(() => pushKeyLayer({
-    claimsEscape: true,
-    resolve: (event) => (event.metaKey || event.ctrlKey || event.altKey
+    // Without a dismiss, Esc is not ours: the global stop must still work.
+    claimsEscape: onDismiss !== undefined,
+    resolve: (event) => (event.key === "Escape" && onDismiss === undefined ? null : event.metaKey || event.ctrlKey || event.altKey
       ? null
       : { display: event.key, lane: "nav", name: event.key, mode: "NAV", action: event.key === "Escape" ? "cancel" : "hold" } as never),
     handle: (key) => {
@@ -65,7 +66,7 @@ export interface LazyViewOptions {
   readonly asked?: boolean;
 }
 
-export type LazyView<P extends object> = ((props: P & { readonly onDismiss?: () => void }) => ReactNode) & {
+export type LazyView<P extends object> = ((props: P & { readonly onDismiss?: () => void; readonly asked?: boolean }) => ReactNode) & {
   /** Starts the download without showing anything. */
   readonly preload: () => void;
 };
@@ -114,7 +115,8 @@ export function lazyView<M extends Record<K, AnyComponent>, K extends string>(
     return { default: module[name] as unknown as ComponentType<P> };
   });
   let Inner = make();
-  const view = ({ onDismiss, ...props }: P & { readonly onDismiss?: () => void }): ReactNode => {
+  const view = ({ onDismiss, asked: askedProp, ...props }: P & { readonly onDismiss?: () => void; readonly asked?: boolean }): ReactNode => {
+    const holds = askedProp ?? asked;
     const [attempt, setAttempt] = useState(0);
     const Current = Inner as ComponentType<P>;
     return (
@@ -124,7 +126,7 @@ export function lazyView<M extends Record<K, AnyComponent>, K extends string>(
         onDismiss={onDismiss}
         floating={floating}
       >
-        <Suspense fallback={<>{asked && <HoldKeys onDismiss={onDismiss} />}{floating ? null : <p className="story-empty">{CHUNK_LOADING_TEXT}</p>}</>}>
+        <Suspense fallback={<>{holds && <HoldKeys onDismiss={onDismiss} />}{floating ? null : <p className="story-empty">{CHUNK_LOADING_TEXT}</p>}</>}>
           <Current {...(props as unknown as P)} />
         </Suspense>
       </ChunkBoundary>

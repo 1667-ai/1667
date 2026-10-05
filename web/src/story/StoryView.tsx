@@ -5,7 +5,7 @@ import { registerScreenKeys } from "../app/keymap.js";
 import { navigate, openMap, openSettings, openStoryPage } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
-import { PlacementBanner } from "../aside/lazy.js";
+import { PlacementBanner } from "../aside/PlacementBar.js";
 import { EditorRecovery } from "../editor/EditorRecovery.js";
 import { PartEditor } from "../editor/PartEditor.js";
 import { Composer } from "../compose/Composer.js";
@@ -72,6 +72,8 @@ export function StoryView(
   const typewriter = useStore(store, (state) => state.reading.typewriter);
   const generation = useStore(store, (state) => state.generation);
   const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
+  // Only a panel the writer opened holds keys while it downloads; a restored dock never does.
+  const panelAsked = useStore(store, (state) => state.panel.view !== null);
   const panelWanted = useStore(store, (state) => state.panel.view !== null || state.panel.factsDocked);
   const placementPick = useStore(store, (state) => (state.aside.placement?.storyId === storyId ? state.aside.placement.pick : null));
   // Primitives and stable references only: this view must not redraw on every
@@ -278,7 +280,7 @@ export function StoryView(
           </Composer>
         </div>
       </div>
-      {panelWanted && <StoryPanel payload={payload} onDismiss={actions.panel.close} />}
+      {panelWanted && <StoryPanel payload={payload} asked={panelAsked} onDismiss={panelAsked ? actions.panel.close : undefined} />}
       </div>
       {deletePlan !== null && (
         <PruneDialog
