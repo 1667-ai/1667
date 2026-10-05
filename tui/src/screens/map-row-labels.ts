@@ -1,5 +1,6 @@
 import type { NodeStub, Tag } from "../../../shared/types.js";
-import { shortDate } from "../atlas-layout.js";
+import { opening } from "../../../shared/map-labels.js";
+import { shortDate } from "../../../shared/atlas-layout.js";
 import { tagGlyph, tagRole } from "../tag-presentation.js";
 
 export { tagGlyph, tagRole };
@@ -43,8 +44,4 @@ export function mapLineLabel(row: TaggableRow): string {
   return row.tag === null ? mapLineName(row) : `${tagGlyph(row.tag.status)} ${mapLineName(row)}`;
 }
 
-/** First six words of a preview, for a sketch's quoted opening. Shared by the
- * lane tree and the mass graph — a display concern, not a layout one. */
-export function opening(value: string): string {
-  return value.replace(/\s+/g, " ").trim().split(" ").slice(0, 6).join(" ");
-}
+export { opening };

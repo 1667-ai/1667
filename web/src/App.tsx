@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
@@ -13,9 +13,10 @@ import { Overlays } from "./palette/Overlays.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
-import { InspectPage } from "./inspect/InspectPage.js";
-import { StoryMap } from "./map/StoryMap.js";
-import { SettingsPage } from "./settings/SettingsPage.js";
+// The map is a page of its own: it loads when it is opened.
+const InspectPage = lazy(async () => ({ default: (await import("./inspect/InspectPage.js")).InspectPage }));
+const SettingsPage = lazy(async () => ({ default: (await import("./settings/SettingsPage.js")).SettingsPage }));
+const StoryMap = lazy(async () => ({ default: (await import("./map/StoryMap.js")).StoryMap }));
 import { StoryView } from "./story/StoryView.js";
 import {
   ClosedOverlay,
@@ -101,12 +102,12 @@ function Shell() {
           />
         )}
         {route.kind === "settings"
-          ? <SettingsPage onOpenSidebar={openSidebar} />
+          ? <Suspense fallback={<p className="story-empty">Loading…</p>}><SettingsPage onOpenSidebar={openSidebar} /></Suspense>
           : route.kind === "story"
           ? (route.page !== undefined
-            ? <InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} />
+            ? <Suspense fallback={<p className="story-empty">Loading…</p>}><InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} /></Suspense>
             : route.map === true
-              ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
+              ? <Suspense fallback={<p className="story-empty">Loading…</p>}><StoryMap storyId={route.id} onOpenSidebar={openSidebar} /></Suspense>
               : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
           : (
             <>

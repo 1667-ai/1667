@@ -2,6 +2,8 @@ import { continuationIntent } from "../../../shared/continuation-intent.js";
 import type { GenerationTarget } from "../../../shared/stopped-generation.js";
 import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { textHash } from "../../../client/api.js";
+import { DEFAULT_INSTRUCTION } from "../../../shared/continuation-plan.js";
+import { resolveDefaultContinueDirection } from "../../../shared/writing-prompt-runtime.js";
 
 /**
  * What Continue is about to ask for, computed the exact same way the TUI's
@@ -38,12 +40,21 @@ export interface PlanRequest {
   readonly defaultContinueDirection?: string;
   /** The part a retake replaces. */
   readonly retakeNode?: StoryNode | null;
+  /** An empty direction still opens a new take (images go with a take): the
+   * configured default direction applies, as for any new take. */
+  readonly forceTake?: boolean;
 }
 
 export async function planContinue(payload: StoryPayload, request: PlanRequest): Promise<GenerationPlan> {
   const requestedInstruction = request.instruction ?? "";
   const regenerateNode = request.retakeNode ?? null;
-  const intent = continuationIntent(payload, request.focusedPartId, requestedInstruction, regenerateNode, request.defaultContinueDirection);
+  const forced = request.forceTake === true && requestedInstruction.trim().length === 0;
+  // A stand-in direction makes the intent a take; the saved instruction is
+  // the configured default, which the server resolves the same way.
+  const intent = continuationIntent(
+    payload, request.focusedPartId, forced ? "." : requestedInstruction, regenerateNode, request.defaultContinueDirection
+  );
+  if (forced) intent.instruction = resolveDefaultContinueDirection(request.defaultContinueDirection ?? DEFAULT_INSTRUCTION);
   // A retake hides the part it replaces and everything below it, so the
   // streaming take takes that part's own number (the TUI's `virtualNumber`).
   // A Continue from the middle hides what follows the focused part.

@@ -17,6 +17,8 @@ export interface TagActionDependencies {
 export interface TagsActions {
   /** `t` and the part menu: opens the popover on the line this part belongs to. */
   openForPart(partId: string): void;
+  /** The map's `t`: opens the popover on the line a take of the map belongs to. */
+  openForNode(nodeId: string): void;
   /** The header chip: opens the popover on the line being read. */
   openForLine(): void;
   close(): void;
@@ -54,7 +56,7 @@ export function createTagActions(store: Store<AppState>, deps: TagActionDependen
     write((tags) => ({ ...tags, drafts: { ...tags.drafts, [tagDraftKey(open.storyId, open.nodeId)]: next } }));
   };
 
-  const openOn = (nodeId: string, returnTo: "chip" | "part"): void => {
+  const openOn = (nodeId: string, returnTo: "chip" | "part" | "map"): void => {
     const story = loadedStory(store.get());
     if (story === null) return;
     write((tags) => ({ ...tags, open: { storyId: story.storyId, nodeId, returnTo } }));
@@ -168,6 +170,11 @@ export function createTagActions(store: Store<AppState>, deps: TagActionDependen
       const target = openPart(store.get(), partId);
       if (target === null) return;
       openOn(rememberedLeafId(target.story.payload, partId), "part");
+    },
+    openForNode: (nodeId) => {
+      const story = loadedStory(store.get());
+      if (story === null || !story.payload.nodes.some((node) => node.id === nodeId)) return;
+      openOn(rememberedLeafId(story.payload, nodeId), "map");
     },
     openForLine: () => {
       const leaf = loadedStory(store.get())?.payload.path.at(-1);

@@ -20,4 +20,13 @@
 }
 .composer-field:focus { border-color: var(--accent); box-shadow: var(--focus); }
 .composer-field::placeholder { color: var(--faint); }
+.composer-file { display: none; }
+.composer-attach { flex: none; }
+.composer-images { display: flex; flex-wrap: wrap; gap: var(--s-2); list-style: none; margin: 0 0 var(--s-2); padding: 0; }
+.composer-image {
+  align-items: center; background: var(--chip); border-radius: var(--r-md); display: flex; gap: var(--s-2);
+  padding: var(--s-1) var(--s-1) var(--s-1) var(--s-1);
+}
+.composer-image-thumb { border-radius: var(--r-sm); height: var(--s-8); object-fit: cover; width: var(--s-8); }
+.composer-image-meta { color: var(--dim); font: var(--font-meta); }
 .composer-hint { color: var(--dim); font: var(--font-meta); white-space: nowrap; }

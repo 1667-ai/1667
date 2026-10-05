@@ -1,4 +1,4 @@
-import { shortDate, type AtlasLayout, type AtlasRow } from "../atlas-layout.js";
+import { shortDate, type AtlasLayout, type AtlasRow } from "../../../shared/atlas-layout.js";
 import { tagGlyph, tagRole, formatMapWordsBare, mapLineName } from "./map-row-labels.js";
 import {
   padCells,

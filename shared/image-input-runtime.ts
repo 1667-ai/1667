@@ -7,9 +7,9 @@
  * read a protocol or a remote model id from, so it resolves conservatively
  * to "unsupported" rather than inventing one.
  */
-import { resolveImageInputCapability, type ImageInputCapabilityResolution } from "../../shared/image-input-capabilities.js";
-import { selectSettingsRoute } from "../../shared/settings-route.js";
-import type { SettingsView } from "../../shared/settings-v2-types.js";
+import { resolveImageInputCapability, type ImageInputCapabilityResolution } from "./image-input-capabilities.js";
+import { selectSettingsRoute } from "./settings-route.js";
+import type { SettingsView } from "./settings-v2-types.js";
 
 /** Shown for `unknown` support. The design named an Advanced-settings
  *  override for this case; this release builds no such control, so the

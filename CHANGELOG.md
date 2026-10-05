@@ -5,12 +5,26 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` has the remaining writing features.** Select text in a part,
+  open the part menu, and choose "Rewrite selection" to rewrite the text in
+  place. Choose "Copy story line below" and "Paste story line below" to copy a
+  story line to another part. The command palette has "summary take" and "prune
+  drafts & discarded". When the model accepts images, the composer has a button
+  to attach an image.
+
 - **`1667 web` shows the next request, the generation records, and the token
   probabilities.** Open the command palette and choose "next request" to read
   the exact messages of the next request. On a Mac, press Control+R. Press `h`
   to read the generation records of a take. Press `l` to read the token
   probabilities of a take. Press Esc or the Back button to close a page. Press
   Shift+T to show or hide the stored thought of a take.
+
+- **The map of `1667 web` has a mass view and a Fact lens.** Press `m` to
+  change the view from path to tree to mass. In the mass view, press `s` to
+  change the order. In the tree view, press `f` to see one Fact on the map. Press
+  Tab to see the next Fact. In the path view, press `D` to delete a take and
+  press `t` to tag its line. While a generation writes, the map marks the part
+  that it writes.
 
 - **`1667 web` shows how much the next request holds.** The composer bar shows
   the size of the next request and the context window. Click it to see the

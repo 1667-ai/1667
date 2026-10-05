@@ -107,7 +107,7 @@ test("case 1: y copies the focused part, Y the whole line, and the part menu has
 
   await part(page, "One:").click();
   await page.keyboard.press("x");
-  await page.getByRole("menuitem", { name: "Copy" }).click();
+  await page.getByRole("menuitem", { name: "Copy", exact: true }).click();
   expect(await poll(async () => (await clipboardText(page)) === "One: the opening part.")).toBeTrue();
 });
 

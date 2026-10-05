@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import type { Tag, NodeStub, StoryNode, StoryPayload } from "../../shared/types.js";
 import { createFrameDeadlineCollector } from "../src/animation-deadline.js";
-import { createAtlasLayout, type AtlasLayout } from "../src/atlas-layout.js";
+import { createAtlasLayout, type AtlasLayout } from "../../shared/atlas-layout.js";
 import { createDemoController } from "../src/demo.js";
 import { createPathLayout } from "../../shared/path-layout.js";
 const NOW = 1_667_000_000_000;

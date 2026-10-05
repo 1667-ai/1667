@@ -2,9 +2,10 @@ import { Fragment } from "react";
 import type { HumanEditAttribution, TextRange } from "../../../shared/types.js";
 
 /**
- * Paragraphs on `\n{2,}`, each carrying its own text offset so a human-edit
- * span (UTF-16 offsets into the whole take) can be sliced back out per
- * paragraph. Ported from `~/source/storytavern/web/src/PartCard.tsx`'s
+ * Paragraphs on `\n{2,}`, each carrying its own text offset (also as a
+ * `data-offset` attribute, which `selection-range.ts` reads to turn a
+ * selection back into offsets) so a human-edit span (UTF-16 offsets into the
+ * whole take) can be sliced back out per paragraph. Ported from `~/source/storytavern/web/src/PartCard.tsx`'s
  * `Prose`/`AttributedText`/`paragraphsWithOffsets` (read-only here — no
  * `onMouseUp` selection wiring, no rewrite caret).
  *
@@ -26,7 +27,7 @@ export function Prose({
   return (
     <div className="prose">
       {paragraphs.map((paragraph, index) => (
-        <p key={paragraph.start}>
+        <p key={paragraph.start} data-offset={paragraph.start}>
           <AttributedText text={paragraph.text} offset={paragraph.start} ranges={humanEdit?.ranges ?? []} />
           {caret && index === paragraphs.length - 1 && <span className="caret" aria-hidden="true" />}
         </p>

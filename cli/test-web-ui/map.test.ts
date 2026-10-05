@@ -446,6 +446,10 @@ test("case 12: a narrow window has no horizontal overflow in either view", async
   expect((close!.x + close!.width) <= 375).toBeTrue();
   await screenshot(page, "narrow-tree");
   await page.keyboard.press("m");
+  await page.getByRole("button", { name: /^Sort:/ }).waitFor();
+  expect((await overflow()) <= 0).toBeTrue();
+  await screenshot(page, "narrow-mass");
+  await page.keyboard.press("m");
   await waitForCount(options(page), 3);
   expect((await overflow()) <= 0).toBeTrue();
   await screenshot(page, "narrow-path");
@@ -468,6 +472,7 @@ test("case 13: tag and chapter chips show on the rows", async () => {
   await page.emulateMedia({ colorScheme: "dark" });
   await screenshot(page, "chips-dark");
   await page.emulateMedia({ colorScheme: "light" });
+  await page.keyboard.press("m");
   await page.keyboard.press("m");
   await waitForCount(options(page), 3);
   expect(await options(page).filter({ hasText: "B1:" }).textContent()).toContain("§ The Door");
@@ -496,3 +501,219 @@ test("case 14: a line untouched for weeks folds into a cold row that Enter unfol
   await waitForSelected(page, "C2:");
   expect(await page.evaluate(() => location.hash)).toMatch(/\/map$/);
 }, 60_000);
+
+/** Saves `web-10j-<name>.png` when `AI_1667_MAP_SHOTS` names a directory. */
+async function shot(page: Page, name: string): Promise<void> {
+  const directory = process.env.AI_1667_MAP_SHOTS;
+  if (directory === undefined || directory === "") return;
+  await page.waitForTimeout(400);
+  await page.screenshot({ path: `${directory}/web-10j-${name}.png` });
+}
+
+async function pressedView(page: Page): Promise<string> {
+  for (const name of ["Path", "Tree", "Mass"]) {
+    if ((await page.getByRole("button", { name, exact: true }).getAttribute("aria-pressed")) === "true") return name;
+  }
+  return "";
+}
+
+test("case 15: m cycles path, tree and mass; s changes the order and the sort label", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+  await api.putBookmark(seeded.storyId, seeded.c1, "Alpha", "");
+  await api.putBookmark(seeded.storyId, seeded.c2, "Zulu", "");
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await openMapWithKey(page, "path");
+  expect(await pressedView(page)).toBe("Path");
+
+  await page.keyboard.press("m");
+  expect(await poll(async () => (await pressedView(page)) === "Tree")).toBeTrue();
+  await page.keyboard.press("m");
+  expect(await poll(async () => (await pressedView(page)) === "Mass")).toBeTrue();
+  // The mass view: the biggest line first, and the cursor on the line you are on.
+  await waitForCount(options(page), 2);
+  expect(await options(page).first().textContent()).toContain("Zulu");
+  await waitForSelected(page, "Alpha");
+  await shot(page, "mass");
+
+  const sort = page.getByRole("button", { name: /^Sort:/ });
+  expect(await sort.textContent()).toContain("largest first");
+  await page.keyboard.press("s");
+  await waitForText(sort, "recent first");
+  await page.keyboard.press("s");
+  await waitForText(sort, "deepest first");
+  await page.keyboard.press("s");
+  await waitForText(sort, "alphabetical");
+  expect(await options(page).first().textContent()).toContain("Alpha");
+  await page.keyboard.press("s");
+  await waitForText(sort, "largest first");
+  expect(await options(page).first().textContent()).toContain("Zulu");
+
+  // The mass view walks and follows a line.
+  await page.keyboard.press("ArrowUp");
+  await waitForSelected(page, "Zulu");
+  await page.keyboard.press("l");
+  expect(await poll(async () => (await pressedView(page)) === "Path")).toBeTrue();
+  await waitForSelected(page, "C2:");
+  await page.keyboard.press("m");
+  await page.keyboard.press("m");
+  await page.keyboard.press("m");
+  expect(await poll(async () => (await pressedView(page)) === "Path")).toBeTrue();
+}, 60_000);
+
+async function waitForText(locator: Locator, text: string): Promise<void> {
+  expect(await poll(async () => ((await locator.textContent()) ?? "").includes(text))).toBeTrue();
+}
+
+test("case 16: in the tree, l walks the reading line and Tab opens a lane-1 row in the path view", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const seeded = await seedForkedStory(await openInspectionApi(web));
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await openMapWithKey(page);
+  await waitForSelected(page, "C1:");
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("ArrowUp");
+  await waitForSelected(page, "A1:");
+  // Lane 0 is the reading line: l walks down it.
+  await page.keyboard.press("l");
+  await waitForSelected(page, "B1:");
+  await page.keyboard.press("l");
+  await waitForSelected(page, "C1:");
+
+  await page.keyboard.press("ArrowRight");
+  await waitForSelected(page, "C2:");
+  await page.keyboard.press("Tab");
+  expect(await poll(async () => (await pressedView(page)) === "Path")).toBeTrue();
+  await waitForSelected(page, "C2:");
+  // The path view is the line of C2: its parts are A1, B2 and C2.
+  expect(await options(page).count()).toBe(3);
+  expect(await options(page).nth(1).textContent()).toContain("B2:");
+  await shot(page, "path-from-tree");
+}, 60_000);
+
+test("case 17: f lenses a Fact and marks its rows, f again goes on, Esc closes the lens and then the map", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+  const door = await api.createFact(seeded.storyId, { name: "The door", text: "The door is open." });
+  await api.createFactState!(seeded.storyId, door.facts[0]!.id, { anchorPartId: seeded.b1, text: "The door is locked." });
+  await api.createFact(seeded.storyId, { name: "The window", text: "The window is shut." });
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await openMapWithKey(page);
+
+  const lens = page.getByRole("region", { name: "Fact lens" });
+  await page.keyboard.press("f");
+  await lens.waitFor();
+  expect(await lens.textContent()).toContain("The door");
+  // The state anchored at B1 is marked on its row.
+  await waitForCount(page.getByText("Fact state 2"), 1);
+  expect(await options(page).filter({ hasText: "B1:" }).textContent()).toContain("Fact state 2");
+  await shot(page, "lens");
+
+  await page.keyboard.press("f");
+  await waitForText(lens, "The window");
+  await waitForCount(page.getByText("Fact state 2"), 0);
+  await page.keyboard.press("Tab");
+  await waitForText(lens, "The door");
+
+  await page.keyboard.press("Escape");
+  await waitForCount(lens, 0);
+  expect(await page.evaluate(() => location.hash)).toMatch(/\/map$/);
+  await page.keyboard.press("Escape");
+  await waitForHash(page, new RegExp(`/story/${seeded.storyId}$`));
+}, 60_000);
+
+test("case 18: in the path view D deletes the cursor's take after a confirm and t tags its line", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await openMapWithKey(page, "path");
+  await waitForSelected(page, "C1:");
+
+  // Part 2 shows B1; → moves to the take B2, which is not on the reading line.
+  await page.keyboard.press("ArrowUp");
+  await waitForSelected(page, "B1:");
+  await page.keyboard.press("ArrowRight");
+  await waitForSelected(page, "B2:");
+  await page.keyboard.press("Shift+D");
+  const dialog = page.getByRole("dialog", { name: "Delete part" });
+  await dialog.waitFor();
+  expect(await dialog.textContent()).toContain("Delete part 2 and the 1 part below it?");
+  await shot(page, "delete");
+  await dialog.getByRole("button", { name: "Cancel" }).click();
+  await waitForCount(dialog, 0);
+  expect((await api.loadStory(seeded.storyId)).nodes.some((node) => node.id === seeded.b2)).toBeTrue();
+
+  await page.keyboard.press("Shift+D");
+  await dialog.waitFor();
+  await dialog.getByRole("button", { name: "Delete" }).click();
+  await waitForCount(dialog, 0);
+  expect(await poll(async () => {
+    const saved = await api.loadStory(seeded.storyId);
+    return !saved.nodes.some((node) => node.id === seeded.b2 || node.id === seeded.c2);
+  })).toBeTrue();
+  const after = await api.loadStory(seeded.storyId);
+  expect(after.path.map((node) => node.id).join(",")).toBe([seeded.a1, seeded.b1, seeded.c1].join(","));
+  expect(after.nodes.some((node) => node.id === seeded.b3)).toBeTrue();
+
+  // The cursor stays on the map; t tags the line the cursor's take belongs to.
+  await page.keyboard.press("t");
+  const popover = page.getByRole("dialog", { name: "Tag line" });
+  await popover.waitFor();
+  await popover.getByRole("textbox", { name: "Name" }).fill("Kept");
+  await shot(page, "tag");
+  await popover.getByRole("button", { name: "Save" }).click();
+  await waitForCount(popover, 0);
+  expect(await poll(async () => (await api.loadStory(seeded.storyId)).tags.some((tag) => tag.name === "Kept"))).toBeTrue();
+  expect(await page.evaluate(() => location.hash)).toMatch(/\/map$/);
+}, 60_000);
+
+test("case 19: during a slow Continue and a slow retake the map marks the node being written, "
+  + "and the stop bar stops it", async () => {
+  const project = await scratchProject();
+  const web = await spawnWeb(
+    ["--data", project.dataDir, "--port", "0", "--no-open"],
+    { ...project.env, [DRY_RUN_WORD_DELAY_VARIABLE]: "200" }
+  );
+  const seeded = await seedForkedStory(await openInspectionApi(web));
+  const page = await openTestPage(await sharedBrowser());
+  await openStoryPage(page, web, seeded.storyId);
+  await page.locator(".part").filter({ hasText: "C1:" }).waitFor();
+  await page.getByRole("button", { name: "Continue" }).click();
+  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await page.getByRole("button", { name: "Map (m)" }).click();
+  await page.getByRole("listbox", { name: "Story map" }).waitFor();
+
+  // A Continue grows the leaf: its row says so.
+  const writing = options(page).filter({ hasText: "Writing…" });
+  await waitForCount(writing, 1);
+  expect(await writing.textContent()).toContain("C1:");
+  await page.getByRole("button", { name: "Stop" }).click();
+  await waitForCount(page.getByRole("button", { name: "Stop" }), 0);
+  await waitForCount(writing, 0);
+
+  // A retake writes a new take: a pending row appears beside C1.
+  await page.keyboard.press("Escape");
+  await waitForHash(page, new RegExp(`/story/${seeded.storyId}$`));
+  await page.locator(".part").filter({ hasText: "C1:" }).waitFor();
+  await page.keyboard.press("r");
+  await page.getByRole("button", { name: "Stop" }).waitFor();
+  await page.getByRole("button", { name: "Map (m)" }).click();
+  await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  await showTree(page);
+  await waitForCount(writing, 1);
+  await shot(page, "writing");
+  await page.getByRole("button", { name: "Stop" }).click();
+  await waitForCount(page.getByRole("button", { name: "Stop" }), 0);
+  await waitForCount(writing, 0);
+}, 90_000);

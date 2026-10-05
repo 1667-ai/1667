@@ -1,5 +1,5 @@
 import type { LaneLayout, LaneRow } from "../../../shared/lane-layout.js";
-import type { FactLensNode } from "../map-fact-lens.js";
+import type { FactLensNode } from "../../../shared/map-fact-lens.js";
 import { tagGlyph, tagRole, formatMapWordsBare, mapLineLabel, opening } from "./map-row-labels.js";
 import {
   padCells,

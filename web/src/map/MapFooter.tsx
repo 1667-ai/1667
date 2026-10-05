@@ -6,11 +6,20 @@ const ACTION_LABEL: Record<MapAction, string> = {
   unfold: "Unfold"
 };
 
+/** A secondary button of the footer: what a key of the current view does. */
+export interface FooterAction {
+  readonly label: string;
+  readonly title: string;
+  readonly disabled?: boolean;
+  readonly onClick: () => void;
+}
+
 /** What the cursor's node is, and the one thing Enter does with it. */
-export function MapFooter({ detail, busy, onAct }: {
+export function MapFooter({ detail, busy, onAct, extras = [] }: {
   readonly detail: NodeDetail | null;
   readonly busy: boolean;
   readonly onAct: () => void;
+  readonly extras?: readonly FooterAction[];
 }) {
   if (detail === null) return <footer className="map-footer" />;
   const facts: string[] = [];
@@ -28,6 +37,18 @@ export function MapFooter({ detail, busy, onAct }: {
         <p className="map-footer-preview">{detail.preview}</p>
         <p className="map-footer-facts">{facts.join(" · ")}. {detail.place}</p>
       </div>
+      {extras.map((extra) => (
+        <button
+          key={extra.label}
+          type="button"
+          className="btn btn-ghost btn-small"
+          title={extra.title}
+          disabled={extra.disabled === true}
+          onClick={extra.onClick}
+        >
+          {extra.label}
+        </button>
+      ))}
       <button
         type="button"
         className="btn btn-primary btn-small"

@@ -16,12 +16,16 @@ export type ChapterUndoEntry =
 export interface SummaryRun {
   readonly storyId: string;
   readonly storyTitle: string;
-  readonly breakId: string;
-  readonly chapterNumber: number;
+  /** `null` for a summary take of the whole line (the palette's "summary
+   * take"), which belongs to no chapter. */
+  readonly breakId: string | null;
+  readonly chapterNumber: number | null;
   /** A summary of this chapter already stands in; this run replaces it. */
   readonly refresh: boolean;
   /** `stopping` after Stop or Esc, until the answer or the reload arrives. */
   readonly phase: "running" | "stopping";
+  /** The text streamed so far; a summary take only. */
+  readonly text: string;
 }
 
 /** The one open inline rename. `breakId` is `null` for chapter one, which no

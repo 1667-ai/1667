@@ -10,8 +10,9 @@ import { forkTakeOf } from "./line-switch.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
 import { PlacementGap } from "../aside/PlacementBar.js";
 import { indexOfPick, placementStops, type PlacementPick } from "../aside/placement.js";
-import { PartCard } from "./PartCard.js";
+import { PartCard, type PartContinuation } from "./PartCard.js";
 import { SummaryCard } from "../chapters/SummaryCard.js";
+import { SummaryTakeCard } from "../chapters/SummaryTakeCard.js";
 import type { SummaryRun } from "../chapters/state.js";
 
 export interface ManuscriptProps {
@@ -43,6 +44,17 @@ export interface ManuscriptProps {
  * "projected path" idea (`tui/src/request-projection.ts`): a new take's
  * placeholder replaces every row an old sibling's own continuation left
  * behind, not just the one part being replaced. */
+/** What a part shows of the run writing into it: an append grows the leaf, a
+ * rewrite puts its text where the passage was. */
+function continuationOf(generation: ManuscriptGeneration, partId: string): PartContinuation | null {
+  const shared = { text: generation.text, thinking: generation.thinking, live: generation.live };
+  if (generation.appendTo === partId) return shared;
+  if (generation.rewrite !== null && generation.rewrite.partId === partId) {
+    return { ...shared, rewrite: { start: generation.rewrite.start, end: generation.rewrite.end } };
+  }
+  return null;
+}
+
 function truncateAtSeam(rows: readonly StoryRow[], seamPathIndex: number): readonly StoryRow[] {
   const cutIndex = rows.findIndex((row) => row.kind === "part" && row.pathIndex > seamPathIndex);
   return cutIndex < 0 ? rows : rows.slice(0, cutIndex);
@@ -103,9 +115,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
                 editing={row.id === editingPartId}
                 menuSerial={menuRequest?.partId === row.id ? menuRequest.serial : 0}
                 displayTakeIndex={isSwitchingAnchor && optimisticTakeIndex !== null ? optimisticTakeIndex : row.takeIndex}
-                continuation={generation !== null && generation.appendTo === row.id
-                  ? { text: generation.text, thinking: generation.thinking, live: generation.live }
-                  : null}
+                continuation={generation === null ? null : continuationOf(generation, row.id)}
                 onFocus={onFocusPart}
                 onSwitch={onSwitch}
                 onSwitchTo={onSwitchTo}
@@ -137,6 +147,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
       {placement !== null && stops.at(-1)?.kind === "leaf" && (
         <PlacementGap stop={stops.at(-1)!} selected={pickedStop === stops.length - 1} />
       )}
+      {summaryRun !== null && summaryRun.breakId === null && <SummaryTakeCard text={summaryRun.text} />}
       {generation !== null && generation.mode === "take" && (
         <StreamingPart
           partNumber={generation.partNumber}

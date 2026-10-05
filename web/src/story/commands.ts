@@ -60,6 +60,30 @@ registerCommands([
   partCommand("tags", "tag manager", "inspect or delete remembered leaves", "view", "t", "tag"),
   partCommand("chapter", "chapter: end here", "end the current chapter after this leaf", "view", "C", "end-chapter"),
   {
+    id: "summary",
+    title: "summary take",
+    description: "summarize this line into a summary part at its end",
+    section: "take",
+    available: onStoryPage,
+    run: (context) => { void context.actions.chapters.summarizeLine(); }
+  },
+  {
+    id: "prune",
+    title: "prune drafts & discarded",
+    description: "delete unused leaf takes; tagged lines stay",
+    section: "story",
+    available: onStoryPage,
+    run: (context) => context.actions.part.askPruneUnused()
+  },
+  {
+    id: "attach-image",
+    title: "attach image",
+    description: "add an image to the next take",
+    section: "take",
+    available: onStoryPage,
+    run: (context) => { void context.actions.compose.requestAttach(); }
+  },
+  {
     id: "chapters",
     title: "chapters",
     description: "open the chapter table",

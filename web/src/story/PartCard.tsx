@@ -26,6 +26,20 @@ export interface PartContinuation {
   readonly text: string;
   readonly thinking: boolean;
   readonly live: boolean;
+  /** A rewrite: the text takes the place of this range of the part's text,
+   * instead of growing it at the end. */
+  readonly rewrite?: { readonly start: number; readonly end: number };
+}
+
+/** The part's text with a run's streamed text in place. A rewrite shows the
+ * replacement where the passage was, once there is some: until then the
+ * passage stays. */
+export function textWithContinuation(text: string, continuation: PartContinuation | null): string {
+  if (continuation === null) return text;
+  if (continuation.rewrite === undefined) return appendContinuationText(text, continuation.text);
+  const replacement = continuation.text.trim();
+  if (replacement.length === 0) return text;
+  return text.slice(0, continuation.rewrite.start) + replacement + text.slice(continuation.rewrite.end);
 }
 
 /** Matches `.take-peek`'s CSS `width` (`styles/takes.css`) above the 720px
@@ -268,9 +282,9 @@ function PartCardImpl({
         ) : (
           <div onMouseUp={handleMouseUp}>
             <Prose
-              text={continuation === null ? node.text : appendContinuationText(node.text, continuation.text)}
+              text={textWithContinuation(node.text, continuation)}
               humanEdit={humanEdit}
-              caret={continuation !== null && continuation.live && !continuation.thinking}
+              caret={continuation !== null && continuation.rewrite === undefined && continuation.live && !continuation.thinking}
             />
             {continuation !== null && continuation.thinking && (
               <p className="generation-thinking">Thinking…</p>

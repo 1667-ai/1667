@@ -7,10 +7,10 @@
  */
 
 .story-actions { align-items: center; display: flex; gap: var(--s-1); }
-.map-header { flex-wrap: wrap; }
+.map-header { flex-wrap: wrap; position: relative; }
 .map-header .story-identity { min-width: 0; }
 .map-kicker { max-width: 100%; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.map-actions { margin-left: auto; }
+.map-actions { flex-wrap: wrap; justify-content: flex-end; margin-left: auto; min-width: 0; }
 .map-views { display: inline-flex; gap: var(--s-1); }
 
 .map-list { flex: 1 1 0; min-height: 0; outline: none; overflow-x: hidden; overflow-y: auto; }
@@ -37,6 +37,11 @@
 .lane-parked { fill: var(--dim); }
 .lane-more { fill: none; stroke: var(--dim); stroke-width: 1.5; }
 .lane-hit { fill: transparent; }
+.lane-dot-writing { animation: map-writing 1.2s ease-in-out infinite; }
+.lane-lens-anchor { fill: var(--accent); stroke: var(--accent); stroke-width: 1; }
+.lane-lens-end { fill: none; stroke: var(--dim); stroke-width: 1.5; }
+@keyframes map-writing { 50% { opacity: 0.35; } }
+@media (prefers-reduced-motion: reduce) { .lane-dot-writing { animation: none; } }
 
 .map-part-no { color: var(--dim); flex: none; font: var(--font-meta); min-width: 5ch; }
 .map-text {
@@ -51,6 +56,35 @@
 }
 .map-chip-tag { background: var(--accent-soft); color: var(--accent); }
 .map-chip-chapter { background: var(--summary-soft); color: var(--summary); }
+.map-chip-writing { background: var(--accent-soft); color: var(--accent); }
+.map-chip-lens { background: var(--accent-soft); color: var(--accent); }
+
+/* The Fact lens: rows a Fact does not reach fade; rows after a later state of
+ * it take the second ink. */
+.map-row-lens-off-path, .map-row-lens-dead { opacity: 0.45; }
+.map-row-lens-later .map-text, .map-row-lens-later .map-part-no { color: var(--summary); }
+.map-row-lens-ended .map-text { color: var(--dim); }
+.map-lens {
+  align-items: center; background: var(--bg); border-bottom: var(--border); display: flex; flex: 0 0 auto;
+  flex-wrap: wrap; gap: var(--s-3); padding: var(--s-2) var(--s-6);
+}
+.map-lens-name { font-size: var(--fs-ui); font-weight: 600; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.map-lens-actions { display: inline-flex; flex-wrap: wrap; gap: var(--s-1); margin-left: auto; }
+
+/* The tag popover, opened from the path view's `t`: under the header's right edge. */
+.map-tag-wrap { position: absolute; right: var(--s-6); top: 100%; z-index: 62; }
+.map-tag-wrap .tag-popover { left: auto; right: 0; top: var(--s-1); }
+
+/* The mass view: name, a bar as long as the line's words, then its numbers. */
+.map-row-mass { padding-left: var(--s-6); }
+.map-row-here .mass-name { font-weight: 600; }
+.mass-name { flex: 0 0 22ch; }
+.mass-track { background: var(--chip); border-radius: var(--r-pill); flex: 1 1 0; height: var(--s-2); min-width: 0; overflow: hidden; }
+.mass-bar { background: var(--accent); border-radius: var(--r-pill); display: block; height: 100%; }
+.mass-bar-cold { background: var(--faint); }
+.mass-words { flex: none; min-width: 8ch; text-align: right; }
+.mass-parts { flex: none; min-width: 9ch; }
+.mass-state { flex: none; min-width: 12ch; }
 
 .map-sketches {
   margin-left: calc(-1 * var(--s-2)); background: none; border: 0; border-radius: var(--r-sm); color: var(--dim); cursor: pointer;
@@ -73,7 +107,11 @@
 @media (max-width: 520px) {
   .map-stats { display: none; }
   .map-header { padding-inline: var(--s-4); }
+  .map-actions { margin-left: 0; width: 100%; }
   .map-row { padding-left: var(--s-4); padding-right: var(--s-3); }
   .map-footer { padding-inline: var(--s-4); }
   .map-footer-facts { display: none; }
+  .mass-parts, .mass-state { display: none; }
+  .map-lens { padding-inline: var(--s-4); }
+  .map-tag-wrap { right: var(--s-3); }
 }
