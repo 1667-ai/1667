@@ -28,7 +28,7 @@ function restoreImages(host: DraftHost, images: readonly DraftImage[]): void {
 
 export function createDirectDraft(host: DraftHost, text: string, images: readonly DraftImage[] = []): DraftHandle {
   return {
-    restoreImages: () => restoreImages(host, images),
+    ...(images.length > 0 ? { restoreImages: () => restoreImages(host, images) } : {}),
     restore: () => {
       restoreImages(host, images);
       const current = host.read().direct;
@@ -59,7 +59,7 @@ export function createRetakeDraft(
   images: readonly DraftImage[] = []
 ): DraftHandle {
   return {
-    restoreImages: () => restoreImages(host, images),
+    ...(images.length > 0 ? { restoreImages: () => restoreImages(host, images) } : {}),
     restore: () => {
       restoreImages(host, images);
       const current = host.read();
