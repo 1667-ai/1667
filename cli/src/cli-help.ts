@@ -174,7 +174,8 @@ The web UI has the Library and the story page. A story page has the
 manuscript and the composer. Use the composer to continue, direct, retake,
 write, and edit story parts. The web UI also has the map, tags, chapters,
 Facts, Aside, search, the command palette, settings, and the context meter.
-You can import files and export a story as Markdown.
+It has inspector pages for the next request, generation records, and token
+probabilities. You can import files and export a story as Markdown.
 
 Press ? in the browser to see the keys. Some keys differ from the TUI. The
 browser keeps Ctrl+P, and also Ctrl+R and Ctrl+G when the system is not a Mac.

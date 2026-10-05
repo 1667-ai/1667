@@ -111,12 +111,48 @@ copy a story part. Press `Y` to copy the whole story line.
 Press `n` to edit the Author's Note. In the command palette, choose "author
 brief" to edit the Author Brief. Choose "autoname story" to ask for a title.
 
+Press `z` to turn typewriter mode on or off. Typewriter mode keeps the
+selected story part in the middle of the page.
+
+### Part menu and the command palette
+
+Press `x` to open the part menu of a story part. These items change the
+story:
+
+- Select text in a part. Choose "Rewrite selection" to rewrite that text in
+  place.
+- Choose "Copy story line below". Then go to another part and choose "Paste
+  story line below". This copies a story line to the other part.
+
+These palette commands change the story:
+
+- "summary take" writes a summary of the whole story line as a new take.
+- "prune drafts & discarded" deletes the drafts and the discarded takes.
+- "attach image" opens a file chooser. The composer sends the image with your
+  next request. The composer also has an Attach image button. The button works
+  only when the model accepts images.
+
 ### Map
 
 Press `m` to open the map. The map shows all takes of the story. It has the
 path view, the tree view, and the mass view. Press `m` again to change the
 view. Press `a` to show or hide the sketches. Press Enter on a take to select
-the story line that goes through it.
+the story line that goes through it. Press `h` to read the generation records
+of the take under the cursor. While a generation writes, the map marks the
+story part that it writes.
+
+These keys depend on the view:
+
+- Tree view: Press `l` to follow the story line of the take. Press Tab to hide
+  the lanes and open the take in the path view. Press `f` to open the Fact
+  lens.
+- Mass view: Press `s` to change the sort order. Press `l` to open the story
+  line in the path view.
+- Path view: Press `D` to delete a take. Press `t` to tag its story line.
+
+The Fact lens shows one Fact against all takes of the tree. Press `f` or Tab
+to go to the next Fact. Press Enter to open the Anchor of the Fact. Press `e`
+to edit its Fact State. Press Esc to close the lens.
 
 ### Tags and chapters
 
@@ -147,6 +183,20 @@ and requests the check uses. Choose Check to start it.
 The Findings view lists each finding: the Fact, the quote, and the
 contradiction. Click a finding to go to its story part. Choose "show Fact
 findings" to open the last check again.
+
+### Inspectors
+
+An inspector is a page that shows what the model received or returned. Press
+Esc or choose Back to close it.
+
+- The next request viewer shows the exact messages of the next request. In
+  the command palette, choose "next request". On a Mac, press Control+R. You
+  can also choose "View next request" in the context meter.
+- The generation records page shows the records of a take. Press `h`. It also
+  works in the map.
+- The token probabilities page shows the probabilities of the tokens of a
+  take. Press `l`.
+- Press Shift+T to show or hide the stored thought of a take.
 
 ### Aside
 
