@@ -8,7 +8,7 @@ import type { ManuscriptGeneration } from "../generation/state.js";
 import { StreamingPart } from "../generation/StreamingPart.js";
 import { forkTakeOf } from "./line-switch.js";
 import { ChapterDivider, ChapterOneHeading } from "./ChapterDivider.js";
-import { PlacementGap } from "../aside/PlacementBar.js";
+import { PlacementGap } from "../aside/lazy.js";
 import { indexOfPick, placementStops, type PlacementPick } from "../aside/placement.js";
 import { PartCard, type PartContinuation } from "./PartCard.js";
 import { SummaryCard } from "../chapters/SummaryCard.js";

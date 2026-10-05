@@ -1,14 +1,13 @@
-import { Suspense, lazy, useEffect, useRef } from "react";
+import { useEffect, useRef } from "react";
 import { useAppContext } from "../app/context.js";
 import { activatesOnEnterOrSpace } from "../app/keymap-dom.js";
 import { registerScreenKeys } from "../app/keymap.js";
 import { navigate, openMap, openSettings, openStoryPage } from "../app/router.js";
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
-import { PlacementBanner } from "../aside/PlacementBar.js";
-import { PartEditor } from "../editor/PartEditor.js";
+import { PlacementBanner } from "../aside/lazy.js";
+import { EditorRecovery, PartEditor } from "../editor/lazy.js";
 import { Composer } from "../compose/Composer.js";
-import { EditorRecovery } from "../editor/EditorRecovery.js";
 import { editorIsOffLine, editorPartId } from "../editor/state.js";
 import { GenerationButtons, generationStatusText } from "../generation/GenerationBar.js";
 import { manuscriptGenerationView, type ManuscriptGeneration } from "../generation/state.js";
@@ -17,11 +16,21 @@ import { useBarClearance } from "../ui/bar-clearance.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
-import { StoryPanel } from "../panel/StoryPanel.js";
-import { PruneDialog } from "./PruneDialog.js";
+import { lazyView } from "../ui/LazyView.js";
 
-// The prune review opens rarely: it loads when asked for.
-const PruneUnusedDialog = lazy(async () => ({ default: (await import("./PruneUnusedDialog.js")).PruneUnusedDialog }));
+// The panel (Chapters, Facts, Aside, Findings) and the delete dialogs open on
+// request: each loads when it is first shown.
+// The panel brings the code behind its views with it, so the first keystroke in
+// a view never waits for a second download.
+const StoryPanel = lazyView(async () => (await Promise.all([
+  import("../panel/StoryPanel.js"),
+  import("../facts/index.js"),
+  import("../aside/index.js"),
+  import("../chapters/actions.js"),
+  import("../factcheck/actions.js")
+]))[0].StoryPanel, { floating: true });
+const PruneDialog = lazyView(async () => (await import("./PruneDialog.js")).PruneDialog, { floating: true });
+const PruneUnusedDialog = lazyView(async () => (await import("./PruneUnusedDialog.js")).PruneUnusedDialog, { floating: true });
 import { StoryHeader } from "./StoryHeader.js";
 import { NOTHING_TO_MAP_TOAST } from "./reading-keys.js";
 import { centerPart } from "./typewriter.js";
@@ -69,6 +78,7 @@ export function StoryView(
   const typewriter = useStore(store, (state) => state.reading.typewriter);
   const generation = useStore(store, (state) => state.generation);
   const summaryRun = useStore(store, (state) => state.chapters.summaryRun);
+  const panelWanted = useStore(store, (state) => state.panel.view !== null || state.panel.factsDocked);
   const placementPick = useStore(store, (state) => (state.aside.placement?.storyId === storyId ? state.aside.placement.pick : null));
   // Primitives and stable references only: this view must not redraw on every
   // change to the editor's text or the menu's state.
@@ -227,7 +237,7 @@ export function StoryView(
       />
       <div className="story-columns">
       <div className="story-main">
-        <PlacementBanner storyId={storyId} />
+        {placementPick !== null && <PlacementBanner storyId={storyId} />}
         <div className={`story-scroll${typewriter ? " story-scroll-typewriter" : ""}`} ref={scrollRef}>
           <div className="story-body">
             {editorOffLine && <EditorRecovery />}
@@ -264,7 +274,7 @@ export function StoryView(
           </Composer>
         </div>
       </div>
-      <StoryPanel payload={payload} />
+      {panelWanted && <StoryPanel payload={payload} onDismiss={actions.panel.close} />}
       </div>
       {deletePlan !== null && (
         <PruneDialog
@@ -272,17 +282,17 @@ export function StoryView(
           deleting={deleting}
           onCancel={actions.part.cancelDelete}
           onDelete={() => void actions.part.confirmDelete()}
+          onDismiss={actions.part.cancelDelete}
         />
       )}
       {unusedPlan !== null && (
-        <Suspense fallback={null}>
-          <PruneUnusedDialog
-            plan={unusedPlan}
-            deleting={deleting}
-            onCancel={actions.part.cancelPruneUnused}
-            onDelete={() => void actions.part.confirmPruneUnused()}
-          />
-        </Suspense>
+        <PruneUnusedDialog
+          plan={unusedPlan}
+          deleting={deleting}
+          onCancel={actions.part.cancelPruneUnused}
+          onDelete={() => void actions.part.confirmPruneUnused()}
+          onDismiss={actions.part.cancelPruneUnused}
+        />
       )}
       <div role="status" className="sr-only">{liveRegionText(story, generationView)}</div>
     </div>

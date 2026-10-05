@@ -2,7 +2,7 @@ import { initialAsideState, type AsideState } from "../aside/state.js";
 import { composeDraftOf, type ComposeState } from "../compose/state.js";
 import { editorCopyText, editorDirty, type EditorState } from "../editor/state.js";
 import { noteDraftDirty, noteFieldLabel, type NotesState } from "../notes/state.js";
-import { changedPromptText, isDirty } from "../settings/model.js";
+import { settingsChangedPromptText, settingsDirty } from "../settings/unsaved.js";
 import type { SettingsState } from "../settings/state.js";
 import { STORY_LIST_LABELS, type StoryListDrafts, type StoryListField } from "../settings/story-lists.js";
 import { factEditorCopyText, factEditorDirty, type FactsState } from "../facts/state.js";
@@ -41,8 +41,8 @@ export function unsavedWork(
   }
   // The Copy text is the changed prompt text only. A key is write-only: it is
   // in the draft's memory, and nowhere that could be copied.
-  if (settings.kind === "loaded" && isDirty(settings)) {
-    items.push({ id: "settings", label: "Unsaved settings", text: changedPromptText(settings) });
+  if (settings.kind === "loaded" && settingsDirty(settings)) {
+    items.push({ id: "settings", label: "Unsaved settings", text: settingsChangedPromptText(settings) });
   }
   for (const [storyId, fields] of Object.entries(storyLists)) {
     for (const [field, text] of Object.entries(fields)) {

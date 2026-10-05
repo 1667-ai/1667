@@ -5,6 +5,12 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` starts faster on a slow connection.** The first download holds
+  only the code to read a story, write, and continue. The map, the settings
+  page, the search, the command palette, the Facts, Chapters, Aside, and
+  Findings views, and the dialogs download when you first open them. If a
+  download fails, the page shows a message with a Retry button.
+
 - **`1667 web` has the remaining writing features.** Select text in a part,
   open the part menu, and choose "Rewrite selection" to rewrite the text in
   place. Choose "Copy story line below" and "Paste story line below" to copy a

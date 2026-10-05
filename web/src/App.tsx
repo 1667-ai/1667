@@ -1,4 +1,4 @@
-import { Suspense, lazy, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import type { App as WebApp } from "./app/bootstrap.js";
 import { AppProvider, useAppContext } from "./app/context.js";
 import { useStore } from "./app/store.js";
@@ -6,17 +6,14 @@ import { dismissToast } from "./app/toasts.js";
 import { UnsavedWork, useHasUnsavedWork } from "./ui/UnsavedWork.js";
 import { GenerationBar } from "./generation/GenerationBar.js";
 import { ImportDrop } from "./imports/ImportDrop.js";
-import { ImportReportDialog } from "./imports/ImportReportDialog.js";
-import { FactCheckDialog } from "./factcheck/FactCheckDialog.js";
-import { NoteDialog } from "./notes/NoteDialog.js";
 import { Overlays } from "./palette/Overlays.js";
 import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
-// The map is a page of its own: it loads when it is opened.
-const InspectPage = lazy(async () => ({ default: (await import("./inspect/InspectPage.js")).InspectPage }));
-const SettingsPage = lazy(async () => ({ default: (await import("./settings/SettingsPage.js")).SettingsPage }));
-const StoryMap = lazy(async () => ({ default: (await import("./map/StoryMap.js")).StoryMap }));
+// The map, the settings and the inspector pages load when they are opened.
+const InspectPage = lazyView(async () => (await import("./inspect/InspectPage.js")).InspectPage);
+const SettingsPage = lazyView(async () => (await Promise.all([import("./settings/SettingsPage.js"), import("./settings/actions.js")]))[0].SettingsPage);
+const StoryMap = lazyView(async () => (await import("./map/StoryMap.js")).StoryMap);
 import { StoryView } from "./story/StoryView.js";
 import {
   ClosedOverlay,
@@ -24,6 +21,8 @@ import {
   FailedScreen,
   LockedScreen
 } from "./ui/ConnectionScreens.js";
+import { LazyDialogs } from "./app/LazyDialogs.js";
+import { lazyView } from "./ui/LazyView.js";
 import { RecoveryBanner } from "./ui/RecoveryBanner.js";
 import { ToastStack } from "./ui/Toasts.js";
 import { SidebarToggle } from "./ui/SidebarToggle.js";
@@ -102,12 +101,12 @@ function Shell() {
           />
         )}
         {route.kind === "settings"
-          ? <Suspense fallback={<p className="story-empty">Loading…</p>}><SettingsPage onOpenSidebar={openSidebar} /></Suspense>
+          ? <SettingsPage onOpenSidebar={openSidebar} />
           : route.kind === "story"
           ? (route.page !== undefined
-            ? <Suspense fallback={<p className="story-empty">Loading…</p>}><InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} /></Suspense>
+            ? <InspectPage storyId={route.id} page={route.page} onOpenSidebar={openSidebar} />
             : route.map === true
-              ? <Suspense fallback={<p className="story-empty">Loading…</p>}><StoryMap storyId={route.id} onOpenSidebar={openSidebar} /></Suspense>
+              ? <StoryMap storyId={route.id} onOpenSidebar={openSidebar} />
               : <StoryView storyId={route.id} onOpenSidebar={openSidebar} />)
           : (
             <>
@@ -121,9 +120,7 @@ function Shell() {
           )}
       </main>
       <LibraryDialogs />
-      <NoteDialog />
-      <FactCheckDialog />
-      <ImportReportDialog />
+      <LazyDialogs />
       <ImportDrop />
       <Overlays openLibrary={openSidebar} />
       <ToastStack toasts={toasts} onDismiss={(id) => dismissToast(store, id)} />

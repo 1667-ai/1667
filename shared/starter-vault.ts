@@ -1,3 +1,4 @@
+import { STARTER_OPENING_STORY_ID } from "./starter-ids.js";
 import type { StarterKeyId } from "./starter-keys.js";
 import type { TagStatus } from "./types.js";
 
@@ -69,7 +70,7 @@ export const STARTER_LOGO_LINES = [
 export const STARTER_LOGO_TEXT = STARTER_LOGO_LINES.join("\n");
 
 const TOUR: StarterStory = {
-  id: "1a9c7e64-5f3b-4d2a-9c81-0e6b4f7a2d13",
+  id: STARTER_OPENING_STORY_ID,
   title: "Start Here",
   beats: [
     {
@@ -340,6 +341,4 @@ export function starterProse(): { slug: string; text: string; keys: readonly Sta
   ]);
 }
 
-/** The story a fresh install opens on. Also the only story that opens at its
- *  first part when no local reading position is stored yet (issue #38). */
-export const STARTER_OPENING_STORY_ID = TOUR.id;
+export { STARTER_OPENING_STORY_ID };
