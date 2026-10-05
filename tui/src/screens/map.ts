@@ -3,8 +3,9 @@ import {
   createAtlasLayout,
   type AtlasLayout,
   type AtlasRow
-} from "../atlas-layout.js";
+} from "../../../shared/atlas-layout.js";
 import { addHit, type HitRegion, type HitRow, type HitRows } from "../hit.js";
+import { massSortTitle } from "../../../shared/map-model.js";
 import { createPathLayout } from "../../../shared/path-layout.js";
 import { addInlineHits } from "./story/hits.js";
 import { MAP_VIEWS, type MapState, type MapView } from "../map-state.js";
@@ -196,7 +197,7 @@ function renderMassBody(
   // it has to survive 80 columns — where the full phrasing truncates away.
   const stats = width < 100
     ? `${state.payload.title} ━ ${words}w · ${layout.totalLines} lines ━ ${shortSortTitle(map.massSort)}`
-    : `${state.payload.title} ━ ${words} words · ${layout.totalLines} lines ━ ${sortTitle(map.massSort)}`;
+    : `${state.payload.title} ━ ${words} words · ${layout.totalLines} lines ━ ${massSortTitle(map.massSort)}`;
   return {
     lines, hits,
     stats,
@@ -435,13 +436,6 @@ function mapHintSegments(map: MapState, density: MapHintDensity, lensActive = fa
 
 function mapHintDensity(width: number): MapHintDensity {
   return width < 100 ? "narrow" : width < 136 ? "medium" : "wide";
-}
-
-function sortTitle(sort: MapState["massSort"]): string {
-  if (sort === "size") return "largest first";
-  if (sort === "recency") return "recent first";
-  if (sort === "name") return "alphabetical";
-  return "deepest first";
 }
 
 /** The same order named in the cells a narrow title rule can spare. */

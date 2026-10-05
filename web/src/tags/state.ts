@@ -11,8 +11,9 @@ export interface TagTarget {
   readonly storyId: string;
   /** The tagged line's leaf. */
   readonly nodeId: string;
-  /** Where the keyboard goes when the popover closes. */
-  readonly returnTo: "chip" | "part";
+  /** Where the keyboard goes when the popover closes: the header chip, the
+   * part, or the map's list. */
+  readonly returnTo: "chip" | "part" | "map";
 }
 
 export interface TagDraft {

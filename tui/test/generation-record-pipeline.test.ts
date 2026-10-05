@@ -5,7 +5,7 @@ import {
   adjustmentNotices,
   generationRecordPipelineRows,
   humanEditWarning
-} from "../src/generation-record-pipeline.js";
+} from "../../shared/generation-record-pipeline.js";
 
 /**
  * Unit coverage for the Generation Record Viewer's pure read model. The

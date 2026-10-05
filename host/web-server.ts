@@ -46,7 +46,7 @@ function generateWebToken(): string {
 function securityHeaders(port: number): Record<string, string> {
   return {
     "content-security-policy": "default-src 'none'; script-src 'self'; "
-      + "style-src 'self'; font-src 'self'; img-src 'self'; "
+      + "style-src 'self'; font-src 'self'; img-src 'self' blob:; "
       + `connect-src 'self' ws://127.0.0.1:${port} ws://localhost:${port}; `
       + "base-uri 'none'; form-action 'none'; frame-ancestors 'none'",
     "x-content-type-options": "nosniff",

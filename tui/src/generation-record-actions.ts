@@ -3,7 +3,7 @@ import { ApiFailureError } from "./api-error.js";
 import type { ActionContext } from "./action-context.js";
 import type { AppSource } from "./app.js";
 import { createGenerationRecordDetailCache } from "./generation-record-detail-cache.js";
-import { visibleEntryCount } from "./generation-record-pipeline.js";
+import { visibleEntryCount } from "../../shared/generation-record-pipeline.js";
 import type { ResolvedKey } from "./keys.js";
 import { mapCursorNodeId } from "./map-actions.js";
 import { createStoryViewModel, rowPart } from "./model.js";

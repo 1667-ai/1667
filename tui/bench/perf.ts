@@ -16,7 +16,7 @@ import { createStorySurface } from "../src/story-surface.js";
 import { createWrapCache, wrapText, type ProseStyle, type WrapCache } from "../src/wrap.js";
 import { createComposer } from "../src/composer-model.js";
 import { nextRequestEstimate } from "../../shared/request-projection.js";
-import { createAtlasLayout } from "../src/atlas-layout.js";
+import { createAtlasLayout } from "../../shared/atlas-layout.js";
 import { createLaneLayout } from "../../shared/lane-layout.js";
 import { renderLaneRow } from "../src/screens/map-lane-row.js";
 import {

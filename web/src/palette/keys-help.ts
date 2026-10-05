@@ -22,13 +22,13 @@ const MAP_ACTIONS: ReadonlySet<string> = new Set([...MAP_KEY_ACTIONS, "open-log"
 const COMPOSE_ACTIONS: ReadonlySet<string> = new Set(COMPOSE_KEY_ACTIONS);
 
 /** True when the web acts on this table row. Keys help lists only these, so it
- * never shows a key that does nothing here. The web has no mass map view, and
- * it leaves ⌃U, ⌃D and ⌃P to the browser. */
+ * never shows a key that does nothing here. The web leaves ⌃U, ⌃D and ⌃P to
+ * the browser. */
 export function webHandles(binding: ReferenceBinding): boolean {
   if (isBrowserReservedBinding(binding)) return false;
   switch (binding.mode) {
     case "NAV": return NAV_ACTIONS.has(binding.action);
-    case "MAP": return binding.mapView !== "mass" && MAP_ACTIONS.has(binding.action);
+    case "MAP": return MAP_ACTIONS.has(binding.action);
     case "COMPOSE": return COMPOSE_ACTIONS.has(binding.action);
     case "SEARCH": return SEARCH_ACTIONS.has(binding.action);
     case "KEYS":

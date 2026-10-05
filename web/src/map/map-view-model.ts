@@ -4,6 +4,12 @@ import {
   laneSelectable,
   type LaneRow
 } from "../../../shared/lane-layout.js";
+import {
+  createAtlasLayout,
+  selectableRow as massSelectable,
+  type AtlasRow
+} from "../../../shared/atlas-layout.js";
+import type { MapMassSort } from "../../../shared/map-model.js";
 import { createPathLayout, pathLineLeafId, type PathLayout } from "../../../shared/path-layout.js";
 import {
   continuationStats,
@@ -22,7 +28,7 @@ import { planLineSwitch } from "../story/line-switch.js";
  * state, so moving it never rebuilds a layout.
  */
 
-export type MapViewKind = "tree" | "path";
+export type MapViewKind = "tree" | "path" | "mass";
 
 export interface MapStats {
   readonly lines: number;
@@ -95,26 +101,40 @@ export function buildTreeModel(payload: StoryPayload, options: TreeOptions): Tre
 
 /** The row id the cursor should sit on for `nodeId`: the node's own row, else
  * its line's end, else the nearest ancestor that has a row (a middle part of
- * an off-path line has none of its own), else `fallbackId`, else the first. */
+ * an off-path line has none of its own), else `fallbackId`, else `firstId`.
+ * `has` says whether a node has a selectable row in the view. */
+function resolveCursorNode(
+  payload: StoryPayload,
+  has: (id: string) => boolean,
+  nodeId: string | null,
+  fallbackId: string | null,
+  firstId: string | null
+): string | null {
+  const index = createStoryIndex(payload);
+  if (nodeId !== null) {
+    if (has(nodeId)) return nodeId;
+    const leafId = rememberedLeafId(payload, nodeId, index);
+    if (has(leafId)) return leafId;
+    for (let node = index.tree.nodesById.get(nodeId); node !== undefined;
+      node = node.parentId === null ? undefined : index.tree.nodesById.get(node.parentId)) {
+      if (has(node.id)) return node.id;
+    }
+  }
+  if (fallbackId !== null && has(fallbackId)) return fallbackId;
+  return firstId;
+}
+
 export function resolveTreeCursor(
   payload: StoryPayload,
   model: TreeModel,
   nodeId: string | null,
   fallbackId: string | null
 ): string | null {
-  const index = createStoryIndex(payload);
-  if (nodeId !== null) {
-    if (model.positionById.has(nodeId)) return nodeId;
-    const leafId = rememberedLeafId(payload, nodeId, index);
-    if (model.positionById.has(leafId)) return leafId;
-    for (let node = index.tree.nodesById.get(nodeId); node !== undefined;
-      node = node.parentId === null ? undefined : index.tree.nodesById.get(node.parentId)) {
-      if (model.positionById.has(node.id)) return node.id;
-    }
-  }
-  if (fallbackId !== null && model.positionById.has(fallbackId)) return fallbackId;
   const first = model.selectable[0];
-  return first === undefined ? null : model.rows[first]!.id;
+  return resolveCursorNode(
+    payload, (id) => model.positionById.has(id), nodeId, fallbackId,
+    first === undefined ? null : model.rows[first]!.id
+  );
 }
 
 /** `↑`/`↓`: the neighbouring selectable row. */
@@ -131,6 +151,85 @@ export function acrossTreeCursor(model: TreeModel, cursorId: string, direction: 
   if (from === undefined) return null;
   const target = laneCursorAcross(model.rows, model.laneCount, from, direction);
   return target === null ? null : model.rows[target]!.id;
+}
+
+// ---------- mass ----------
+
+/** One row of the mass view: a line (or a sketch) with its bar, or the fold
+ * that stands for the sketches. */
+export type MassItem =
+  | { readonly kind: "row"; readonly row: AtlasRow }
+  | { readonly kind: "fold"; readonly count: number; readonly words: number };
+
+export interface MassModel {
+  readonly kind: "mass";
+  readonly items: readonly MassItem[];
+  /** Item indexes the cursor can land on, in order. */
+  readonly selectable: readonly number[];
+  readonly positionById: ReadonlyMap<string, number>;
+  readonly indexById: ReadonlyMap<string, number>;
+  /** The largest line's words: the scale every bar is drawn against. */
+  readonly massMaximum: number;
+  /** The line the reader is on, or null. */
+  readonly activeId: string | null;
+  readonly sketchCount: number;
+}
+
+export interface MassOptions {
+  readonly now: number;
+  readonly showSketches: boolean;
+  readonly sort: MapMassSort;
+}
+
+export function buildMassModel(payload: StoryPayload, options: MassOptions): MassModel {
+  const layout = createAtlasLayout(payload, { now: options.now, showSketches: options.showSketches, sort: options.sort });
+  const items: MassItem[] = [];
+  const selectable: number[] = [];
+  const positionById = new Map<string, number>();
+  const indexById = new Map<string, number>();
+  let foldDrawn = false;
+  const fold = (): void => {
+    foldDrawn = true;
+    items.push({ kind: "fold", count: layout.sketchCount, words: layout.sketchWords });
+  };
+  let activeId: string | null = null;
+  for (const row of layout.allRows) {
+    if (row.kind === "sketch" && !foldDrawn) fold();
+    if (row.kind === "node" && row.active) activeId = row.id;
+    if (massSelectable(row)) {
+      positionById.set(row.id, selectable.length);
+      indexById.set(row.id, items.length);
+      selectable.push(items.length);
+    }
+    items.push({ kind: "row", row });
+  }
+  if (!foldDrawn && layout.sketchCount > 0) fold();
+  return {
+    kind: "mass", items, selectable, positionById, indexById,
+    massMaximum: layout.massMaximum, activeId, sketchCount: layout.sketchCount
+  };
+}
+
+export function resolveMassCursor(
+  payload: StoryPayload,
+  model: MassModel,
+  nodeId: string | null,
+  fallbackId: string | null
+): string | null {
+  const first = model.selectable[0];
+  const firstItem = first === undefined ? undefined : model.items[first];
+  return resolveCursorNode(
+    payload, (id) => model.positionById.has(id), nodeId, model.activeId ?? fallbackId,
+    firstItem?.kind === "row" ? firstItem.row.id : null
+  );
+}
+
+/** `↑`/`↓`: the neighbouring selectable row. */
+export function moveMassCursor(model: MassModel, cursorId: string, direction: -1 | 1): string {
+  const position = model.positionById.get(cursorId);
+  if (position === undefined) return cursorId;
+  const next = model.items[model.selectable[Math.max(0, Math.min(model.selectable.length - 1, position + direction))]!];
+  return next?.kind === "row" ? next.row.id : cursorId;
 }
 
 // ---------- path ----------

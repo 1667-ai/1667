@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { createDemoController } from "../src/demo.js";
-import { createAtlasLayout } from "../src/atlas-layout.js";
+import { createAtlasLayout } from "../../shared/atlas-layout.js";
 import { createLaneLayout } from "../../shared/lane-layout.js";
 import { createPathLayout, initialPathCursor, movePathCursor, resolveRerouteTarget } from "../../shared/path-layout.js";
 

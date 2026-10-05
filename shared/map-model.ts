@@ -7,6 +7,22 @@ import type { Tag, NodeStub, StoryPayload } from "./types.js";
 export const MAP_VIEWS = ["path", "tree", "mass"] as const;
 export type MapView = (typeof MAP_VIEWS)[number];
 
+/** The mass view's sort orders, in the order `s` cycles them. */
+export const MAP_MASS_SORTS = ["size", "recency", "depth", "name"] as const;
+export type MapMassSort = (typeof MAP_MASS_SORTS)[number];
+
+export function nextMassSort(sort: MapMassSort): MapMassSort {
+  return MAP_MASS_SORTS[(MAP_MASS_SORTS.indexOf(sort) + 1) % MAP_MASS_SORTS.length]!;
+}
+
+/** The order named for a title: what the mass view's header says. */
+export function massSortTitle(sort: MapMassSort): string {
+  if (sort === "size") return "largest first";
+  if (sort === "recency") return "recent first";
+  if (sort === "name") return "alphabetical";
+  return "deepest first";
+}
+
 export interface MapLineClassification {
   /** Lone, uncontinued takes folded by every MAP view. */
   mapSketchNodeIds: ReadonlySet<string>;

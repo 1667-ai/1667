@@ -20,7 +20,14 @@
  *  function, `stoppedGenerationSaveBody`, which this type is really for. */
 export type { GenerationTarget } from "../../../shared/stopped-generation.js";
 
-export type GenerationMode = "append" | "take";
+export type GenerationMode = "append" | "take" | "rewrite";
+
+/** The passage a rewrite replaces: part and UTF-16 range of its text. */
+export interface GenerationRewrite {
+  readonly partId: string;
+  readonly start: number;
+  readonly end: number;
+}
 
 export interface GenerationReasoning {
   readonly text: string;
@@ -45,6 +52,8 @@ export interface GenerationRunFields {
    *  hidden while this take streams. Unused for `mode: "append"` (nothing
    *  is hidden there — the leaf itself just grows). */
   readonly seamPathIndex: number;
+  /** `mode: "rewrite"` only: the passage being replaced; `null` otherwise. */
+  readonly rewrite: GenerationRewrite | null;
   readonly instruction: string;
   /** The presented text — see the module doc for why this is a throttled
    *  projection, not the authoritative buffer. */
@@ -138,6 +147,9 @@ export interface ManuscriptGeneration {
   readonly mode: GenerationMode;
   readonly appendTo: string | null;
   readonly seamPathIndex: number;
+  /** `mode: "rewrite"` only: the passage being replaced, so its part can show
+   * the streamed text in its place. */
+  readonly rewrite: GenerationRewrite | null;
   /** `mode: "take"` only — the number `StreamingPart` shows while it
    *  streams (`seamPathIndex + 2`, the TUI's own "projected path"
    *  numbering). Computed once here rather than by every caller (review fix
@@ -181,6 +193,7 @@ export function manuscriptGenerationView(
     mode: state.mode,
     appendTo: state.appendTo,
     seamPathIndex: state.seamPathIndex,
+    rewrite: state.rewrite,
     partNumber: state.seamPathIndex + 2,
     instruction: state.instruction,
     text: state.text,
@@ -193,5 +206,6 @@ export function manuscriptGenerationView(
 function statusLabelOf(state: GenerationRunningState | GenerationUnsavedState, thinking: boolean): string {
   if (state.kind === "unsaved") return "Not saved";
   if (state.reasoning === null && state.text.length === 0) return "Waiting…";
-  return thinking ? "Thinking…" : "Writing…";
+  if (thinking) return "Thinking…";
+  return state.mode === "rewrite" ? "Rewriting…" : "Writing…";
 }

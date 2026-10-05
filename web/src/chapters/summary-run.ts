@@ -1,4 +1,7 @@
 import { apiErrorCode } from "../../../client/api-error.js";
+import { textHash } from "../../../client/api.js";
+import { activeLineFingerprintSource } from "../../../shared/story-text.js";
+import { createRafFlushScheduler } from "../generation/stream-buffer.js";
 import { chapterWord } from "../../../shared/chapter-labels.js";
 import type { StoryChapter } from "../../../shared/manuscript-model.js";
 import { manuscriptModelOf } from "../story/manuscript-model.js";
@@ -8,7 +11,8 @@ import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { STORY_RELOADED_TOAST, type StoryActions } from "../story/actions.js";
-import { summarizeRefusal } from "../story/story-policy.js";
+import { runBusyToast } from "../app/run-lock.js";
+import { SWITCHING_TOAST, summarizeRefusal } from "../story/story-policy.js";
 import { chapterClosedBy, openStory } from "./model.js";
 import type { ChaptersState, SummaryRun } from "./state.js";
 
@@ -24,6 +28,9 @@ export interface SummaryActions {
   /** Summarizes the chapter with this number (a refresh when it already has a
    * summary). A refusal is a toast and nothing else. */
   summarize(chapterNumber: number): Promise<void>;
+  /** The palette's "summary take": summarizes the whole line into a summary
+   * part at its end, streaming the text. A refusal is a toast. */
+  summarizeLine(): Promise<void>;
   /** Esc and Stop. Returns whether there was a run to stop. */
   stopSummary(): boolean;
 }
@@ -68,7 +75,8 @@ export function createSummaryActions(
       breakId,
       chapterNumber: chapter.number,
       refresh: chapter.summary !== null,
-      phase: "running"
+      phase: "running",
+      text: ""
     };
     write((chapters) => ({ ...chapters, summaryRun: started }));
 
@@ -107,7 +115,82 @@ export function createSummaryActions(
     }
   }
 
+  /** One summary take of the line, as the TUI's `startSummary`: the server
+   * writes the take, then the line is switched to stop at it. Stop drops the
+   * draft whole. */
+  async function runLine(open: NonNullable<ReturnType<typeof openStory>>): Promise<void> {
+    const { storyId, api, payload } = open;
+    const leaf = payload.path.at(-1);
+    if (leaf === undefined) return;
+    const mine = new AbortController();
+    controller = mine;
+    const started: SummaryRun = {
+      storyId, storyTitle: payload.title, breakId: null, chapterNumber: null, refresh: false, phase: "running", text: ""
+    };
+    write((chapters) => ({ ...chapters, summaryRun: started }));
+    let text = "";
+    const scheduler = createRafFlushScheduler();
+    const say = (applied: boolean, message: string): void => {
+      pushToast(store, applied ? message : `${message.replace(/\.$/, "")} in ${started.storyTitle}.`);
+    };
+    try {
+      const fingerprint = textHash(activeLineFingerprintSource(payload.title, payload.path));
+      const result = await retryWhenBusy(() => {
+        mine.signal.throwIfAborted();
+        return api.createSummaryTake(storyId, { nodeId: leaf.id }, (delta) => {
+          text += delta;
+          scheduler.schedule(() => write((chapters) => (
+            chapters.summaryRun === null ? chapters : { ...chapters, summaryRun: { ...chapters.summaryRun, text } }
+          )));
+        }, mine.signal, {
+          // The facade advances its held version with the payload it hands
+          // over; the switch below needs that version.
+          onPayload: (confirmed) => deps.story.adoptPayload(storyId, confirmed)
+        });
+      });
+      if (result === null || mine.signal.aborted) throw new DOMException("stopped", "AbortError");
+      const switched = await api.switchLine(storyId, result.nodeId, {
+        stopAtNode: true,
+        expectedLineFingerprint: await fingerprint
+      });
+      const message = result.narrowedTo === null
+        ? "Summary take saved."
+        : "Summary take saved. It covers less of the story than requested.";
+      say(deps.story.adoptPayload(storyId, switched, { announcement: message }), message);
+    } catch (error) {
+      const reloaded = await api.loadStory(storyId).catch(() => null);
+      const applied = reloaded === null ? false : deps.story.adoptPayload(storyId, reloaded);
+      if (mine.signal.aborted) say(applied, "Summary stopped. The draft was dropped.");
+      else if (apiErrorCode(error) === "conflict" || apiErrorCode(error) === "revision_conflict") {
+        pushToast(store, STORY_RELOADED_TOAST);
+      } else pushToast(store, errorMessage(error));
+    } finally {
+      scheduler.cancel();
+      if (controller === mine) finish();
+    }
+  }
+
   return {
+    summarizeLine: async () => {
+      const state = store.get();
+      const open = openStory(state);
+      if (open === null) return;
+      if (open.payload.path.length === 0) {
+        pushToast(store, "Nothing to summarize.");
+        return;
+      }
+      const busy = runBusyToast(state, open.storyId);
+      if (busy !== null) {
+        pushToast(store, busy);
+        return;
+      }
+      if (state.story.kind === "loaded" && state.story.switching !== null) {
+        pushToast(store, SWITCHING_TOAST);
+        return;
+      }
+      await runLine(open);
+    },
+
     summarize: async (chapterNumber) => {
       const state = store.get();
       const open = openStory(state);

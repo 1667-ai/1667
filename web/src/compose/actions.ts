@@ -1,4 +1,6 @@
+import { resolveRewriteRange } from "../../../shared/rewrite-target.js";
 import type { GenerationActions } from "../generation/actions.js";
+import { createImageActions, type ImageActions } from "../images/actions.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
@@ -17,19 +19,23 @@ import {
   isBrowsingHistory,
   visibleComposeText,
   type ComposeState,
+  type RewriteDraft,
   type StoryComposeDraft
 } from "./state.js";
 
 export interface ComposeActionDependencies {
   readonly story: Pick<StoryActions, "focusPart">;
-  readonly generation: Pick<GenerationActions, "continue">;
+  readonly generation: Pick<GenerationActions, "continue" | "rewrite">;
 }
 
-export interface ComposeActions {
+export interface ComposeActions extends ImageActions {
   /** The writer typed: replaces the text the box shows. */
   setText(storyId: string, text: string): void;
   /** `R`: opens retake mode for this part, filled with its direction. */
   startRetake(partId: string): void;
+  /** "Rewrite selection": opens the composer in rewrite mode for this passage
+   * of the part, with an empty instruction. */
+  startRewrite(partId: string, range: RewriteDraft): void;
   /** Closes retake mode. The Direct text comes back. */
   cancelRetake(storyId: string): void;
   /** Sends the box. Returns whether it was sent; a refusal shows a toast and
@@ -88,11 +94,16 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
     const retake = composeDraftOf(store.get().compose, storyId).retake;
     if (retake === null) return;
     const node = openPart(store.get(), retake.nodeId)?.node;
-    if (retake.text.trim().length > 0 && retake.text !== node?.instruction) pushHistory(storyId, retake.text, "retake");
+    const startedWith = retake.rewrite === undefined ? node?.instruction : "";
+    if (retake.text.trim().length > 0 && retake.text !== startedWith) pushHistory(storyId, retake.text, "retake");
     writeDraft(storyId, (draft) => ({ ...draft, retake: null, retakeWalk: null }));
   };
 
+  const images = createImageActions(store, writeDraft);
+
   return {
+    ...images,
+
     setText: (storyId, text) => writeDraft(storyId, (draft) => (
       draft.retake === null
         ? (draft.direct === text ? draft : { ...draft, direct: text })
@@ -105,10 +116,25 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
       const { storyId, node } = target;
       // A retake already open for this part keeps what the writer typed; one
       // open for another part is archived before this one replaces it.
-      if (composeDraftOf(store.get().compose, storyId).retake?.nodeId !== node.id) archiveRetake(storyId);
+      const open = composeDraftOf(store.get().compose, storyId).retake;
+      if (open?.nodeId !== node.id || open.rewrite !== undefined) archiveRetake(storyId);
       writeDraft(storyId, (draft) => (
-        draft.retake?.nodeId === node.id ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
+        draft.retake?.nodeId === node.id && draft.retake.rewrite === undefined ? draft : { ...draft, retake: { nodeId: node.id, text: node.instruction } }
       ));
+      deps.story.focusPart(partId);
+      focusComposer();
+    },
+
+    startRewrite: (partId, range) => {
+      const target = openPart(store.get(), partId);
+      if (target === null) return;
+      const { storyId, node } = target;
+      // The same passage already open keeps what the writer typed; anything
+      // else open is archived before this one replaces it.
+      const open = composeDraftOf(store.get().compose, storyId).retake;
+      const same = open?.nodeId === node.id && open.rewrite?.start === range.start && open.rewrite.end === range.end;
+      if (!same) archiveRetake(storyId);
+      writeDraft(storyId, (draft) => (same ? draft : { ...draft, retake: { nodeId: node.id, text: "", rewrite: range }, retakeWalk: null }));
       deps.story.focusPart(partId);
       focusComposer();
     },
@@ -124,6 +150,32 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
       const draft = composeDraftOf(store.get().compose, storyId);
       const host = hostFor(storyId);
 
+      if (draft.retake !== null && draft.retake.rewrite !== undefined) {
+        const rewrite = draft.retake.rewrite;
+        const target = openPart(store.get(), draft.retake.nodeId);
+        if (target === null) {
+          pushToast(store, "That part is no longer on the line. Draft kept.");
+          return false;
+        }
+        const rewriteRefusal = partActionRefusal(store.get(), target.node.id, "rewrite-selection");
+        if (rewriteRefusal !== null) {
+          pushToast(store, `${rewriteRefusal} Draft kept.`);
+          return false;
+        }
+        const resolved = resolveRewriteRange(target.story.payload, target.node.id, rewrite.start, rewrite.end, rewrite.expected);
+        if ("error" in resolved) {
+          pushToast(store, `${resolved.error}. Draft kept.`);
+          return false;
+        }
+        const text = draft.retake.text;
+        pushHistory(storyId, text, "retake");
+        const handle = createRetakeDraft(host, { nodeId: target.node.id, text, rewrite }, draft.direct);
+        writeDraft(storyId, (current) => ({ ...current, retake: null, retakeWalk: null }));
+        deps.story.focusPart(target.node.id);
+        void deps.generation.rewrite({ partId: target.node.id, ...rewrite, instruction: text, draft: handle });
+        return true;
+      }
+
       if (draft.retake !== null) {
         const target = openPart(store.get(), draft.retake.nodeId);
         if (target === null || target.node.role === "summary") {
@@ -137,15 +189,24 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         }
         const text = draft.retake.text;
         pushHistory(storyId, text, "retake");
-        const handle = createRetakeDraft(host, { nodeId: target.node.id, text }, draft.direct);
-        writeDraft(storyId, (current) => ({ ...current, retake: null, retakeWalk: null }));
+        const attached = draft.images;
+        const handle = createRetakeDraft(host, { nodeId: target.node.id, text }, draft.direct, attached);
+        writeDraft(storyId, (current) => ({ ...current, retake: null, retakeWalk: null, images: [] }));
         // Focus the part being replaced: a landed take moves focus onto
         // itself only when focus still sits where the run started.
         deps.story.focusPart(target.node.id);
-        void deps.generation.continue({ instruction: text, retakeOf: target.node.id, draft: handle });
+        void deps.generation.continue({ instruction: text, retakeOf: target.node.id, draft: handle, images: attached });
         return true;
       }
 
+      const attached = draft.images;
+      if (draft.direct.trim().length === 0 && attached.length > 0) {
+        // Images go with a new take, and a take has a direction: the default.
+        const handle = createDirectDraft(host, "", attached);
+        writeDraft(storyId, (current) => ({ ...current, direct: "", images: [] }));
+        void deps.generation.continue({ draft: handle, images: attached, forceTake: true });
+        return true;
+      }
       const text = draft.direct;
       if (text.trim().length === 0) {
         // An empty box is a plain Continue.
@@ -154,9 +215,9 @@ export function createComposeActions(store: Store<AppState>, deps: ComposeAction
         return true;
       }
       pushHistory(storyId, text, "direct");
-      const handle = createDirectDraft(host, text);
-      writeDraft(storyId, (current) => ({ ...current, direct: "" }));
-      void deps.generation.continue({ instruction: text, draft: handle });
+      const handle = createDirectDraft(host, text, attached);
+      writeDraft(storyId, (current) => ({ ...current, direct: "", images: [] }));
+      void deps.generation.continue({ instruction: text, draft: handle, ...(attached.length === 0 ? {} : { images: attached }) });
       return true;
     },
 

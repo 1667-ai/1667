@@ -1,22 +1,21 @@
-import { DEFAULT_INSTRUCTION } from "../../shared/continuation-plan.js";
 import {
   activeHumanAttribution,
   attributionAfterReplacement,
   rewrittenSpansAfterReplacement
 } from "../../shared/human-edit.js";
 import {
-  boundedNodeStubPreviewText,
-  nodeStubHasInstruction
-} from "../../shared/node-stub.js";
+  applyStreamedText,
+  latestActivity,
+  projectedStub,
+  projectPendingTake
+} from "../../shared/pending-take.js";
 import {
   appendContinuationText,
   appendWordCount,
   WORD_COUNT_START,
   type IncrementalWordCount
 } from "../../shared/story-text.js";
-import { estimateTokens } from "../../shared/tokens.js";
 import {
-  MAX_RECENT_LINES,
   type HumanEditAttribution,
   type NodeStub,
   type StoryNode,
@@ -78,7 +77,6 @@ interface RewriteWordProjection {
 }
 
 const PROJECTIONS = new WeakMap<StoryPayload, ProjectionEntry>();
-const STREAM_PREVIEW_SOURCE_UNITS = 512;
 
 /** Project the exact payload an in-flight stream can commit without mutating
  * the authoritative snapshot. New-take bytes follow server trim semantics;
@@ -203,82 +201,20 @@ function refreshProjection(entry: ProjectionEntry, stream: StreamView, substanti
 }
 
 function takeProjection(payload: StoryPayload, stream: StreamView, text: string): ProjectionEntry | null {
-  const parentIndex = stream.parentId === null
-    ? -1
-    : payload.path.findIndex((node) => node.id === stream.parentId);
-  if (stream.parentId !== null && parentIndex < 0) return null;
   // Word counting ignores whitespace, so the presented prefix counts the same
   // words as the trimmed take text and later prefixes can extend the tally.
-  const presentedText = streamPresentedText(stream);
   const wordState = appendPresentedWordEffect(WORD_COUNT_START, stream, false);
-  const instruction = stream.instruction.trim().length > 0
-    ? stream.instruction.trim()
-    : DEFAULT_INSTRUCTION;
-  const node: StoryNode = {
-    id: stream.targetId,
+  const pending = projectPendingTake(payload, {
+    targetId: stream.targetId,
     parentId: stream.parentId,
-    instruction,
-    text,
-    model: "writing",
-    createdAt: stream.startedAt,
+    instruction: stream.instruction,
+    startedAt: stream.startedAt,
     ...(stream.genId === undefined ? {} : { genId: stream.genId }),
-    activeChildId: null
-  };
-  const path = payload.path.slice(0, parentIndex + 1).map((part) =>
-    part.id === stream.parentId ? { ...part, activeChildId: stream.targetId } : part
-  );
-  path.push(node);
-
-  const targetExists = payload.nodes.some((stub) => stub.id === stream.targetId);
-  const parent = stream.parentId === null
-    ? null
-    : payload.nodes.find((stub) => stub.id === stream.parentId) ?? null;
-  const leafDelta = !targetExists && parent !== null && parent.childCount > 0 ? 1 : 0;
-  const ancestorIds = new Set(path.slice(0, -1).map((part) => part.id));
-  let streamedStub: NodeStub | null = null;
-  const nodes = payload.nodes.map((stub): NodeStub => {
-    if (stub.id === stream.targetId) {
-      streamedStub = projectedStub(
-        { ...stub, lastTouched: latestActivity(stub.lastTouched, stream.startedAt) },
-        node,
-        wordState.words
-      );
-      return streamedStub;
-    }
-    if (!ancestorIds.has(stub.id)) return stub;
-    return {
-      ...stub,
-      ...(stub.id === stream.parentId ? {
-        activeChildId: stream.targetId,
-        childCount: stub.childCount + Number(!targetExists)
-      } : {}),
-      lastTouched: latestActivity(stub.lastTouched, stream.startedAt),
-      ...(!targetExists ? { leafCount: stub.leafCount + leafDelta } : {})
-    };
+    text,
+    words: wordState.words
   });
-  if (streamedStub === null) {
-    streamedStub = newStreamStub(node, stream.startedAt, wordState.words);
-    nodes.push(streamedStub);
-  }
-  const previousLeafId = payload.path.at(-1)?.id ?? null;
-  const tags = stream.parentId !== null && stream.parentId === previousLeafId
-    ? payload.tags.map((tag) => tag.nodeId === stream.parentId
-      ? { ...tag, nodeId: stream.targetId }
-      : tag)
-    : payload.tags;
-  const recentNodeIds = previousLeafId === null || previousLeafId === stream.targetId
-    ? payload.recentNodeIds
-    : [previousLeafId, ...payload.recentNodeIds.filter((id) => id !== previousLeafId)]
-      .slice(0, MAX_RECENT_LINES);
-  const projected: StoryPayload = {
-    ...payload,
-    path,
-    nodes,
-    tags,
-    recentNodeIds,
-    activeRootId: stream.parentId === null ? stream.targetId : payload.activeRootId
-  };
-  return projectionEntry(stream, "", wordState, projected, node, streamedStub, null, undefined);
+  if (pending === null) return null;
+  return projectionEntry(stream, "", wordState, pending.projected, pending.node, pending.stub, null, undefined);
 }
 
 function appendProjection(payload: StoryPayload, stream: StreamView): ProjectionEntry | null {
@@ -415,45 +351,3 @@ function projectionEntry(
   };
 }
 
-/** Match the authoritative rollup's monotonic descendant maximum. */
-function latestActivity(current: string, streamed: string): string {
-  return current > streamed ? current : streamed;
-}
-
-function newStreamStub(node: StoryNode, lastTouched: string, words: number): NodeStub {
-  const preview = boundedNodeStubPreviewText(node.text, STREAM_PREVIEW_SOURCE_UNITS);
-  return {
-    id: node.id,
-    parentId: node.parentId,
-    preview: preview.complete ? preview.text : "",
-    words,
-    tokens: estimateTokens(node.instruction) + estimateTokens(node.text),
-    childCount: 0,
-    leafCount: 1,
-    lastTouched,
-    hasInstruction: nodeStubHasInstruction(node.instruction),
-    activeChildId: null
-  };
-}
-
-function projectedStub(stub: NodeStub, node: StoryNode, words: number): NodeStub {
-  const projected = { ...stub };
-  applyStreamedText(projected, node, words);
-  return projected;
-}
-
-function applyStreamedText(
-  stub: NodeStub,
-  node: StoryNode,
-  words: number
-): void {
-  const preview = boundedNodeStubPreviewText(node.text, STREAM_PREVIEW_SOURCE_UNITS);
-  stub.preview = preview.complete ? preview.text : "";
-  stub.words = words;
-  stub.tokens = estimateTokens(node.instruction) + estimateTokens(node.text);
-  stub.hasInstruction = nodeStubHasInstruction(node.instruction);
-  if (stub.chapterBreakId !== undefined) {
-    stub.text = node.text;
-    stub.instruction = node.instruction;
-  }
-}

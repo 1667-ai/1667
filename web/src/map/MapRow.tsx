@@ -1,6 +1,9 @@
 import { memo } from "react";
 import { LANE_BUDGET, type LaneRow } from "../../../shared/lane-layout.js";
+import type { FactLensNode } from "../../../shared/map-fact-lens.js";
+import { opening } from "../../../shared/map-labels.js";
 import { workingName } from "../../../shared/story-model.js";
+import { LensChip, WritingChip } from "./MapChips.js";
 
 /** One lane's width in the gutter's own drawing units; the stylesheet scales
  * the drawing to `--s-4` per unit. */
@@ -21,6 +24,10 @@ export interface TreeRowProps {
   readonly size: number;
   readonly domId: string;
   readonly chapter: string | null;
+  /** True on the row of the take being written (or the leaf being grown). */
+  readonly streaming: boolean;
+  /** The open Fact lens's reading of this row, or null while no lens is open. */
+  readonly lens: FactLensNode | null;
   readonly onSelect: (index: number) => void;
   readonly onAct: (index: number) => void;
   readonly onToggleSketches: () => void;
@@ -33,8 +40,9 @@ function laneX(lane: number, laneCount: number): number {
 /** The lane gutter: a vertical line per live lane, the row's own mark on its
  * lane, and the elbows where a fork opens or a line closes. Strokes and fills
  * come from CSS classes so every theme applies. */
-function LaneGutter({ row, laneCount, overflow, height }: {
+function LaneGutter({ row, laneCount, overflow, height, lens, streaming }: {
   readonly row: LaneRow; readonly laneCount: number; readonly overflow: boolean; readonly height: number;
+  readonly lens: FactLensNode | null; readonly streaming: boolean;
 }) {
   const columns = laneCount + (overflow ? 1 : 0);
   const middle = height / 2;
@@ -60,9 +68,15 @@ function LaneGutter({ row, laneCount, overflow, height }: {
   }
   if (row.kind === "node" || row.kind === "end" || row.kind === "sketch" || row.kind === "cold") {
     const x = laneX(row.lane, laneCount);
-    if (row.kind === "node") {
+    if (lens !== null && (lens.anchor || lens.end) && row.kind !== "cold") {
+      // The lens marks where a Fact's states are anchored (a diamond) and
+      // where it ends (a cross).
+      parts.push(lens.end
+        ? <path key="end" className="lane-lens-end" d={`M${x - 4} ${middle - 4}l8 8M${x + 4} ${middle - 4}l-8 8`} />
+        : <path key="anchor" className="lane-lens-anchor" d={`M${x} ${middle - 6}l6 6l-6 6l-6 -6Z`} />);
+    } else if (row.kind === "node") {
       if (row.active) parts.push(<circle key="ring" className="lane-ring" cx={x} cy={middle} r={5.5} />);
-      parts.push(<circle key="dot" className="lane-dot" cx={x} cy={middle} r={row.active ? 2.5 : 4} />);
+      parts.push(<circle key="dot" className={streaming ? "lane-dot lane-dot-writing" : "lane-dot"} cx={x} cy={middle} r={row.active ? 2.5 : 4} />);
     } else if (row.kind === "end") {
       parts.push(<circle key="dot" className="lane-dot lane-dot-end" cx={x} cy={middle} r={4} />);
     } else {
@@ -82,17 +96,28 @@ function LaneGutter({ row, laneCount, overflow, height }: {
   );
 }
 
-function opening(preview: string): string {
-  return preview.replace(/\s+/g, " ").trim().split(" ").slice(0, 6).join(" ");
+/** A row's text; a take being written has none yet, so it says so. */
+function NodeText({ preview, streaming }: { readonly preview: string; readonly streaming: boolean }) {
+  const text = preview.replace(/\s+/g, " ").trim();
+  if (streaming && text.length === 0) return <span className="map-text map-dim">Writing…</span>;
+  return (
+    <>
+      <span className="map-text">{text}</span>
+      {streaming && <WritingChip />}
+    </>
+  );
 }
 
-function Label({ row, chapter }: { readonly row: LaneRow; readonly chapter: string | null }) {
+function Label({ row, chapter, streaming, lens }: {
+  readonly row: LaneRow; readonly chapter: string | null; readonly streaming: boolean; readonly lens: FactLensNode | null;
+}) {
   switch (row.kind) {
     case "node":
       return (
         <>
           <span className="map-part-no">¶ {row.depth}</span>
-          <span className="map-text">{row.node.preview.replace(/\s+/g, " ").trim()}</span>
+          <NodeText preview={row.node.preview} streaming={streaming} />
+          {lens !== null && <LensChip lens={lens} />}
           {row.tag !== null && <span className="map-chip map-chip-tag" title={`${row.tag.name} ${row.tag.status}`.trim()}>{row.tag.name}</span>}
           {chapter !== null && <span className="map-chip map-chip-chapter" title={`Chapter: ${chapter}`}>§ {chapter}</span>}
         </>
@@ -102,6 +127,8 @@ function Label({ row, chapter }: { readonly row: LaneRow; readonly chapter: stri
         <>
           <span className="map-part-no">¶ {row.depth}</span>
           <span className="map-text map-line-name">{row.tag?.name ?? workingName(row.node)}</span>
+          {streaming && <WritingChip />}
+          {lens !== null && <LensChip lens={lens} />}
           {chapter !== null && <span className="map-chip map-chip-chapter" title={`Chapter: ${chapter}`}>§ {chapter}</span>}
           <span className="map-meta">{row.words.toLocaleString()} w</span>
         </>
@@ -128,8 +155,17 @@ function Label({ row, chapter }: { readonly row: LaneRow; readonly chapter: stri
 /** One tree row. Memoized: a cursor move changes `selected` on two rows only,
  * and every other prop is stable for a given layout. */
 export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
-  const { row, index, top, height, laneCount, overflow, selected, position, size, domId, chapter } = props;
-  const gutter = <LaneGutter row={row} laneCount={laneCount} overflow={overflow} height={height <= THIN_ROW ? THIN_ROW : FULL_ROW} />;
+  const { row, index, top, height, laneCount, overflow, selected, position, size, domId, chapter, streaming, lens } = props;
+  const gutter = (
+    <LaneGutter
+      row={row}
+      laneCount={laneCount}
+      overflow={overflow}
+      height={height <= THIN_ROW ? THIN_ROW : FULL_ROW}
+      lens={lens}
+      streaming={streaming}
+    />
+  );
   const place = { top, height };
   if (row.kind === "fork" || row.kind === "close") {
     return <div className="map-row map-row-thin" role="presentation" style={place}>{gutter}</div>;
@@ -153,7 +189,7 @@ export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
   return (
     <div
       id={domId}
-      className={`map-row map-row-${row.kind}`}
+      className={`map-row map-row-${row.kind}${lens === null ? "" : ` map-row-lens-${lens.kind}`}`}
       role="option"
       aria-selected={selected}
       aria-current={row.kind === "node" && row.active ? "true" : undefined}
@@ -164,7 +200,7 @@ export const TreeRow = memo(function TreeRow(props: TreeRowProps) {
       onDoubleClick={() => props.onAct(index)}
     >
       {gutter}
-      <Label row={row} chapter={chapter} />
+      <Label row={row} chapter={chapter} streaming={streaming} lens={lens} />
     </div>
   );
 });

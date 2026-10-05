@@ -1,8 +1,8 @@
 import { createStoryIndex, rememberedLeafId } from "../../shared/story-model.js";
 import { openFactEditor } from "./editor-action.js";
-import { factLensAnchorForRows, factLensStateAtNode } from "./map-fact-lens.js";
+import { factLensAnchorForRows, factLensStateAtNode } from "../../shared/map-fact-lens.js";
 import type { AppSource } from "./app.js";
-import { createAtlasLayout, moveAtlasCursor } from "./atlas-layout.js";
+import { createAtlasLayout, moveAtlasCursor } from "../../shared/atlas-layout.js";
 import {
   createLaneLayout,
   followLane,

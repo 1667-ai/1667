@@ -1,6 +1,6 @@
 import type { FrameDeadlineCollector } from "../animation-deadline.js";
 import { createLaneLayout, laneLayoutOptions, laneSelectable, type LaneLayout, type LaneRow } from "../../../shared/lane-layout.js";
-import { factLensNode } from "../map-fact-lens.js";
+import { factLensNode } from "../../../shared/map-fact-lens.js";
 import { factName } from "../facts-model.js";
 import { createStoryIndex } from "../../../shared/story-model.js";
 import type { HitRow } from "../hit.js";

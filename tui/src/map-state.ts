@@ -1,8 +1,7 @@
 export { MAP_VIEWS, type MapView } from "../../shared/map-model.js";
-import { MAP_VIEWS, type MapView } from "../../shared/map-model.js";
+import { MAP_VIEWS, type MapMassSort, type MapView } from "../../shared/map-model.js";
 
-export const MAP_MASS_SORTS = ["size", "recency", "depth", "name"] as const;
-export type MapMassSort = (typeof MAP_MASS_SORTS)[number];
+export { MAP_MASS_SORTS, nextMassSort, type MapMassSort } from "../../shared/map-model.js";
 
 /** Interaction state shared by the three full-bleed views of one story map. */
 export interface MapState {
@@ -23,6 +22,3 @@ export function nextMapView(view: MapView): MapView {
   return MAP_VIEWS[(MAP_VIEWS.indexOf(view) + 1) % MAP_VIEWS.length]!;
 }
 
-export function nextMassSort(sort: MapMassSort): MapMassSort {
-  return MAP_MASS_SORTS[(MAP_MASS_SORTS.indexOf(sort) + 1) % MAP_MASS_SORTS.length]!;
-}

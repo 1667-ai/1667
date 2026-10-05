@@ -1,7 +1,9 @@
 import { apiErrorCode } from "../../../client/api-error.js";
 import type { ContinueTarget, StoryApi } from "../../../client/api.js";
 import type { StoryNode, StoryPayload } from "../../../shared/types.js";
+import { resolveRewriteRange } from "../../../shared/rewrite-target.js";
 import { stoppedTextDisposition, type GenerationTarget } from "../../../shared/stopped-generation.js";
+import type { DraftImage } from "../images/draft-image.js";
 import type { AppState } from "../app/state.js";
 import type { ConnectionState } from "../app/connection.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
@@ -10,7 +12,7 @@ import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { STORY_RELOADED_TOAST, type AdoptFocus } from "../story/actions.js";
-import { RETAKE_GONE_TOAST, generationEditorRefusal, planEditorRefusal } from "../story/part-policy.js";
+import { RETAKE_GONE_TOAST, generationEditorRefusal, partActionRefusal, planEditorRefusal } from "../story/part-policy.js";
 import { STORY_LOCKED_TOAST, runBusyToast } from "../app/run-lock.js";
 import { planContinue, type GenerationPlan } from "./plan.js";
 import type { GenerationState } from "./state.js";
@@ -22,6 +24,7 @@ import {
   type FlushScheduler,
   type StreamBuffer
 } from "./stream-buffer.js";
+import { rewriteStreamDigest } from "./rewrite-digest.js";
 import { saveStopped, type StopSaveOutcome, type StopSaveRequest } from "./settle.js";
 
 /** What a composer submit hands back to the writer's draft once a run ends.
@@ -34,6 +37,10 @@ export interface DraftHandle {
   /** Puts the text back. Returns whether it did: a newer text in the box, or
    * a box that was already restored, means it did not. */
   restore(): boolean;
+  /** Puts the staged images back in the composer without touching the text.
+   * Used when a stopped take is saved: the save cannot carry the images, so
+   * they stay attached for the next send. */
+  restoreImages?(): void;
   /** Empties what `restore` put back, if the writer has not changed it. Only
    * called after a `restore` that returned `true`. */
   clear(): void;
@@ -48,6 +55,31 @@ export interface GenerationContinueRequest {
   readonly instruction?: string;
   readonly retakeOf?: string;
   readonly draft?: DraftHandle;
+  /** Images staged for this take, in order. */
+  readonly images?: readonly DraftImage[];
+  /** Opens a new take even with an empty direction. */
+  readonly forceTake?: boolean;
+}
+
+/** A rewrite of a passage of one part: the range and the text it held when
+ * the writer chose it, and the instruction (empty for a plain rewrite). */
+export interface GenerationRewriteRequest {
+  readonly partId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly expected: string;
+  readonly instruction: string;
+  readonly draft?: DraftHandle;
+}
+
+/** What a rewrite run targets, and the id its stopped text commits under. */
+interface RewriteRunTarget {
+  readonly mode: "rewrite";
+  readonly nodeId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly expected: string;
+  readonly attemptId: string;
 }
 
 /** What a run remembers about the writer's draft: whether it was handed
@@ -65,6 +97,9 @@ export interface GenerationActions {
    *  step 6's composer submit) just calls this unconditionally; none of them
    *  needs its own copy of the busy check or the exact wording. */
   continue(request?: GenerationContinueRequest): Promise<void>;
+  /** Rewrites a passage of a part in place, streaming the replacement into
+   * the part. It joins the same run slot, Stop and Esc as `continue`. */
+  rewrite(request: GenerationRewriteRequest): Promise<void>;
   /** Returns whether it actually stopped a running generation — `false` when
    *  there was nothing to stop (idle, already settling/unsaved). `app/
    *  keymap.ts`'s global Escape handler uses this to decide whether it, and
@@ -117,7 +152,7 @@ interface ActiveRun {
   readonly genId: string;
   readonly storyId: string;
   readonly storyTitle: string;
-  readonly target: GenerationTarget;
+  readonly target: GenerationTarget | RewriteRunTarget;
   readonly seamPathIndex: number;
   readonly instruction: string;
   readonly focusAtStart: string | null;
@@ -227,6 +262,7 @@ export function createGenerationActions(
       mode: target.mode,
       appendTo: target.mode === "append" ? target.appendTo : null,
       parentId: target.mode === "take" ? target.parentId : null,
+      rewrite: target.mode === "rewrite" ? { partId: target.nodeId, start: target.start, end: target.end } : null,
       seamPathIndex: run.seamPathIndex,
       instruction: run.instruction,
       text: run.buffer.text,
@@ -263,11 +299,11 @@ export function createGenerationActions(
     return payload.path.length;
   }
 
-  function saveRequestOf(run: ActiveRun): StopSaveRequest {
+  function saveRequestOf(run: ActiveRun, target: GenerationTarget): StopSaveRequest {
     return {
       storyId: run.storyId,
       genId: run.genId,
-      target: run.target,
+      target,
       instruction: run.instruction,
       text: run.buffer.text
     };
@@ -303,6 +339,10 @@ export function createGenerationActions(
         announcement: `Stopped. Part ${n} kept.`
       });
       endRun(run, "landed");
+      if (run.draft.handle?.restoreImages !== undefined) {
+        run.draft.handle.restoreImages();
+        pushToast(store, "The stopped text was saved without its images. The images are still attached.");
+      }
       if (failureMessage !== null) {
         pushToast(store, `${failureMessage} · generation stopped · text kept in ${run.storyTitle}.`);
       } else if (!applied) {
@@ -326,10 +366,114 @@ export function createGenerationActions(
   }
 
   async function settleStopped(run: ActiveRun, failureMessage: string | null): Promise<void> {
+    if (run.target.mode === "rewrite") return await settleStoppedRewrite(run, run.target, failureMessage);
     run.phase = "settling";
     publish(run);
-    const outcome = await saveStopped(run.api, saveRequestOf(run));
+    const outcome = await saveStopped(run.api, saveRequestOf(run, run.target));
     applyOutcome(run, outcome, failureMessage);
+  }
+
+  // ----- rewrite -----
+
+  /** A rewrite that went through: the part is the writer's story now. */
+  async function landRewrite(run: ActiveRun, message: string): Promise<void> {
+    let payload: StoryPayload | null = null;
+    try {
+      payload = await run.api.loadStory(run.storyId);
+    } catch (error) {
+      endRun(run, "landed");
+      pushToast(store, errorMessage(error));
+      return;
+    }
+    if (!isCurrentRun(run)) return;
+    deps.adoptPayload(run.storyId, payload, { announcement: message });
+    endRun(run, "landed");
+    pushToast(store, message);
+  }
+
+  /** Stop, or a clean timeout, with a rewrite on the wire: asks the server to
+   * commit the verified partial it kept. A refusal commits nothing, and the
+   * writer is told so. Only a real commit reports text kept. */
+  async function settleStoppedRewrite(run: ActiveRun, target: RewriteRunTarget, failureMessage: string | null): Promise<void> {
+    run.phase = "settling";
+    publish(run);
+    const streamed = run.buffer.text;
+    let committed: { readonly payload: StoryPayload; readonly nodeId: string } | null = null;
+    if (streamed.trim().length > 0) {
+      const digest = await rewriteStreamDigest(streamed);
+      const commit = () => retryWhenBusy(() => run.api.commitPartialRewrite(run.storyId, target.nodeId, digest, target.attemptId));
+      try {
+        committed = await commit();
+      } catch (error) {
+        if (apiErrorCode(error) === "revision_conflict") {
+          // A concurrent change moved the story: look again, and try once more.
+          try {
+            await run.api.loadStory(run.storyId);
+            committed = await commit();
+          } catch {
+            committed = null;
+          }
+        }
+      }
+    }
+    if (!isCurrentRun(run)) return;
+    if (committed !== null) {
+      const message = failureMessage === null
+        ? "Rewrite stopped. Streamed text kept."
+        : `${failureMessage} · rewrite stopped · text kept.`;
+      deps.adoptPayload(run.storyId, committed.payload, { announcement: message });
+      endRun(run, "landed");
+      pushToast(store, message);
+      return;
+    }
+    endRun(run, "not-landed");
+    await reloadBestEffort(run);
+    pushToast(store, failureMessage ?? "Rewrite stopped. Nothing saved.");
+  }
+
+  async function finishRewrite(
+    run: ActiveRun,
+    target: RewriteRunTarget,
+    takeId: string | null,
+    error: unknown,
+    committed: boolean
+  ): Promise<void> {
+    if (!isCurrentRun(run)) return;
+    run.scheduler.cancel();
+    // The rewrite finished, whether or not a Stop was also requested: it is
+    // saved, and nothing else may be saved over it.
+    if (takeId !== null) return await landRewrite(run, "Selection rewritten in place.");
+    if (run.controller.signal.aborted) return await settleStoppedRewrite(run, target, null);
+    if (error === null) {
+      // Not an abort and not an error: the request landed nothing.
+      endRun(run, "not-landed");
+      return;
+    }
+    if (committed) {
+      // Only the confirming reload failed; the text itself landed.
+      await landRewrite(run, "Selection rewritten in place.");
+      return;
+    }
+    const code = apiErrorCode(error);
+    if (code === "resource_busy") {
+      endRun(run, "not-landed");
+      pushToast(store, "Another window is writing in this story.");
+      return;
+    }
+    if (code === "revision_conflict") {
+      endRun(run, "not-landed");
+      await reloadBestEffort(run);
+      pushToast(store, STORY_RELOADED_TOAST);
+      return;
+    }
+    if (stoppedTextDisposition(error) === "save" && run.buffer.text.trim().length > 0) {
+      return await settleStoppedRewrite(run, target, failureText(error) || null);
+    }
+    // A provider rejection, or a connection that is gone: the story is as it
+    // was, and the instruction goes back to the box.
+    endRun(run, "not-landed");
+    await reloadBestEffort(run);
+    pushToast(store, errorMessage(error));
   }
 
   async function finishRun(
@@ -490,7 +634,8 @@ export function createGenerationActions(
         focusedPartId,
         instruction,
         ...(defaultContinueDirection === undefined ? {} : { defaultContinueDirection }),
-        retakeNode
+        retakeNode,
+        ...(request.forceTake === true ? { forceTake: true } : {})
       });
     } catch (error) {
       return refuse(errorMessage(error));
@@ -547,7 +692,7 @@ export function createGenerationActions(
           storyId,
           requestedInstruction,
           genId,
-          continueTargetOf(run.target),
+          continueTargetOf(plan.target),
           (delta) => {
             if (!isCurrentRun(run) || !connectionCurrent(run)) return;
             appendBufferText(run.buffer, delta);
@@ -572,11 +717,102 @@ export function createGenerationActions(
               if (!isCurrentRun(run)) return;
               appendBufferReasoning(run.buffer, tail, run.buffer.reasoning?.tokenCount ?? 0);
             }
-          }
+          },
+          request.images === undefined || request.images.length === 0
+            ? undefined
+            : request.images.map((image) => ({ leaseId: image.leaseId, objectId: image.attachment.objectId }))
         ));
         await finishRun(run, result, null);
       } catch (error) {
         await finishRun(run, null, error);
+      }
+    },
+
+    rewrite: async (request) => {
+      const draft: DraftSlot = { handle: request.draft ?? null, restored: false, applied: false, cleared: false };
+      const refuse = (toast: string): void => {
+        settleDraft(draft, "restore");
+        pushToast(store, draft.handle === null ? toast : `${toast} Draft kept.`);
+      };
+      const state = store.get();
+      if (state.route.kind !== "story" || state.story.kind !== "loaded" || state.connection.kind !== "connected"
+        || state.story.payload.id !== state.route.id) {
+        settleDraft(draft, "restore");
+        return;
+      }
+      const story = state.story;
+      const connection = state.connection;
+      const busy = runBusyToast(state, story.payload.id);
+      if (activeRun !== null || busy !== null) return refuse(busy ?? STORY_LOCKED_TOAST);
+      const refusal = partActionRefusal(state, request.partId, "rewrite-selection");
+      if (refusal !== null) return refuse(refusal);
+      const resolved = resolveRewriteRange(story.payload, request.partId, request.start, request.end, request.expected);
+      if ("error" in resolved) return refuse(resolved.error);
+
+      const target: RewriteRunTarget = {
+        mode: "rewrite",
+        nodeId: request.partId,
+        start: request.start,
+        end: request.end,
+        expected: request.expected,
+        attemptId: crypto.randomUUID()
+      };
+      const controller = new AbortController();
+      const run: ActiveRun = {
+        genId: crypto.randomUUID(),
+        storyId: story.payload.id,
+        storyTitle: story.payload.title,
+        target,
+        seamPathIndex: -1,
+        instruction: request.instruction,
+        focusAtStart: request.partId,
+        draft,
+        controller,
+        connection,
+        api: connection.api,
+        buffer: createStreamBuffer(),
+        scheduler: (deps.createScheduler ?? createRafFlushScheduler)(),
+        phase: "running",
+        message: ""
+      };
+      activeRun = run;
+      publish(run);
+
+      let committed = false;
+      try {
+        const takeId = await run.api.rewriteNode(
+          run.storyId,
+          target.nodeId,
+          { start: target.start, end: target.end, instruction: request.instruction, expected: target.expected, attemptId: target.attemptId },
+          (delta) => {
+            if (!isCurrentRun(run) || !connectionCurrent(run)) return;
+            appendBufferText(run.buffer, delta);
+            scheduleFlush(run);
+          },
+          controller.signal,
+          // The take is durable from here on, before the confirming reload.
+          () => { committed = true; },
+          {
+            onStopped: (tail) => {
+              if (!isCurrentRun(run)) return;
+              appendBufferText(run.buffer, tail);
+            },
+            onReasoning: (delta) => {
+              if (!isCurrentRun(run) || !connectionCurrent(run)) return;
+              appendBufferReasoning(run.buffer, delta.text, delta.tokenCount);
+              scheduleFlush(run);
+            },
+            onReasoningStopped: (tail) => {
+              if (!isCurrentRun(run)) return;
+              appendBufferReasoning(run.buffer, tail, run.buffer.reasoning?.tokenCount ?? 0);
+            },
+            // This run loads and adopts the confirming payload itself.
+            onPayload: () => false
+          }
+        );
+        await finishRewrite(run, target, takeId, null, committed);
+      } catch (error) {
+        await finishRewrite(run, target, null, error, committed);
       }
     },
 
@@ -603,7 +839,8 @@ export function createGenerationActions(
       const api = state.connection.kind === "connected" ? state.connection.api : run.api;
       run.phase = "settling";
       publish(run);
-      const outcome = await saveStopped(api, saveRequestOf(run));
+      if (run.target.mode === "rewrite") return;
+      const outcome = await saveStopped(api, saveRequestOf(run, run.target));
       applyOutcome(run, outcome, null);
     },
 

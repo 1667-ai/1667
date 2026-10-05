@@ -3,10 +3,10 @@ import {
   isFactEndState,
   resolveFactState,
   type FactState
-} from "../../shared/fact-state.js";
-import { createStoryIndex, type StoryIndex } from "../../shared/story-model.js";
-import { pathTo } from "../../shared/story-tree.js";
-import type { StoryFact, StoryPayload } from "../../shared/types.js";
+} from "./fact-state.js";
+import { createStoryIndex, type StoryIndex } from "./story-model.js";
+import { pathTo } from "./story-tree.js";
+import type { StoryFact, StoryPayload } from "./types.js";
 
 /** Presentation status for one node in the existing map tree. It is derived
  * from the request resolver for the selected Fact on every frame. */

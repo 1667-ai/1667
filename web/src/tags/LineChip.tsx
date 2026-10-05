@@ -27,7 +27,7 @@ export function LineChip({ payload }: { readonly payload: StoryPayload }) {
   );
   const popover = usePopover({ open: open !== null, setOpen });
   const chipRef = useRef<HTMLButtonElement>(null);
-  const returnTo = useRef<"chip" | "part">("chip");
+  const returnTo = useRef<"chip" | "part" | "map">("chip");
   if (open !== null) returnTo.current = open.returnTo;
   const wasOpen = useRef(false);
 

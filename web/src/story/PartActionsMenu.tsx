@@ -22,6 +22,7 @@ import {
 import { SUMMARY_LOCKED_TOAST } from "../app/run-lock.js";
 import { STATES_UNAVAILABLE_TOAST } from "../facts/state.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";
+import { selectionInPart, type PartSelection } from "./selection-range.js";
 
 interface MenuItem {
   readonly id: WebPartActionId;
@@ -45,6 +46,9 @@ const ITEMS: readonly MenuItem[] = [
   { id: "write", label: "Write", key: "w", icon: ICONS.penLine },
   { id: "edit", label: "Edit", key: "e", icon: ICONS.squarePen },
   { id: "copy", label: "Copy", key: "y", icon: ICONS.copy },
+  { id: "rewrite-selection", label: "Rewrite selection", key: "", icon: ICONS.pen },
+  { id: "copy-line", label: "Copy story line below", key: "", icon: ICONS.copy },
+  { id: "paste-line", label: "Paste story line below", key: "", icon: ICONS.paste },
   { id: "tag", label: "Tag line", key: "t", icon: ICONS.flag },
   { id: "end-chapter", label: "End chapter here", key: "C", icon: ICONS.summary },
   { id: "prune", label: "Delete", key: "D", danger: true, icon: ICONS.trash },
@@ -112,9 +116,16 @@ export function PartActionsMenu(
   // The text selected in this part when the menu opens, for "New fact from
   // selection". Read once on opening: clicking a menu item may clear it.
   const [selection, setSelection] = useState("");
+  // The same selection as offsets into the part's text, for "Rewrite selection".
+  const [rewriteRange, setRewriteRange] = useState<PartSelection | null>(null);
+  const hasCopiedLine = useStore(store, (current) => (
+    current.partUi.lineClip !== null && current.story.kind === "loaded"
+    && current.partUi.lineClip.storyId === current.story.payload.id
+  ));
   useLayoutEffect(() => {
     if (!open) {
       setSelection("");
+      setRewriteRange(null);
       return;
     }
     const selected = window.getSelection();
@@ -122,6 +133,7 @@ export function PartActionsMenu(
     const inside = selected !== null && !selected.isCollapsed && article !== null
       && article.contains(selected.anchorNode) && article.contains(selected.focusNode);
     setSelection(inside ? selected.toString() : "");
+    setRewriteRange(inside && article !== null ? selectionInPart(article, part.node.text, selected) : null);
   }, [open]);
 
   // Open upward when the trigger sits in the lower half of the manuscript.
@@ -150,6 +162,8 @@ export function PartActionsMenu(
   for (const id of ["fact-here", "fact-state", "fact-end", "new-fact"] as const) available.add(id);
   const hasSelection = selection.trim().length > 0;
   if (hasSelection) available.add("fact-from-selection");
+  if (rewriteRange !== null) available.add("rewrite-selection");
+  if (hasCopiedLine) available.add("paste-line");
   const items = ITEMS.filter((item) => available.has(item.id));
 
   const run = (id: WebPartActionId): void => {
@@ -158,7 +172,13 @@ export function PartActionsMenu(
     actions.part.run(
       id,
       part.id,
-      id === "fact-from-selection" ? { selection: selection.trim() } : id === "copy" && hasSelection ? { selection } : {}
+      id === "fact-from-selection"
+        ? { selection: selection.trim() }
+        : id === "copy" && hasSelection
+          ? { selection }
+          : id === "rewrite-selection" && rewriteRange !== null
+            ? { rewrite: { start: rewriteRange.start, end: rewriteRange.end, expected: rewriteRange.text } }
+            : {}
     );
   };
 

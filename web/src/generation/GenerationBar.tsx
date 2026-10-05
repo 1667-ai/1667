@@ -120,6 +120,9 @@ export function generationStatusText(
 /** The bar's text while a chapter summary runs. */
 function summaryStatusText(run: SummaryRun, viewingStoryId: string | null): string {
   if (run.phase === "stopping") return "Stopping…";
+  if (run.chapterNumber === null) {
+    return run.storyId === viewingStoryId ? "Summarizing the story…" : `Summarizing in ${run.storyTitle}…`;
+  }
   return run.storyId === viewingStoryId
     ? `Summarizing Chapter ${chapterWord(run.chapterNumber)}…`
     : `Summarizing in ${run.storyTitle}…`;

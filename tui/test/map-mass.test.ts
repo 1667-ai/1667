@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { createAtlasLayout } from "../src/atlas-layout.js";
+import { createAtlasLayout } from "../../shared/atlas-layout.js";
 import { createDemoController } from "../src/demo.js";
 import type { MapMassSort } from "../src/map-state.js";
 import {

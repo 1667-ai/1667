@@ -7,6 +7,7 @@ import type { StoryPayload } from "../../../shared/types.js";
 import { unicodeScalarLength } from "../../../shared/unicode.js";
 import { retryWhenBusy } from "../app/busy-retry.js";
 import { runBusyToast } from "../app/run-lock.js";
+import { isStoryPage } from "../app/router.js";
 import type { AppState } from "../app/state.js";
 import { failureToast, runStoryMutation } from "../app/story-mutation.js";
 import type { Store } from "../app/store.js";
@@ -59,7 +60,7 @@ export function noteLimit(field: NoteField): { readonly max: number; readonly to
 type Loaded = { readonly storyId: string; readonly payload: StoryPayload };
 
 function loadedStory(state: AppState): Loaded | null {
-  if (state.route.kind !== "story" || state.route.map === true || state.story.kind !== "loaded") return null;
+  if (!isStoryPage(state.route) || state.story.kind !== "loaded") return null;
   return state.story.payload.id === state.route.id ? { storyId: state.route.id, payload: state.story.payload } : null;
 }
 

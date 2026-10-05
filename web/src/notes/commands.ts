@@ -1,7 +1,8 @@
+import { isStoryPage } from "../app/router.js";
 import { registerCommands, type CommandContext } from "../palette/registry.js";
 
 function onStoryPage({ state }: CommandContext): boolean {
-  return state.route.kind === "story" && state.route.map !== true
+  return isStoryPage(state.route)
     && state.story.kind === "loaded" && state.story.payload.id === state.route.id;
 }
 

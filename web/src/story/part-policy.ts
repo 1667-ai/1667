@@ -51,6 +51,7 @@ export const PART_WRITING_TOAST = "This part is still being written.";
 export const SUMMARY_RETAKE_TOAST = "Summaries are rewritten, not retaken.";
 export const EDITOR_OPEN_TOAST = "Finish or cancel the open editor first.";
 export const LINE_GONE_TOAST = "That line is no longer there. The story was reloaded.";
+export const SUMMARY_LINE_TOAST = "A summary cannot be copied or pasted onto.";
 
 /** Shown when a retake's part left the line (or became a summary) between
  * the writer opening the retake and sending it. */
@@ -170,10 +171,12 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
   if (node.role === "summary" && (action === "retake" || action === "retake-with-prompt")) {
     return SUMMARY_RETAKE_TOAST;
   }
-  const changesNow = action === "continue" || action === "retake" || action === "prune" || action === "end-chapter";
+  if (node.role === "summary" && (action === "copy-line" || action === "paste-line")) return SUMMARY_LINE_TOAST;
+  const changesNow = action === "continue" || action === "retake" || action === "prune" || action === "end-chapter"
+    || action === "rewrite-selection" || action === "paste-line";
   if (changesNow && state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
 
-  if (action === "continue" || action === "retake") {
+  if (action === "continue" || action === "retake" || action === "rewrite-selection" || action === "paste-line") {
     const busy = runBusyToast(state, storyId);
     if (busy !== null) return busy;
   } else if (action === "prune" && (state.generation.kind !== "idle" && state.generation.storyId === storyId
@@ -187,7 +190,9 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
 
   if (isFactPartAction(action)) return factActionRefusal(state, story, action);
 
-  if (action !== "direct" && action !== "copy" && partSwitchPending(story, partId)) return PART_SWITCHING_TOAST;
+  if (action !== "direct" && action !== "copy" && action !== "copy-line" && partSwitchPending(story, partId)) {
+    return PART_SWITCHING_TOAST;
+  }
 
   switch (action) {
     case "continue":
@@ -196,6 +201,8 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
       return generationEditorRefusal(state, { focusedPartId: partId, instruction: "", retakeOf: partId });
     case "retake-with-prompt":
     case "prune":
+    case "rewrite-selection":
+    case "paste-line":
       return editorBlocksChange(state, partId) ? EDITOR_OPEN_TOAST : null;
     case "write":
     case "edit": {
@@ -211,6 +218,46 @@ export function partActionRefusal(state: AppState, partId: string, action: WebPa
     default:
       return null;
   }
+}
+
+/**
+ * The toast deleting a take of the map is refused with, or `null`. The map's
+ * path view can stand on a take that is not on the reading line, which the
+ * part policy does not know; a take on the line asks the part policy.
+ */
+export function nodeDeleteRefusal(state: AppState, nodeId: string): string | null {
+  const story = state.story;
+  if (state.route.kind !== "story" || story.kind !== "loaded" || story.payload.id !== state.route.id) {
+    return PART_UNAVAILABLE_TOAST;
+  }
+  if (story.payload.path.some((node) => node.id === nodeId)) return partActionRefusal(state, nodeId, "prune");
+  if (!story.payload.nodes.some((node) => node.id === nodeId)) return PART_UNAVAILABLE_TOAST;
+  if (state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
+  const storyId = story.payload.id;
+  if ((state.generation.kind !== "idle" && state.generation.storyId === storyId)
+    || state.chapters.summaryRun?.storyId === storyId) {
+    return runBusyToast(state, storyId);
+  }
+  return null;
+}
+
+/**
+ * The toast "prune drafts & discarded" is refused with, or `null`: the same
+ * refusals as a delete (not connected, a run in this story), and no take
+ * switch in flight, since the prune reads the line it would keep.
+ */
+export function pruneUnusedRefusal(state: AppState): string | null {
+  const story = state.story;
+  if (state.route.kind !== "story" || story.kind !== "loaded" || story.payload.id !== state.route.id) {
+    return PART_UNAVAILABLE_TOAST;
+  }
+  if (state.connection.kind !== "connected") return NOT_CONNECTED_TOAST;
+  const storyId = story.payload.id;
+  if ((state.generation.kind !== "idle" && state.generation.storyId === storyId)
+    || state.chapters.summaryRun?.storyId === storyId) {
+    return runBusyToast(state, storyId);
+  }
+  return story.switching !== null ? PART_SWITCHING_TOAST : null;
 }
 
 /** Why a fact action of the part menu is refused. Opening an editor changes
