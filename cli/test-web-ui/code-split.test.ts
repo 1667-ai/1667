@@ -40,7 +40,7 @@ function trackScripts(page: Page): () => string[] {
 const requested = (scripts: () => string[], name: string): boolean =>
   scripts().some((script) => script.startsWith(`${name}-`));
 
-test("settings, search and the map each download their script on first use, and work", async () => {
+test("settings and the map each download their script on first use, and search works from the first load, and work", async () => {
   browser ??= await launchChrome();
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
@@ -57,15 +57,14 @@ test("settings, search and the map each download their script on first use, and 
 
   // Reading a story needs none of these views. (The palette, the panel and the
   // editor download when the page is idle, so a key finds them ready.)
-  for (const name of ["SettingsPage", "SearchDialog", "StoryMap", "InspectPage"]) {
+  for (const name of ["SettingsPage", "StoryMap", "InspectPage"]) {
     expect(requested(scripts, name)).toBeFalse();
   }
 
-  // Search: the key opens it, its script arrives, and it finds a word.
+  // Search is part of the first load: the key opens it at once, and it finds a word.
   await page.keyboard.press("/");
   const search = page.getByRole("dialog", { name: "Search" });
   await search.waitFor();
-  expect(requested(scripts, "SearchDialog")).toBeTrue();
   await page.keyboard.type("second take");
   await search.getByRole("option").filter({ hasText: "B2:" }).waitFor();
   await page.keyboard.press("Escape");
@@ -96,7 +95,7 @@ test("settings, search and the map each download their script on first use, and 
   expect(scripts().length).toBe(before);
 }, 120_000);
 
-test("a chunk that fails to download shows a retry message, and the map loads after a retry or a reload", async () => {
+test("a chunk that fails to download shows a retry message, and Retry loads it without a reload", async () => {
   browser ??= await launchChrome();
   const project = await scratchProject();
   const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
@@ -122,12 +121,42 @@ test("a chunk that fails to download shows a retry message, and the map loads af
   await alert.waitFor();
   expect(await alert.textContent()).toContain("did not load");
   await alert.getByRole("button", { name: "Retry" }).click();
-  // A browser may keep the failed download for the life of the page: then the
-  // message offers a reload, and the reloaded page gets the script.
-  const map = page.getByRole("listbox", { name: "Story map" });
-  const reload = page.getByRole("button", { name: "Reload page" });
-  await Promise.race([map.waitFor(), reload.waitFor()]);
-  // The map is a route: the reloaded page opens on it.
-  if (await reload.isVisible()) await reload.click();
-  await map.waitFor();
+  // Retry downloads the script again and shows the map without a page reload.
+  await page.getByRole("listbox", { name: "Story map" }).waitFor();
+  expect(await alert.count()).toBe(0);
+}, 120_000);
+
+test("keys typed while a view downloads are not lost, and do not act on the story", async () => {
+  browser ??= await launchChrome();
+  const project = await scratchProject();
+  const web = await spawnWeb(["--data", project.dataDir, "--port", "0", "--no-open"], project.env);
+  const api = await openInspectionApi(web);
+  const seeded = await seedForkedStory(api);
+
+  const page = await openTestPage(browser);
+  // Every lazy chunk is slow, as on a cold cache over a slow link.
+  await page.route(/\/assets\/[^/]+\.js$/, async (route) => {
+    if (!/\/assets\/index-/.test(route.request().url())) await new Promise((resolve) => setTimeout(resolve, 1_500));
+    await route.continue();
+  });
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, seeded.storyId);
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor();
+  await page.locator(".part").first().click();
+
+  // The palette takes the typed text at once, however slow the other chunks are.
+  await page.keyboard.press(":");
+  await page.keyboard.type("settings");
+  expect(await page.getByLabel("Command", { exact: true }).inputValue()).toBe("settings");
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor({ state: "detached" });
+
+  // A view that is still downloading holds the keys back: `n` must not open the note.
+  await page.keyboard.press("!");
+  await page.keyboard.type("nnn");
+  expect(await page.getByRole("dialog", { name: "Note" }).count()).toBe(0);
+  await page.getByRole("dialog", { name: "Notice log" }).waitFor();
+  await page.keyboard.press("Escape");
+  await page.getByRole("dialog", { name: "Notice log" }).waitFor({ state: "detached" });
 }, 120_000);

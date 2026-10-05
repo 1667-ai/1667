@@ -3,8 +3,8 @@ import { imageInputEntryPointsOpen } from "../../../shared/image-input-release.j
 import { imageInputRefusalMessage } from "../../../shared/image-input-runtime.js";
 // The thumbnails load with the first attached image.
 // The chips and the context meter load when they are first shown.
-const ImageChips = lazyView(async () => (await import("../images/ImageChips.js")).ImageChips, { floating: true });
-const ContextMeter = lazyView(async () => (await import("../context/ContextMeter.js")).ContextMeter, { floating: true });
+const ImageChips = lazyView(() => import("../images/ImageChips.js"), "ImageChips", { floating: true });
+const ContextMeter = lazyView(() => import("../context/ContextMeter.js"), "ContextMeter", { floating: true });
 import { lazyView } from "../ui/LazyView.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";

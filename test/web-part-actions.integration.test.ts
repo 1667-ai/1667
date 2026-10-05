@@ -2,7 +2,6 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import type { PartActionId } from "../shared/part-actions.js";
 import type { StoryPayload } from "../shared/types.js";
-import { loadLazyActions } from "../web/src/app/lazy-actions.js";
 import { editorIsOffLine } from "../web/src/editor/state.js";
 import { STORY_LOCKED_TOAST, STORY_RELOADED_TOAST } from "../web/src/story/actions.js";
 import { deleteQuestion } from "../web/src/story/delete-plan.js";
@@ -37,17 +36,15 @@ import {
 
 const THREE = linearPayload(["a1", "b1", "c1"], { nodeOverrides: { b1: { instruction: "Go left.", text: "Left it was." } } });
 
-async function open(payload: StoryPayload, focused: string | null, apiOptions: Parameters<typeof fakeApi>[0] = {}) {
+function open(payload: StoryPayload, focused: string | null, apiOptions: Parameters<typeof fakeApi>[0] = {}) {
   const store = storeOpenOn(payload, focused);
   const fake = fakeApi({ continueStory: () => Promise.resolve({ payload }), ...apiOptions });
   store.set((state) => ({ ...state, connection: connectedState(fake.api) }));
   const { actions } = createActionsForStore(store);
-  // The editor loads at first use; wait, so each call below acts at once.
-  await loadLazyActions(actions.editor);
   return { store, fake, actions };
 }
 
-type Harness = Awaited<ReturnType<typeof open>>;
+type Harness = ReturnType<typeof open>;
 
 function focusedPart(h: Harness): string | null {
   const story = h.store.get().story;
@@ -72,7 +69,7 @@ async function startWriting(h: Harness) {
 // ---------------------------------------------------------------------------
 
 test("e on the leaf that is being appended to is refused", async () => {
-  const h = await open(THREE, "c1");
+  const h = open(THREE, "c1");
   const writing = await startWriting(h);
 
   assert.equal(refusal(h, "c1", "edit"), PART_WRITING_TOAST);
@@ -84,7 +81,7 @@ test("e on the leaf that is being appended to is refused", async () => {
 });
 
 test("unsaved text blocks Continue, Retake and Delete: the part it hangs below must not be deleted", async () => {
-  const h = await open(THREE, "c1", {
+  const h = open(THREE, "c1", {
     createNode: async () => { throw new Error("disk full"); },
     loadStory: async () => THREE
   });
@@ -115,7 +112,7 @@ function openDirtyEditor(h: Harness, partId: string): void {
 
 test("an editor opened while Continue prepares is respected after the preparation, and the draft comes back", async () => {
   const settings = deferred<never>();
-  const h = await open(THREE, "a1", { getSettings: () => settings.promise });
+  const h = open(THREE, "a1", { getSettings: () => settings.promise });
   h.actions.compose.setText(STORY_ID, "a direction");
   const sent = h.actions.compose.submit(STORY_ID);
   assert.equal(sent, true);
@@ -133,8 +130,8 @@ test("an editor opened while Continue prepares is respected after the preparatio
   assert.ok(toasts(h.store).some((message) => message.startsWith(EDITOR_OPEN_TOAST)));
 });
 
-test("an R draft opened before the editor cannot be sent over it", async () => {
-  const h = await open(THREE, "c1");
+test("an R draft opened before the editor cannot be sent over it", () => {
+  const h = open(THREE, "c1");
   h.actions.part.run("retake-with-prompt", "b1");
   h.actions.compose.setText(STORY_ID, "Go right.");
   openDirtyEditor(h, "c1");
@@ -146,8 +143,8 @@ test("an R draft opened before the editor cannot be sent over it", async () => {
   assert.equal(h.store.get().compose.drafts[STORY_ID]?.retake?.text, "Go right.");
 });
 
-test("a take switch, a retake, and a second editor cannot take the edited part away", async () => {
-  const h = await open(THREE, "b1");
+test("a take switch, a retake, and a second editor cannot take the edited part away", () => {
+  const h = open(THREE, "b1");
   openDirtyEditor(h, "b1");
 
   h.actions.story.switchTake("b1", 1);
@@ -164,7 +161,7 @@ test("a take switch, a retake, and a second editor cannot take the edited part a
 // ---------------------------------------------------------------------------
 
 test("when the edited part leaves the line, the editor keeps the text and can be recovered or discarded", async () => {
-  const h = await open(THREE, "b1", {
+  const h = open(THREE, "b1", {
     editNode: async () => { throw plainFailure("conflict", "changed"); },
     loadStory: async () => linearPayload(["a1", "x1"])
   });
@@ -192,7 +189,7 @@ function refusalIsEditorOpen(h: Harness, partId: string): boolean {
 // ---------------------------------------------------------------------------
 
 test("Retake goes through the dispatcher: the part's own direction, focus first", async () => {
-  const h = await open(THREE, "c1", { continueStory: () => new Promise(() => {}) });
+  const h = open(THREE, "c1", { continueStory: () => new Promise(() => {}) });
 
   h.actions.part.run("retake", "b1");
   await waitFor(() => h.fake.continueCalls.length === 1);
@@ -206,8 +203,8 @@ test("Retake goes through the dispatcher: the part's own direction, focus first"
 // `D`: delete with confirmation.
 // ---------------------------------------------------------------------------
 
-test("D asks first: the plan counts the part and the parts below it, and nothing is deleted yet", async () => {
-  const h = await open(THREE, "b1");
+test("D asks first: the plan counts the part and the parts below it, and nothing is deleted yet", () => {
+  const h = open(THREE, "b1");
 
   h.actions.part.run("prune", "b1");
 
@@ -223,7 +220,7 @@ test("D asks first: the plan counts the part and the parts below it, and nothing
 });
 
 test("confirming sends the counted subtree size, lands focus on the previous part, and closes the dialog", async () => {
-  const h = await open(THREE, "b1", { deleteNode: async () => linearPayload(["a1"]) });
+  const h = open(THREE, "b1", { deleteNode: async () => linearPayload(["a1"]) });
 
   h.actions.part.run("prune", "b1");
   await h.actions.part.confirmDelete();
@@ -236,7 +233,7 @@ test("confirming sends the counted subtree size, lands focus on the previous par
 });
 
 test("deleting the first part lands focus on the new first part", async () => {
-  const h = await open(THREE, "a1", { deleteNode: async () => linearPayload(["z1"]) });
+  const h = open(THREE, "a1", { deleteNode: async () => linearPayload(["z1"]) });
 
   h.actions.part.run("prune", "a1");
   await h.actions.part.confirmDelete();
@@ -246,7 +243,7 @@ test("deleting the first part lands focus on the new first part", async () => {
 
 test("a conflict reloads the story, closes the dialog, and says the story was reloaded", async () => {
   const reloaded = linearPayload(["a1", "b1", "c1", "d1"]);
-  const h = await open(THREE, "b1", {
+  const h = open(THREE, "b1", {
     deleteNode: async () => { throw plainFailure("conflict", "count changed"); },
     loadStory: async () => reloaded
   });
@@ -262,7 +259,7 @@ test("a conflict reloads the story, closes the dialog, and says the story was re
 });
 
 test("an unknown outcome that the reload shows as deleted counts as deleted", async () => {
-  const h = await open(THREE, "b1", {
+  const h = open(THREE, "b1", {
     deleteNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => linearPayload(["a1"])
   });
@@ -276,7 +273,7 @@ test("an unknown outcome that the reload shows as deleted counts as deleted", as
 });
 
 test("confirming is refused if a generation started while the dialog was open, and the dialog stays", async () => {
-  const h = await open(THREE, "b1");
+  const h = open(THREE, "b1");
   h.actions.part.run("prune", "b1");
   const writing = await startWriting(h);
 
@@ -294,7 +291,7 @@ test("confirming is refused if a generation started while the dialog was open, a
 
 test("the plan that was built is what is checked after the preparation, not a plan from where focus moved to", async () => {
   const settings = deferred<never>();
-  const h = await open(THREE, "a1", { getSettings: () => settings.promise });
+  const h = open(THREE, "a1", { getSettings: () => settings.promise });
   // Continue from part 1 would hide parts 2 and 3. While it prepares, the
   // writer moves to part 2 and opens an editor there — a position from which
   // a recomputed plan would not touch part 2.

@@ -5,7 +5,7 @@ import { formatTokens } from "../../../shared/tokens.js";
 import type { NodeStub } from "../../../shared/types.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
-import { PartEditor } from "../editor/lazy.js";
+import { PartEditor } from "../editor/PartEditor.js";
 import { Prose } from "../story/Prose.js";
 import { Icon, ICONS } from "../ui/icons.js";
 

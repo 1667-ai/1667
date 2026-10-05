@@ -1,6 +1,5 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { loadLazyActions } from "../web/src/app/lazy-actions.js";
 import { textHash } from "../client/api.js";
 import type { StoryPayload } from "../shared/types.js";
 import {
@@ -35,17 +34,15 @@ import {
  * over a fake `StoryApi`.
  */
 
-async function open(payload: StoryPayload, focused: string | null, apiOptions: Parameters<typeof fakeApi>[0] = {}) {
+function open(payload: StoryPayload, focused: string | null, apiOptions: Parameters<typeof fakeApi>[0] = {}) {
   const store = storeOpenOn(payload, focused);
   const fake = fakeApi(apiOptions);
   store.set((state) => ({ ...state, connection: connectedState(fake.api) }));
   const { actions } = createActionsForStore(store);
-  // The editor loads at first use; wait, so each call below acts at once.
-  await loadLazyActions(actions.editor);
   return { store, fake, actions };
 }
 
-function focusedPart(store: Awaited<ReturnType<typeof open>>["store"]): string | null {
+function focusedPart(store: ReturnType<typeof open>["store"]): string | null {
   const story = store.get().story;
   return story.kind === "loaded" ? story.focusedPartId : null;
 }
@@ -54,7 +51,7 @@ const THREE = linearPayload(["a1", "b1", "c1"], { nodeOverrides: { b1: { instruc
 
 test("save in place sends only the changed fields, against the part as it was when the editor opened", async () => {
   const landed = linearPayload(["a1", "b1", "c1"], { nodeOverrides: { b1: { text: "Left it was, slowly." } } });
-  const { actions, fake, store } = await open(THREE, "c1", { editNode: async () => landed });
+  const { actions, fake, store } = open(THREE, "c1", { editNode: async () => landed });
 
   actions.editor.openEdit("b1");
   actions.editor.setText("  Left it was, slowly.  ");
@@ -71,7 +68,7 @@ test("save as new take forks from the part with its hash, and lands focus on the
   const landed = linearPayload(["a1", "b2"], {
     nodeOverrides: { b2: { instruction: "Go left.", text: "Left it was, slowly." } }
   });
-  const { actions, fake, store } = await open(THREE, "c1", { createNode: async () => landed });
+  const { actions, fake, store } = open(THREE, "c1", { createNode: async () => landed });
 
   actions.editor.openEdit("b1");
   actions.editor.setText("Left it was, slowly.");
@@ -89,7 +86,7 @@ test("save as new take forks from the part with its hash, and lands focus on the
 });
 
 test("a changed direction alone is saved; blank prose is refused; an unchanged editor closes without a call", async () => {
-  const { actions, fake, store } = await open(THREE, "b1");
+  const { actions, fake, store } = open(THREE, "b1");
 
   actions.editor.openEdit("b1");
   await actions.editor.save("new");
@@ -110,7 +107,7 @@ test("a changed direction alone is saved; blank prose is refused; an unchanged e
 
 test("a legacy summary can only be saved in place", async () => {
   const payload = linearPayload(["a1", "s1"], { nodeOverrides: { s1: { role: "summary", text: "A summary." } } });
-  const { actions, fake, store } = await open(payload, "s1");
+  const { actions, fake, store } = open(payload, "s1");
 
   actions.editor.openEdit("s1");
   actions.editor.setText("A better summary.");
@@ -123,7 +120,7 @@ test("a legacy summary can only be saved in place", async () => {
 test("a conflict reloads, keeps the draft, rebases onto the new part, and the next save overwrites it", async () => {
   const changed = linearPayload(["a1", "b1", "c1"], { nodeOverrides: { b1: { instruction: "Go left.", text: "Changed elsewhere." } } });
   let attempts = 0;
-  const { actions, fake, store } = await open(THREE, "b1", {
+  const { actions, fake, store } = open(THREE, "b1", {
     editNode: async () => {
       attempts += 1;
       if (attempts === 1) throw plainFailure("conflict", "text changed");
@@ -152,7 +149,7 @@ test("a conflict reloads, keeps the draft, rebases onto the new part, and the ne
 });
 
 test("a part that no longer exists keeps the editor open and says so", async () => {
-  const { actions, store } = await open(THREE, "b1", {
+  const { actions, store } = open(THREE, "b1", {
     editNode: async () => { throw plainFailure("revision_conflict", "stale"); },
     loadStory: async () => linearPayload(["a1", "x1"])
   });
@@ -167,7 +164,7 @@ test("a part that no longer exists keeps the editor open and says so", async () 
 
 test("resource_busy is retried and the save lands", { timeout: 5_000 }, async () => {
   let attempts = 0;
-  const { actions, fake, store } = await open(THREE, "b1", {
+  const { actions, fake, store } = open(THREE, "b1", {
     editNode: async () => {
       attempts += 1;
       if (attempts === 1) throw plainFailure("resource_busy", "busy");
@@ -185,7 +182,7 @@ test("resource_busy is retried and the save lands", { timeout: 5_000 }, async ()
 
 test("an unknown outcome reloads: a new take that is found counts as saved, otherwise the draft stays", async () => {
   const created = linearPayload(["a1", "b2"], { nodeOverrides: { b2: { instruction: "Go left.", text: "Fork text." } } });
-  const found = await open(THREE, "b1", {
+  const found = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => created
   });
@@ -195,7 +192,7 @@ test("an unknown outcome reloads: a new take that is found counts as saved, othe
   assert.equal(found.store.get().editor, null, "the reload shows the take: saved");
   assert.equal(focusedPart(found.store), "b2");
 
-  const missing = await open(THREE, "b1", {
+  const missing = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => THREE
   });
@@ -205,7 +202,7 @@ test("an unknown outcome reloads: a new take that is found counts as saved, othe
   assert.equal(missing.store.get().editor?.text, "Fork text.", "no take found: the draft is kept");
   assert.equal(missing.fake.loadStoryCalls.length, 1);
 
-  const inPlace = await open(THREE, "b1", {
+  const inPlace = open(THREE, "b1", {
     editNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => linearPayload(["a1", "b1", "c1"], { nodeOverrides: { b1: { instruction: "Go left.", text: "Same." } } })
   });
@@ -216,7 +213,7 @@ test("an unknown outcome reloads: a new take that is found counts as saved, othe
 });
 
 test("a definite failure keeps the draft and reloads", async () => {
-  const { actions, fake, store } = await open(THREE, "b1", {
+  const { actions, fake, store } = open(THREE, "b1", {
     editNode: async () => { throw plainFailure("validation_failed", "Too long.", 422); }
   });
 
@@ -231,7 +228,7 @@ test("a definite failure keeps the draft and reloads", async () => {
 
 test("Save is refused while this story writes; typing and opening still work; the draft stays", async () => {
   const gate = deferred<{ payload: StoryPayload } | null>();
-  const { actions, fake, store } = await open(THREE, "c1", { continueStory: () => gate.promise });
+  const { actions, fake, store } = open(THREE, "c1", { continueStory: () => gate.promise });
   const run = actions.generation.continue();
   await waitFor(() => fake.continueCalls.length === 1);
 
@@ -246,8 +243,8 @@ test("Save is refused while this story writes; typing and opening still work; th
   await run;
 });
 
-test("Escape closes a clean editor at once; a changed one needs a second press", async () => {
-  const { actions, store } = await open(THREE, "b1");
+test("Escape closes a clean editor at once; a changed one needs a second press", () => {
+  const { actions, store } = open(THREE, "b1");
   actions.editor.openEdit("b1");
   actions.editor.requestClose();
   assert.equal(store.get().editor, null);
@@ -270,7 +267,7 @@ test("Escape closes a clean editor at once; a changed one needs a second press",
 
 test("w writes the writer's own take next to the part: parentId and text only, focus on the new take", async () => {
   const landed = linearPayload(["a1", "b2"], { nodeOverrides: { b2: { text: "My own words." } } });
-  const { actions, fake, store } = await open(THREE, "b1", { createNode: async () => landed });
+  const { actions, fake, store } = open(THREE, "b1", { createNode: async () => landed });
 
   actions.editor.openWrite("b1");
   assert.equal(store.get().editor?.text, "", "the editor opens empty");
@@ -284,7 +281,7 @@ test("w writes the writer's own take next to the part: parentId and text only, f
 
 test("w on the first part sends no parent and an empty direction", async () => {
   const landed = linearPayload(["a1"], { nodeOverrides: { a1: { text: "Once upon a time." } } });
-  const { actions, fake, store } = await open(linearPayload([]), null, { createNode: async () => landed });
+  const { actions, fake, store } = open(linearPayload([]), null, { createNode: async () => landed });
 
   actions.editor.openWrite(null);
   assert.equal(store.get().editor?.mode, "first");
@@ -296,7 +293,7 @@ test("w on the first part sends no parent and an empty direction", async () => {
 });
 
 test("w refuses blank text, and Save in place does not exist for it", async () => {
-  const { actions, fake, store } = await open(THREE, "b1");
+  const { actions, fake, store } = open(THREE, "b1");
 
   actions.editor.openWrite("b1");
   await actions.editor.save("new");
@@ -309,7 +306,7 @@ test("w refuses blank text, and Save in place does not exist for it", async () =
 });
 
 test("a failed w keeps the draft; a revision_conflict reloads and does not retry by itself", async () => {
-  const { actions, fake, store } = await open(THREE, "b1", {
+  const { actions, fake, store } = open(THREE, "b1", {
     createNode: async () => { throw plainFailure("revision_conflict", "stale"); },
     loadStory: async () => THREE
   });
@@ -326,7 +323,7 @@ test("a failed w keeps the draft; a revision_conflict reloads and does not retry
 
 test("an unknown outcome of w is settled by finding the new take after the reload", async () => {
   const created = linearPayload(["a1", "b2"], { nodeOverrides: { b2: { text: "Words." } } });
-  const { actions, store } = await open(THREE, "b1", {
+  const { actions, store } = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => created
   });
@@ -348,7 +345,7 @@ test("an unknown outcome never counts a sibling that only looks alike: the full 
   // what this editor sent, but whose full text differs.
   const lookalike = { ...stub("b9", "a1", "Fork text."), words: 2, hasInstruction: true };
   const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, lookalike] };
-  const { actions, store, fake } = await open(THREE, "b1", {
+  const { actions, store, fake } = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => reloaded,
     getTakeLine: async () => ({
@@ -369,7 +366,7 @@ test("an unknown outcome never counts a sibling that only looks alike: the full 
 test("an off-line take that matches exactly is found through its own line", async () => {
   const exactStub = { ...stub("b9", "a1", "Fork text."), words: 2 };
   const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, exactStub] };
-  const { actions, store } = await open(THREE, "b1", {
+  const { actions, store } = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => reloaded,
     getTakeLine: async () => ({
@@ -393,7 +390,7 @@ test("a bridge failure that says the outcome is uncertain is reconciled, not tak
     "uncertain",
     undefined
   );
-  const { actions, store } = await open(THREE, "b1", {
+  const { actions, store } = open(THREE, "b1", {
     createNode: async () => { throw uncertain; },
     loadStory: async () => created
   });
@@ -413,7 +410,7 @@ test("a lost answer whose check cannot finish keeps the request, and the next Sa
   const lookalike = { ...stub("b9", "a1", "Fork text."), words: 2, hasInstruction: true };
   const reloaded: StoryPayload = { ...THREE, nodes: [...THREE.nodes, lookalike] };
   let lineWorks = false;
-  const { actions, fake, store } = await open(THREE, "b1", {
+  const { actions, fake, store } = open(THREE, "b1", {
     createNode: async () => { throw new Error("socket closed"); },
     loadStory: async () => reloaded,
     getTakeLine: async () => {
@@ -444,7 +441,7 @@ test("a lost answer whose check cannot finish keeps the request, and the next Sa
 
 test("when the check finishes and finds nothing, the next Save creates", async () => {
   let creates = 0;
-  const { actions, fake, store } = await open(THREE, "b1", {
+  const { actions, fake, store } = open(THREE, "b1", {
     createNode: async () => {
       creates += 1;
       if (creates === 1) throw new Error("socket closed");

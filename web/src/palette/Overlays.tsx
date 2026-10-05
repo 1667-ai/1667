@@ -2,17 +2,15 @@ import { useEffect } from "react";
 import { pushKeyLayer } from "../app/keymap.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
-import { registerPreload } from "../app/preload.js";
 import { lazyView } from "../ui/LazyView.js";
+import { SearchDialog } from "../search/SearchDialog.js";
+import { KeysDialog } from "./KeysDialog.js";
+import { PaletteDialog } from "./PaletteDialog.js";
+import "./features.js";
 
-// Each dialog loads when it is first opened. The palette brings every
-// feature's commands with it (`./features.js`).
-const PaletteDialog = lazyView(async () => (await Promise.all([import("./features.js"), import("./PaletteDialog.js")]))[1].PaletteDialog, { floating: true });
-const KeysDialog = lazyView(async () => (await Promise.all([import("./features.js"), import("./KeysDialog.js")]))[1].KeysDialog, { floating: true });
-const LogDialog = lazyView(async () => (await import("./LogDialog.js")).LogDialog, { floating: true });
-const SearchDialog = lazyView(async () => (await import("../search/SearchDialog.js")).SearchDialog, { floating: true });
-registerPreload("palette", () => PaletteDialog.preload());
-registerPreload("search", () => SearchDialog.preload());
+// The palette and search take typed text the moment a key opens them, so they
+// are part of the first load. The notice log only lists, so it loads on demand.
+const LogDialog = lazyView(() => import("./LogDialog.js"), "LogDialog", { floating: true });
 
 /**
  * The palette, keys help, notice log and search: dialogs over the page, not routes,
@@ -28,9 +26,9 @@ export function Overlays({ openLibrary }: { readonly openLibrary: () => void }) 
     return pushKeyLayer({ resolve: () => null, handle: () => false, claimsEscape: true });
   }, [overlay]);
 
-  if (overlay === "palette") return <PaletteDialog onClose={actions.overlay.close} onDismiss={actions.overlay.close} openLibrary={openLibrary} />;
-  if (overlay === "keys") return <KeysDialog onClose={actions.overlay.close} onDismiss={actions.overlay.close} />;
+  if (overlay === "palette") return <PaletteDialog onClose={actions.overlay.close} openLibrary={openLibrary} />;
+  if (overlay === "keys") return <KeysDialog onClose={actions.overlay.close} />;
   if (overlay === "log") return <LogDialog onClose={actions.overlay.close} onDismiss={actions.overlay.close} />;
-  if (overlay === "search") return <SearchDialog onClose={actions.overlay.close} onDismiss={actions.overlay.close} />;
+  if (overlay === "search") return <SearchDialog onClose={actions.overlay.close} />;
   return null;
 }

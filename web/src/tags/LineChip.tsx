@@ -7,12 +7,7 @@ import { focusCurrentPart } from "../story/focus-dom.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
 import { StatusChip } from "./StatusChip.js";
-import { registerPreload } from "../app/preload.js";
-import { lazyView } from "../ui/LazyView.js";
-
-// The popover loads when it is first opened.
-const TagPopover = lazyView(async () => (await import("./TagPopover.js")).TagPopover, { floating: true });
-registerPreload("tag-popover", () => TagPopover.preload());
+import { TagPopover } from "./TagPopover.js";
 import { tagOf } from "./state.js";
 
 /**

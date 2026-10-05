@@ -6,7 +6,7 @@ import { resolveTakeTarget } from "../../../shared/story-model.js";
 import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { AsideMark } from "../aside/AsideMark.js";
-import { PartEditor } from "../editor/lazy.js";
+import { PartEditor } from "../editor/PartEditor.js";
 import { ThoughtBlock } from "../inspect/ThoughtBlock.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";

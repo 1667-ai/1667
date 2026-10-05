@@ -6,7 +6,8 @@ import { navigate, openMap, openSettings, openStoryPage } from "../app/router.js
 import { useStore } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
 import { PlacementBanner } from "../aside/lazy.js";
-import { EditorRecovery, PartEditor } from "../editor/lazy.js";
+import { EditorRecovery } from "../editor/EditorRecovery.js";
+import { PartEditor } from "../editor/PartEditor.js";
 import { Composer } from "../compose/Composer.js";
 import { editorIsOffLine, editorPartId } from "../editor/state.js";
 import { GenerationButtons, generationStatusText } from "../generation/GenerationBar.js";
@@ -16,23 +17,14 @@ import { useBarClearance } from "../ui/bar-clearance.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
-import { preloadWhenIdle, registerPreload } from "../app/preload.js";
 import { lazyView } from "../ui/LazyView.js";
 
 // The panel (Chapters, Facts, Aside, Findings) and the delete dialogs open on
-// request: each loads when it is first shown.
-// The panel brings the code behind its views with it, so the first keystroke in
-// a view never waits for a second download.
-const StoryPanel = lazyView(async () => (await Promise.all([
-  import("../panel/StoryPanel.js"),
-  import("../facts/index.js"),
-  import("../aside/index.js"),
-  import("../chapters/actions.js"),
-  import("../factcheck/actions.js")
-]))[0].StoryPanel, { floating: true });
-registerPreload("panel", () => StoryPanel.preload());
-const PruneDialog = lazyView(async () => (await import("./PruneDialog.js")).PruneDialog, { floating: true });
-const PruneUnusedDialog = lazyView(async () => (await import("./PruneUnusedDialog.js")).PruneUnusedDialog, { floating: true });
+// request: each loads when it is first shown. Their actions are always loaded,
+// so a key or a menu item never waits for them.
+const StoryPanel = lazyView(() => import("../panel/StoryPanel.js"), "StoryPanel", { floating: true });
+const PruneDialog = lazyView(() => import("./PruneDialog.js"), "PruneDialog", { floating: true });
+const PruneUnusedDialog = lazyView(() => import("./PruneUnusedDialog.js"), "PruneUnusedDialog", { floating: true });
 import { StoryHeader } from "./StoryHeader.js";
 import { NOTHING_TO_MAP_TOAST } from "./reading-keys.js";
 import { centerPart } from "./typewriter.js";
@@ -116,7 +108,15 @@ export function StoryView(
   // Leaving the story with the delete dialog open must not bring it back.
   useEffect(() => () => actions.part.cancelDelete(), [storyId, actions]);
   // The views a writer opens with a key download once the page is idle.
-  useEffect(() => preloadWhenIdle(["panel", "editor", "notes"]), []);
+  useEffect(() => {
+    const start = (): void => StoryPanel.preload();
+    if (typeof requestIdleCallback !== "function") {
+      const timer = setTimeout(start, 2_000);
+      return () => clearTimeout(timer);
+    }
+    const id = requestIdleCallback(start, { timeout: 4_000 });
+    return () => cancelIdleCallback(id);
+  }, []);
 
   // Moves DOM focus (not just the store's notion of it) whenever the
   // effective focused part changes — landing a switch, a keyboard move, or

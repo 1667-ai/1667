@@ -10,10 +10,6 @@ import { settingsDirty } from "../settings/unsaved.js";
 import { filterAndSort } from "./filterStories.js";
 import { StoryRow } from "./StoryRow.js";
 
-// The import code downloads when the pointer or the keyboard reaches the
-// button, so the file chooser opens at once on the click.
-const preloadImports = (): void => { void import("../imports/actions.js").catch(() => undefined); };
-
 /**
  * Structural start ported from `~/source/storytavern/web/src/Sidebar.tsx`
  * (brand bar, theme toggle, palette popover, story list), adapted to this
@@ -108,8 +104,6 @@ export function Sidebar({ open, onClose }: { readonly open: boolean; readonly on
             title="Import a story file (.md, .jsonl, .story, .scenario)"
             aria-label="Import story"
             onClick={actions.imports.pickStoryFiles}
-            onPointerEnter={preloadImports}
-            onFocus={preloadImports}
           >
             <Icon path={ICONS.upload} />
           </button>

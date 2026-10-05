@@ -1,27 +1,50 @@
+import { createAsideActions, type AsideActions } from "../aside/actions.js";
+import { createAsideUseActions, type AsideUseActions } from "../aside/use-actions.js";
 import { createComposeActions, type ComposeActions } from "../compose/actions.js";
-import type { ContextActions } from "../context/actions.js";
-import type { EditorActions } from "../editor/actions.js";
+import { createContextActions, type ContextActions } from "../context/actions.js";
+import { createEditorActions, type EditorActions } from "../editor/actions.js";
+import { createFactActions, type FactActions } from "../facts/index.js";
+import { createImportActions, type ImportActions } from "../imports/actions.js";
+import { createFactCheckActions, type FactCheckActions } from "../factcheck/actions.js";
 import { createGenerationActions, type GenerationActions } from "../generation/actions.js";
 import type { FlushScheduler } from "../generation/stream-buffer.js";
 import { createThoughtActions, type ThoughtActions } from "../inspect/thoughts.js";
 import { createLibraryActions, type LibraryActions } from "../library/actions.js";
+import { createChapterActions, type ChapterActions } from "../chapters/actions.js";
+import { createNotesActions, type NotesActions } from "../notes/actions.js";
 import { createPanelActions, type PanelActions } from "../panel/actions.js";
-import type { TagsActions } from "../tags/actions.js";
+import type { SettingsActions } from "../settings/actions.js";
+import { createTagActions, type TagsActions } from "../tags/actions.js";
 import { createStoryActions, type StoryActions } from "../story/actions.js";
 import { createPartCommands, type PartCommands } from "../story/part-commands.js";
-import type { AsideActions } from "../aside/actions.js";
-import type { AsideUseActions } from "../aside/use-actions.js";
-import type { ChapterActions } from "../chapters/actions.js";
-import type { FactActions } from "../facts/index.js";
-import type { FactCheckActions } from "../factcheck/actions.js";
-import type { ImportActions } from "../imports/actions.js";
-import type { NotesActions } from "../notes/actions.js";
-import type { SettingsActions } from "../settings/actions.js";
-import { preload } from "./preload.js";
-import { lazyActionsOf, lazyActions, lazyLoader } from "./lazy-actions.js";
 import { storyRunLocked } from "./run-lock.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
+
+export type LazySettingsActions = SettingsActions & { readonly load: () => Promise<void> };
+
+/** The settings code downloads with the settings page, which calls `load()`
+ * before it renders. Nothing outside that page calls a settings action, so no
+ * call is ever queued: a call before `load()` finishes is a programming error. */
+function createLazySettings(store: Store<AppState>): LazySettingsActions {
+  let loaded: SettingsActions | null = null;
+  let pending: Promise<void> | null = null;
+  const load = (): Promise<void> => {
+    pending ??= import("../settings/actions.js").then(
+      (module) => { loaded = module.createSettingsActions(store); },
+      (error: unknown) => { pending = null; throw error; }
+    );
+    return pending;
+  };
+  return new Proxy({} as LazySettingsActions, {
+    get(_target, key) {
+      if (key === "load") return load;
+      if (typeof key !== "string") return undefined;
+      if (loaded === null) throw new Error("The settings code is not loaded yet.");
+      return (loaded as unknown as Record<string, unknown>)[key];
+    }
+  });
+}
 
 export interface ContentActions {
   readonly library: LibraryActions;
@@ -40,7 +63,8 @@ export interface ContentActions {
   readonly imports: ImportActions;
   readonly notes: NotesActions;
   readonly thoughts: ThoughtActions;
-  readonly settings: SettingsActions;
+  /** Loads with the settings page: `load()` first, then every method answers at once. */
+  readonly settings: LazySettingsActions;
 }
 
 /**
@@ -76,52 +100,19 @@ export function createContentActions(
     ...(deps.createScheduler === undefined ? {} : { createScheduler: deps.createScheduler })
   });
   const compose = createComposeActions(store, { story, generation });
-  const contextLoader = lazyLoader(store, async () => (await import("../context/actions.js")).createContextActions(store));
-  const contextView = lazyActionsOf(contextLoader);
-  const context: ContextActions = {
-    toggleExpanded: () => contextView.toggleExpanded(),
-    setExpanded: (expanded) => contextView.setExpanded(expanded),
-    // Follows the store once the context code has loaded; the meter is a
-    // detail of the composer and never holds up the first screen.
-    start: () => {
-      let stop = (): void => {};
-      let stopped = false;
-      void contextLoader.ensure().then((module) => { if (!stopped) stop = module.start(); }, () => undefined);
-      return () => { stopped = true; stop(); };
-    }
-  };
-  const editor = lazyActions<EditorActions>(store, async () => {
-    preload("editor");
-    return (await import("../editor/actions.js")).createEditorActions(store, { story });
-  });
-  const tags = lazyActions<TagsActions>(store, async () => {
-    preload("tag-popover");
-    return (await import("../tags/actions.js")).createTagActions(store, { story });
-  });
-  // These modules are only needed once a writer opens their view, so they
-  // download then (see `lazyActions`). Each one reaches the others only through
-  // the actions given here.
-  const chapters = lazyActions<ChapterActions>(
-    store,
-    async () => (await import("../chapters/actions.js")).createChapterActions(store, { story }),
-    { stopSummary: () => false }
-  );
+  const context = createContextActions(store);
+  const editor = createEditorActions(store, { story });
+  const tags = createTagActions(store, { story });
+  const chapters = createChapterActions(store, { story });
   const panel = createPanelActions(store);
-  const facts = lazyActions<FactActions>(store, async () => (await import("../facts/index.js")).createFactActions(store, { story, panel }));
-  const factCheck = lazyActions<FactCheckActions>(store, async () => (await import("../factcheck/actions.js")).createFactCheckActions(store, { story, panel }));
-  const aside = lazyActions<AsideActions & AsideUseActions>(
-    store,
-    async () => (await import("../aside/index.js")).createAllAsideActions(store, { story, compose, facts, panel }),
-    { stop: () => false }
-  );
-  const imports = lazyActions<ImportActions>(store, async () => (await import("../imports/actions.js")).createImportActions(store, { story, library }));
-  const notes = lazyActions<NotesActions>(store, async () => (await import("../notes/actions.js")).createNotesActions(store, { story }));
+  const facts = createFactActions(store, { story, panel });
+  const factCheck = createFactCheckActions(store, { story, panel });
+  const aside = { ...createAsideActions(store, { story, panel }), ...createAsideUseActions(store, { story, compose, facts, panel }) };
+  const imports = createImportActions(store, { story, library });
+  const notes = createNotesActions(store, { story });
   const thoughts = createThoughtActions(store);
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
-  const settings = lazyActions<SettingsActions>(
-    store,
-    async () => (await import("../settings/actions.js")).createSettingsActions(store),
-    { deleteProfile: () => null }
-  );
+  const settings = createLazySettings(store);
   return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, factCheck, imports, notes, settings, thoughts };
 }
+
