@@ -44,9 +44,17 @@ export function lazyLoader<T>(store: Store<AppState>, load: () => Promise<T>): L
   return { ensure, loaded: () => loaded };
 }
 
+const loaders = new WeakMap<object, LazyLoader<unknown>>();
+
+/** Waits until the code behind these actions has loaded, so their methods run
+ * at once. For a test that asserts right after a call. */
+export async function loadLazyActions(...actions: readonly object[]): Promise<void> {
+  await Promise.all(actions.map((one) => loaders.get(one)?.ensure()));
+}
+
 export function lazyActionsOf<T extends object>(loader: LazyLoader<T>, whenUnloaded: Fallbacks<T> = {}): T {
   const { ensure } = loader;
-  return new Proxy({} as T, {
+  const proxy = new Proxy({} as T, {
     get(_target, key) {
       if (typeof key !== "string") return undefined;
       return (...args: unknown[]): unknown => {
@@ -59,4 +67,6 @@ export function lazyActionsOf<T extends object>(loader: LazyLoader<T>, whenUnloa
       };
     }
   });
+  loaders.set(proxy, loader);
+  return proxy;
 }
