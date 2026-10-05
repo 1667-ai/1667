@@ -305,6 +305,8 @@ test("case 7: a changed fact draft warns before a reload and stays reachable whe
   const page = await openStory(web, seeded.storyId, "Fact Unsaved");
 
   await page.keyboard.press("f");
+  // The Facts view downloads on first use: its keys work once it shows.
+  await panel(page).waitFor();
   await page.keyboard.press("n");
   await editor(page).getByRole("textbox", { name: "Text" }).fill("A fact nobody saved.");
 

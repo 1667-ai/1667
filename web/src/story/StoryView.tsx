@@ -16,6 +16,7 @@ import { useBarClearance } from "../ui/bar-clearance.js";
 import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { focusCurrentPart, focusPartElement } from "./focus-dom.js";
 import { Manuscript } from "./Manuscript.js";
+import { preloadWhenIdle, registerPreload } from "../app/preload.js";
 import { lazyView } from "../ui/LazyView.js";
 
 // The panel (Chapters, Facts, Aside, Findings) and the delete dialogs open on
@@ -29,6 +30,7 @@ const StoryPanel = lazyView(async () => (await Promise.all([
   import("../chapters/actions.js"),
   import("../factcheck/actions.js")
 ]))[0].StoryPanel, { floating: true });
+registerPreload("panel", () => StoryPanel.preload());
 const PruneDialog = lazyView(async () => (await import("./PruneDialog.js")).PruneDialog, { floating: true });
 const PruneUnusedDialog = lazyView(async () => (await import("./PruneUnusedDialog.js")).PruneUnusedDialog, { floating: true });
 import { StoryHeader } from "./StoryHeader.js";
@@ -113,6 +115,8 @@ export function StoryView(
 
   // Leaving the story with the delete dialog open must not bring it back.
   useEffect(() => () => actions.part.cancelDelete(), [storyId, actions]);
+  // The views a writer opens with a key download once the page is idle.
+  useEffect(() => preloadWhenIdle(["panel", "editor", "notes"]), []);
 
   // Moves DOM focus (not just the store's notion of it) whenever the
   // effective focused part changes — landing a switch, a keyboard move, or

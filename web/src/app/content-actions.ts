@@ -17,6 +17,7 @@ import type { FactCheckActions } from "../factcheck/actions.js";
 import type { ImportActions } from "../imports/actions.js";
 import type { NotesActions } from "../notes/actions.js";
 import type { SettingsActions } from "../settings/actions.js";
+import { preload } from "./preload.js";
 import { lazyActionsOf, lazyActions, lazyLoader } from "./lazy-actions.js";
 import { storyRunLocked } from "./run-lock.js";
 import type { AppState } from "./state.js";
@@ -90,11 +91,11 @@ export function createContentActions(
     }
   };
   const editor = lazyActions<EditorActions>(store, async () => {
-    void import("../editor/PartEditor.js").catch(() => undefined);
+    preload("editor");
     return (await import("../editor/actions.js")).createEditorActions(store, { story });
   });
   const tags = lazyActions<TagsActions>(store, async () => {
-    void import("../tags/TagPopover.js").catch(() => undefined);
+    preload("tag-popover");
     return (await import("../tags/actions.js")).createTagActions(store, { story });
   });
   // These modules are only needed once a writer opens their view, so they

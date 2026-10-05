@@ -22,6 +22,7 @@ import {
   LockedScreen
 } from "./ui/ConnectionScreens.js";
 import { LazyDialogs } from "./app/LazyDialogs.js";
+import { preloadWhenIdle } from "./app/preload.js";
 import { lazyView } from "./ui/LazyView.js";
 import { RecoveryBanner } from "./ui/RecoveryBanner.js";
 import { ToastStack } from "./ui/Toasts.js";
@@ -56,6 +57,9 @@ function Shell() {
   // `styles/sidebar.css`) only take effect there, so this state does
   // nothing at desktop width.
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  // The palette opens with a key on every page: it downloads once the page is idle.
+  const connected = connection.kind === "connected";
+  useEffect(() => (connected ? preloadWhenIdle(["palette"]) : undefined), [connected]);
   const openSidebar = (): void => setSidebarOpen(true);
   // Esc-stops-a-background-generation (owner decision 2: "from anywhere")
   // now lives in `app/keymap.ts`'s `useKeymap` (`Sidebar.tsx`, always

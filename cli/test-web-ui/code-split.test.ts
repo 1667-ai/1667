@@ -55,12 +55,11 @@ test("settings, search and the map each download their script on first use, and 
   await page.getByRole("heading", { name: "Forked Story" }).waitFor();
   await page.locator(".part").first().click();
 
-  // Reading a story needs none of the lazy views.
-  for (const name of ["SettingsPage", "SearchDialog", "StoryMap", "StoryPanel", "PaletteDialog", "InspectPage"]) {
+  // Reading a story needs none of these views. (The palette, the panel and the
+  // editor download when the page is idle, so a key finds them ready.)
+  for (const name of ["SettingsPage", "SearchDialog", "StoryMap", "InspectPage"]) {
     expect(requested(scripts, name)).toBeFalse();
   }
-  const firstLoad = scripts().length;
-  expect(firstLoad).toBeLessThan(12);
 
   // Search: the key opens it, its script arrives, and it finds a word.
   await page.keyboard.press("/");

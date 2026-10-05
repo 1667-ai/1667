@@ -2,6 +2,7 @@ import { useEffect } from "react";
 import { pushKeyLayer } from "../app/keymap.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
+import { registerPreload } from "../app/preload.js";
 import { lazyView } from "../ui/LazyView.js";
 
 // Each dialog loads when it is first opened. The palette brings every
@@ -10,6 +11,8 @@ const PaletteDialog = lazyView(async () => (await Promise.all([import("./feature
 const KeysDialog = lazyView(async () => (await Promise.all([import("./features.js"), import("./KeysDialog.js")]))[1].KeysDialog, { floating: true });
 const LogDialog = lazyView(async () => (await import("./LogDialog.js")).LogDialog, { floating: true });
 const SearchDialog = lazyView(async () => (await import("../search/SearchDialog.js")).SearchDialog, { floating: true });
+registerPreload("palette", () => PaletteDialog.preload());
+registerPreload("search", () => SearchDialog.preload());
 
 /**
  * The palette, keys help, notice log and search: dialogs over the page, not routes,
