@@ -1,9 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { createServer } from "node:http";
 import { connect } from "node:net";
 import path from "node:path";
 import { brotliDecompressSync, gunzipSync } from "node:zlib";
 import {
+  STANDALONE_ENTRY,
   cleanupWebProcesses,
   scratchProject,
   spawnWeb,
@@ -32,6 +34,21 @@ function csp(port: string): string {
 }
 
 afterEach(cleanupWebProcesses);
+
+function helpOutput(args: readonly string[]): string {
+  const result = spawnSync(process.execPath, [STANDALONE_ENTRY, ...args], { encoding: "utf8", timeout: 30_000 });
+  expect(result.status).toBe(0);
+  return result.stdout;
+}
+
+test("`1667 web --help` describes the web UI and no longer calls it experimental; `1667 --help` lists web", () => {
+  const webHelp = helpOutput(["web", "--help"]);
+  expect(/experimental/i.test(webHelp)).toBeFalse();
+  expect(webHelp).toContain("docs/web.md");
+  expect(webHelp).toContain("Ctrl+P");
+  expect(webHelp).toContain("--no-open");
+  expect(/^ {2}web {10,}\S/m.test(helpOutput(["--help"]))).toBeTrue();
+}, 60_000);
 
 test("the printed URL carries the token in the fragment, never the query string", async () => {
   const project = await scratchProject();

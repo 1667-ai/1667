@@ -14,6 +14,9 @@ read_when:
 | --- | --- |
 | TUI | The terminal user interface |
 | Client | The shared `StoryApi` interface and its transport adapters |
+| web UI | The browser page that `1667 web` serves |
+| token URL | The loopback URL that `1667 web` prints, with a private token in its fragment |
+| project lock | The lock that lets one process at a time open a project |
 | Host | The component that owns a project lock, mutation outbox, and Worker |
 | Worker | The thread that runs the backend service for one project |
 | backend | The service that stores stories and sends provider requests |

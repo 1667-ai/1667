@@ -4,11 +4,8 @@
  * lines cannot find the command they wanted, so detail lives on the page of the
  * command it belongs to and the front page stays a map. */
 
-// `web` is left off this page on purpose while it only serves a placeholder
-// (#409); `1667 web --help` still works.
 export const HELP = `1667 — a full-screen terminal environment for writing fiction
-Usage: 1667 [options]
-       1667 <command> [options]
+Usage: 1667 [options] | 1667 <command> [options]
 
 Commands:
   init             Make a project in this directory
@@ -20,6 +17,7 @@ Commands:
   import-lorebook  Add Facts from a NovelAI lorebook to a story that exists
   profile          Import or export a Generation Profile
   serve            Run the HTTP server
+  web              Open the story project in a web browser
   auth             Manage subscription sign-in and access records
   upgrade, update  Update this program
 Options:
@@ -160,7 +158,7 @@ Options:
   --data <path>     Open this project root instead of discovering one
   --global          Open the machine-wide project instead of a folder`;
 
-export const WEB_HELP = `1667 web — serve a web page for the story project (experimental)
+export const WEB_HELP = `1667 web — write in a web browser
 
 Usage: 1667 web [--data <path>|--global] [--port <n>] [--no-open]
 
@@ -168,18 +166,22 @@ Usage: 1667 web [--data <path>|--global] [--port <n>] [--no-open]
 project lock. The app, or another 1667 web, cannot open the project until
 you stop this command.
 
-1667 web serves a page on this computer only. It prints a URL with a
-private token. Open the URL in a browser to see the page. By default, the
-command opens the URL for you.
+1667 web serves the web UI on this computer only. It prints a URL with a
+private token. Open the URL in a browser. By default, the command opens the
+URL for you. Do not share the URL.
 
-The page shows your Library. The Library lists your stories. You can create
-a story, open a story, rename a story, and delete a story. You can pick a
-light or dark look. You can pick a color palette.
+The web UI has the Library and the story page. A story page has the
+manuscript and the composer. Use the composer to continue, direct, retake,
+write, and edit story parts. The web UI also has the map, tags, chapters,
+Facts, Aside, search, the command palette, settings, and the context meter.
+It has inspector pages for the next request, generation records, and token
+probabilities. You can import files and export a story as Markdown.
+
+Press ? in the browser to see the keys. Some keys differ from the TUI. The
+browser keeps Ctrl+P, and also Ctrl+R and Ctrl+G when the system is not a Mac.
 
 Press Ctrl+C to stop the command. This closes the page and frees the
-project.
-
-This command is experimental.
+project. Read docs/web.md for more.
 
 Options:
   --data <path>  Open this project root instead of discovering one

@@ -12,6 +12,12 @@ This file records notable changes to 1667. Product terms use the definitions in
   act on the story. If a download fails, the page shows a message with a Retry
   button.
 
+- **`1667 web` is ready to use, and it has a guide.** The command is not
+  experimental now. `1667 web --help` describes the web UI, and `1667 --help`
+  lists the command. The new [Web UI](docs/web.md) guide explains how to start
+  it, the token URL, the project lock, the keys that differ from the TUI, and
+  how to import, export, and set the API key.
+
 - **`1667 web` has the remaining writing features.** Select text in a part,
   open the part menu, and choose "Rewrite selection" to rewrite the text in
   place. Choose "Copy story line below" and "Paste story line below" to copy a
