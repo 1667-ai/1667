@@ -11,8 +11,8 @@ import { LibraryDialogs } from "./library/LibraryDialogs.js";
 import { LibraryHome } from "./library/LibraryHome.js";
 import { Sidebar } from "./library/Sidebar.js";
 // The map, the settings and the inspector pages load when they are opened.
-const InspectPage = lazyView(() => import("./inspect/InspectPage.js"), "InspectPage");
-const StoryMap = lazyView(() => import("./map/StoryMap.js"), "StoryMap");
+const InspectPage = lazyView(() => import("./inspect/InspectPage.js"), "InspectPage", { asked: true });
+const StoryMap = lazyView(() => import("./map/StoryMap.js"), "StoryMap", { asked: true });
 import { SettingsRoute } from "./settings/SettingsRoute.js";
 import { StoryView } from "./story/StoryView.js";
 import {

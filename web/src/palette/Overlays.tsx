@@ -10,7 +10,7 @@ import "./features.js";
 
 // The palette and search take typed text the moment a key opens them, so they
 // are part of the first load. The notice log only lists, so it loads on demand.
-const LogDialog = lazyView(() => import("./LogDialog.js"), "LogDialog", { floating: true });
+const LogDialog = lazyView(() => import("./LogDialog.js"), "LogDialog", { floating: true, asked: true });
 
 /**
  * The palette, keys help, notice log and search: dialogs over the page, not routes,

@@ -5,8 +5,8 @@ import { lazyView } from "../ui/LazyView.js";
 
 // The note dialog holds typed text, so it is part of the first load. The Fact
 // check and import dialogs load when their state first asks for them.
-const FactCheckDialog = lazyView(() => import("../factcheck/FactCheckDialog.js"), "FactCheckDialog", { floating: true });
-const ImportReportDialog = lazyView(() => import("../imports/ImportReportDialog.js"), "ImportReportDialog", { floating: true });
+const FactCheckDialog = lazyView(() => import("../factcheck/FactCheckDialog.js"), "FactCheckDialog", { floating: true, asked: true });
+const ImportReportDialog = lazyView(() => import("../imports/ImportReportDialog.js"), "ImportReportDialog", { floating: true, asked: true });
 
 /** The dialogs of the notes, the Fact check and the imports. */
 export function LazyDialogs() {

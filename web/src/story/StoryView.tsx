@@ -22,9 +22,9 @@ import { lazyView } from "../ui/LazyView.js";
 // The panel (Chapters, Facts, Aside, Findings) and the delete dialogs open on
 // request: each loads when it is first shown. Their actions are always loaded,
 // so a key or a menu item never waits for them.
-const StoryPanel = lazyView(() => import("../panel/StoryPanel.js"), "StoryPanel", { floating: true });
-const PruneDialog = lazyView(() => import("./PruneDialog.js"), "PruneDialog", { floating: true });
-const PruneUnusedDialog = lazyView(() => import("./PruneUnusedDialog.js"), "PruneUnusedDialog", { floating: true });
+const StoryPanel = lazyView(() => import("../panel/StoryPanel.js"), "StoryPanel", { floating: true, asked: true });
+const PruneDialog = lazyView(() => import("./PruneDialog.js"), "PruneDialog", { floating: true, asked: true });
+const PruneUnusedDialog = lazyView(() => import("./PruneUnusedDialog.js"), "PruneUnusedDialog", { floating: true, asked: true });
 import { StoryHeader } from "./StoryHeader.js";
 import { NOTHING_TO_MAP_TOAST } from "./reading-keys.js";
 import { centerPart } from "./typewriter.js";

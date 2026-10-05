@@ -59,6 +59,10 @@ export interface LazyViewOptions {
   /** A dialog or a panel: a failure shows as a small floating message and
    * the loading state shows nothing. */
   readonly floating?: boolean;
+  /** The writer asked for this view (a key, a click): keys are held back from
+   * the page behind it while it downloads. A view that only decorates the page,
+   * like the context meter, never takes keys. */
+  readonly asked?: boolean;
 }
 
 export type LazyView<P extends object> = ((props: P & { readonly onDismiss?: () => void }) => ReactNode) & {
@@ -91,6 +95,7 @@ export function lazyView<M extends Record<K, AnyComponent>, K extends string>(
 ): LazyView<PropsOf<M[K]>> {
   type P = PropsOf<M[K]>;
   const floating = options.floating === true;
+  const asked = options.asked === true;
   let failed: string | null = null;
   let retries = 0;
   const pick = async (): Promise<ComponentType<P>> => {
@@ -119,7 +124,7 @@ export function lazyView<M extends Record<K, AnyComponent>, K extends string>(
         onDismiss={onDismiss}
         floating={floating}
       >
-        <Suspense fallback={<><HoldKeys onDismiss={onDismiss} />{floating ? null : <p className="story-empty">{CHUNK_LOADING_TEXT}</p>}</>}>
+        <Suspense fallback={<>{asked && <HoldKeys onDismiss={onDismiss} />}{floating ? null : <p className="story-empty">{CHUNK_LOADING_TEXT}</p>}</>}>
           <Current {...(props as unknown as P)} />
         </Suspense>
       </ChunkBoundary>
