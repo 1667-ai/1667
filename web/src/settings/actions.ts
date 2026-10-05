@@ -285,11 +285,12 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
     probeTimer = setTimeout(() => {
       probeTimer = null;
       const now = loaded();
-      if (now !== null && needsProbe(now)) void probe();
+      if (now !== null && needsProbe(now)) void probe(true);
     }, PROBE_DEBOUNCE_MS);
   }
 
-  async function probe(): Promise<void> {
+  /** `automatic`: started by the page after a target change, not by the Probe button. */
+  async function probe(automatic = false): Promise<void> {
     const current = loaded();
     if (current === null || !current.view.editable) return;
     const preset = selectedPreset(current.draft);
@@ -332,13 +333,12 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         ...state,
         probe: { kind: "done", state: "ready", message: `The server reports ${contextWindow.toLocaleString("en-US")} tokens.` }
       }));
-      // A size that arrives while nothing is changed is part of what the
-      // server holds, as far as the page knows: it must not show as a change.
+      // An automatic probe on a clean form only reports the size: the saved
+      // settings keep "auto", and nothing shows as a change. A Probe press, or
+      // an automatic probe during an edit, fills the field as a normal change.
       const now = loaded();
-      if (now !== null && now.view.editable && now.busy === null && !isDirty(now)) {
-        const detected = applyDetectedContext({ draft: now.draft, secrets: now.secrets }, contextWindow).draft;
-        patch((state) => ({ ...state, draft: detected, base: detected }));
-      } else applyEdit((edit) => applyDetectedContext(edit, contextWindow));
+      if (automatic && now !== null && !isDirty(now)) return;
+      applyEdit((edit) => applyDetectedContext(edit, contextWindow));
     } catch (error) {
       if (stale()) return;
       patch((state) => ({
@@ -759,7 +759,7 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
         }));
       }
     },
-    probeContext: probe,
+    probeContext: () => probe(false),
     save,
     discardDraft: () => {
       const current = loaded();
