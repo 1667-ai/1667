@@ -1,6 +1,6 @@
 import type { FactScopeFilter } from "../../../shared/fact-view.js";
 import type { FactInput } from "../../../shared/types.js";
-import { changedFields, type FactForm } from "./form.js";
+import type { FactForm } from "./form.js";
 
 /**
  * The Facts view's state (#409 step 7b and 7c): the list filter, the one open
@@ -93,30 +93,26 @@ export function initialFactsState(): FactsState {
   return { filter: { scope: "everywhere", tag: null, query: "", anchorPartId: null }, editor: null, pick: null, busy: false };
 }
 
+/** What the shell asks about the open Fact editor. The answers come from the
+ * Facts code (`./editor-ops.ts`), which loads when the Facts view first opens.
+ * An editor can only exist after that, so until then nothing is changed. */
+export interface FactEditorOps {
+  dirty(editor: FactEditor): boolean;
+  copyText(editor: FactEditor): string;
+}
+
+let ops: FactEditorOps | null = null;
+
+export function registerFactEditorOps(registered: FactEditorOps): void {
+  ops = registered;
+}
+
 /** True when the writer has typed something that closing would throw away. */
 export function factEditorDirty(editor: FactEditor): boolean {
-  if (changedFields(editor.base, editor.form).some((field) => field !== "text")) return true;
-  const body = editor.body;
-  if (body.kind === "fact") return editor.form.text !== editor.base.text;
-  if (body.kind === "state" && (body.anchorPartId !== body.baseAnchorPartId || body.ends !== body.baseEnds)) return true;
-  if (body.ends) return false;
-  return editor.form.text !== body.baseText;
+  return ops !== null && ops.dirty(editor);
 }
 
 /** Everything the editor holds, as one text to copy. */
 export function factEditorCopyText(editor: FactEditor): string {
-  const f = editor.form;
-  const head = [
-    ["Name", f.name.trim()],
-    ["Tag", f.tag.trim()],
-    ["Activation", f.activation],
-    ["Keys", f.keys.trim()],
-    ["Secondary keys", f.secondaryKeys.trim()],
-    ["Secondary mode", f.secondaryKeys.trim().length > 0 ? f.secondaryMode : ""],
-    ["Scan depth", f.scanDepth.trim()],
-    ["Chain", f.recursion],
-    ["Priority", f.priority],
-    ["Fact cap", f.budget.trim()]
-  ].filter(([, value]) => value!.length > 0).map(([label, value]) => `${label}: ${value}`);
-  return `${head.join("\n")}\n\n${f.text}`;
+  return ops === null ? "" : ops.copyText(editor);
 }

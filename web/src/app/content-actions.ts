@@ -13,13 +13,38 @@ import { createLibraryActions, type LibraryActions } from "../library/actions.js
 import { createChapterActions, type ChapterActions } from "../chapters/actions.js";
 import { createNotesActions, type NotesActions } from "../notes/actions.js";
 import { createPanelActions, type PanelActions } from "../panel/actions.js";
-import { createSettingsActions, type SettingsActions } from "../settings/actions.js";
+import type { SettingsActions } from "../settings/actions.js";
 import { createTagActions, type TagsActions } from "../tags/actions.js";
 import { createStoryActions, type StoryActions } from "../story/actions.js";
 import { createPartCommands, type PartCommands } from "../story/part-commands.js";
 import { storyRunLocked } from "./run-lock.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
+
+export type LazySettingsActions = SettingsActions & { readonly load: () => Promise<void> };
+
+/** The settings code downloads with the settings page, which calls `load()`
+ * before it renders. Nothing outside that page calls a settings action, so no
+ * call is ever queued: a call before `load()` finishes is a programming error. */
+function createLazySettings(store: Store<AppState>): LazySettingsActions {
+  let loaded: SettingsActions | null = null;
+  let pending: Promise<void> | null = null;
+  const load = (): Promise<void> => {
+    pending ??= import("../settings/actions.js").then(
+      (module) => { loaded = module.createSettingsActions(store); },
+      (error: unknown) => { pending = null; throw error; }
+    );
+    return pending;
+  };
+  return new Proxy({} as LazySettingsActions, {
+    get(_target, key) {
+      if (key === "load") return load;
+      if (typeof key !== "string") return undefined;
+      if (loaded === null) throw new Error("The settings code is not loaded yet.");
+      return (loaded as unknown as Record<string, unknown>)[key];
+    }
+  });
+}
 
 export interface ContentActions {
   readonly library: LibraryActions;
@@ -38,7 +63,8 @@ export interface ContentActions {
   readonly imports: ImportActions;
   readonly notes: NotesActions;
   readonly thoughts: ThoughtActions;
-  readonly settings: SettingsActions;
+  /** Loads with the settings page: `load()` first, then every method answers at once. */
+  readonly settings: LazySettingsActions;
 }
 
 /**
@@ -86,7 +112,7 @@ export function createContentActions(
   const notes = createNotesActions(store, { story });
   const thoughts = createThoughtActions(store);
   const part = createPartCommands(store, { story, generation, compose, editor, tags, chapters, facts, panel });
-  const settings = createSettingsActions(store);
+  const settings = createLazySettings(store);
   return { library, story, generation, part, compose, context, editor, tags, chapters, panel, aside, facts, factCheck, imports, notes, settings, thoughts };
 }
 

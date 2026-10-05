@@ -26,3 +26,17 @@
 .toast > span { flex: 1; }
 .toast-close { color: var(--toast-dim); }
 .toast-close:hover:not(:disabled) { color: var(--toast-ink); }
+
+/* A view whose code did not download (`ui/LazyView.tsx`): a short message with
+   Retry, where the view would be. A dialog or panel shows it over the page. */
+.chunk-error {
+  align-items: center; color: var(--dim); display: flex; flex-wrap: wrap; font-size: var(--fs-small);
+  gap: var(--s-3); justify-content: center; padding: var(--s-4);
+}
+.chunk-error p { margin: 0; }
+.chunk-error-floating {
+  background: var(--toast-bg); border: 1px solid var(--toast-line); border-radius: var(--r-md);
+  bottom: max(var(--s-6), calc(var(--bar-height, 0px) + var(--s-3))); box-shadow: var(--shadow-modal);
+  color: var(--toast-ink); left: 50%; max-width: min(720px, calc(100vw - 2 * var(--s-4)));
+  position: fixed; transform: translateX(-50%); z-index: 100;
+}

@@ -34,11 +34,9 @@ import {
   parseAsideSessionMutationResponse
 } from "../shared/aside-transport-codec.js";
 import type { ReasoningDelta } from "./reasoning.js";
-import {
-  decodeFactConsistencyCheckResponse,
-  decodeFactConsistencyPlanResponse,
-  decodeFactConsistencyRunResponse
-} from "./fact-consistency-api.js";
+// The Fact check's decoders load when a check runs: the web page does not
+// download them for reading and writing.
+const factConsistencyDecoders = () => import("./fact-consistency-api.js");
 
 export interface StoryWorkerTransport {
   call<M extends WorkerMethod>(
@@ -490,11 +488,15 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       await transport.call("getReasoning", { storyId, nodeId }),
     getTakeLine: async (storyId, nodeId) =>
       await transport.call("getTakeLine", { storyId, nodeId }),
-    planFactConsistency: async (input) => decodeFactConsistencyPlanResponse(
-      await transport.call("planFactConsistency", input)
-    ),
+    // The decoders load before the call is sent: a paid check must never run
+    // and then fail to read its own answer.
+    planFactConsistency: async (input) => {
+      const decoders = await factConsistencyDecoders();
+      return decoders.decodeFactConsistencyPlanResponse(await transport.call("planFactConsistency", input));
+    },
     checkFactConsistency: async (input) => {
-      const result = decodeFactConsistencyCheckResponse(
+      const decoders = await factConsistencyDecoders();
+      const result = decoders.decodeFactConsistencyCheckResponse(
         await transport.call(
           "checkFactConsistency",
           input,
@@ -504,9 +506,10 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
       rememberPayload(result.payload);
       return result;
     },
-    getFactConsistencyRun: async (storyId) => decodeFactConsistencyRunResponse(
-      await transport.call("getFactConsistencyRun", { storyId })
-    ),
+    getFactConsistencyRun: async (storyId) => {
+      const decoders = await factConsistencyDecoders();
+      return decoders.decodeFactConsistencyRunResponse(await transport.call("getFactConsistencyRun", { storyId }));
+    },
     getAside: async (storyId) => {
       const result = await transport.call("getAside", { storyId });
       const legacy = legacyAside(result);

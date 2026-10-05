@@ -111,6 +111,8 @@ afterEach(() => {
 async function opened(options: Parameters<typeof open>[0] = {}) {
   const page = open(options);
   pages.push(page);
+  // The settings code loads with the page; the page waits for it too.
+  await page.actions.settings.load();
   page.actions.settings.open();
   await waitFor(() => page.store.get().settings.kind === "loaded");
   return page;

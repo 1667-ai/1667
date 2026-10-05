@@ -1,12 +1,14 @@
-import { Suspense, lazy, useEffect, useRef, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
+import { useEffect, useRef, type DragEvent, type KeyboardEvent, type ReactNode } from "react";
 import { imageInputEntryPointsOpen } from "../../../shared/image-input-release.js";
 import { imageInputRefusalMessage } from "../../../shared/image-input-runtime.js";
 // The thumbnails load with the first attached image.
-const ImageChips = lazy(async () => ({ default: (await import("../images/ImageChips.js")).ImageChips }));
+// The chips and the context meter load when they are first shown.
+const ImageChips = lazyView(() => import("../images/ImageChips.js"), "ImageChips", { floating: true });
+const ContextMeter = lazyView(() => import("../context/ContextMeter.js"), "ContextMeter", { floating: true });
+import { lazyView } from "../ui/LazyView.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { useRequestSignal } from "../ui/useRequestSignal.js";
 import { useAppContext } from "../app/context.js";
-import { ContextMeter } from "../context/ContextMeter.js";
 import { resolveComposeBinding } from "../app/keymap-dom.js";
 import { openStoryPage } from "../app/router.js";
 import { useStore } from "../app/store.js";
@@ -139,7 +141,7 @@ export function Composer(
           <ContextMeter storyId={storyId} />
         </span>
       </div>
-      {draft.images.length > 0 && <Suspense fallback={null}><ImageChips storyId={storyId} images={draft.images} /></Suspense>}
+      {draft.images.length > 0 && <ImageChips storyId={storyId} images={draft.images} />}
       <div className="composer-row">
         <input
           ref={fileRef}

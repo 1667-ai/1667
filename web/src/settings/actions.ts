@@ -56,6 +56,7 @@ import {
   applyProviderChoice,
   applyWritingText,
   canDiscoverModels,
+  changedPromptText,
   draftsEqual,
   invalidCount,
   isDirty,
@@ -67,6 +68,7 @@ import {
   type SettingsEdit
 } from "./model.js";
 import type { LoadedSettings, InvalidField } from "./state.js";
+import { registerSettingsUnsaved } from "./unsaved.js";
 
 /** A change of the connection waits this long before the model list is read
  * again, so typing a URL asks the server once. */
@@ -791,3 +793,5 @@ export function notActiveText(view: SettingsView): string | null {
   if (outcome === null || outcome.result === "committed") return "Saved, not active yet.";
   return `Saved, not active: ${settingsActivationFailureText(outcome.errorCode)}.`;
 }
+
+registerSettingsUnsaved({ isDirty, changedPromptText });

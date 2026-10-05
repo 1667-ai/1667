@@ -2,11 +2,15 @@ import { useEffect } from "react";
 import { pushKeyLayer } from "../app/keymap.js";
 import { useAppContext } from "../app/context.js";
 import { useStore } from "../app/store.js";
-import { KeysDialog } from "./KeysDialog.js";
-import { LogDialog } from "./LogDialog.js";
+import { lazyView } from "../ui/LazyView.js";
 import { SearchDialog } from "../search/SearchDialog.js";
+import { KeysDialog } from "./KeysDialog.js";
 import { PaletteDialog } from "./PaletteDialog.js";
 import "./features.js";
+
+// The palette and search take typed text the moment a key opens them, so they
+// are part of the first load. The notice log only lists, so it loads on demand.
+const LogDialog = lazyView(() => import("./LogDialog.js"), "LogDialog", { floating: true, asked: true });
 
 /**
  * The palette, keys help, notice log and search: dialogs over the page, not routes,
@@ -24,7 +28,7 @@ export function Overlays({ openLibrary }: { readonly openLibrary: () => void }) 
 
   if (overlay === "palette") return <PaletteDialog onClose={actions.overlay.close} openLibrary={openLibrary} />;
   if (overlay === "keys") return <KeysDialog onClose={actions.overlay.close} />;
-  if (overlay === "log") return <LogDialog onClose={actions.overlay.close} />;
+  if (overlay === "log") return <LogDialog onClose={actions.overlay.close} onDismiss={actions.overlay.close} />;
   if (overlay === "search") return <SearchDialog onClose={actions.overlay.close} />;
   return null;
 }

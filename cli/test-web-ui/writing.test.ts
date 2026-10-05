@@ -232,6 +232,7 @@ test("case 4: Prune drafts & discarded shows the counts; confirm removes unused 
   const keeper = (await api.loadStory(seeded.storyId)).tags[0]!.nodeId;
 
   await page.keyboard.press(":");
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("prune");
   await page.getByRole("option", { name: /prune drafts & discarded/ }).waitFor();
   await page.keyboard.press("Enter");
@@ -243,6 +244,7 @@ test("case 4: Prune drafts & discarded shows the counts; confirm removes unused 
   expect((await api.loadStory(seeded.storyId)).nodes.length).toBe(9);
 
   await page.keyboard.press(":");
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("prune");
   await page.keyboard.press("Enter");
   await dialog.waitFor();
@@ -259,6 +261,7 @@ test("case 4: Prune drafts & discarded shows the counts; confirm removes unused 
 test("case 5: the palette's summary take adds a summary part at the end of the line", async () => {
   const { api, seeded, page } = await openForked();
   await page.keyboard.press(":");
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("summary take");
   await page.getByRole("option", { name: /summary take/ }).waitFor();
   await page.keyboard.press("Enter");
@@ -352,6 +355,7 @@ test("case 6: attach image: not offered on a route that cannot take one; on one 
   await attach.waitFor();
   expect(await attach.isDisabled()).toBeTrue();
   await page.keyboard.press(":");
+  await page.getByRole("dialog", { name: "Command palette" }).waitFor();
   await page.keyboard.type("attach image");
   await page.getByRole("option", { name: /attach image/ }).waitFor();
   await page.keyboard.press("Enter");
