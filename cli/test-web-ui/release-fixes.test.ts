@@ -79,14 +79,14 @@ async function expectMenuOnScreen(page: Page, partIndex: number): Promise<void> 
   const box = (await menu.boundingBox())!;
   const viewport = page.viewportSize()!;
   expect(box.y).toBeGreaterThanOrEqual(0);
-  expect(box.y + box.height).toBeLessThanOrEqual(viewport.height);
+  expect(box.y + box.height <= viewport.height).toBeTrue();
   // Every item can be reached: the last one scrolls into the menu's own box.
   const items = menu.getByRole("menuitem");
   const last = items.last();
   await last.scrollIntoViewIfNeeded();
   const lastBox = (await last.boundingBox())!;
   const after = (await menu.boundingBox())!;
-  expect(lastBox.y + lastBox.height).toBeLessThanOrEqual(after.y + after.height + 1);
+  expect(lastBox.y + lastBox.height <= after.y + after.height + 1).toBeTrue();
   expect(lastBox.y).toBeGreaterThanOrEqual(after.y - 1);
   await items.first().scrollIntoViewIfNeeded();
   const firstBox = (await items.first().boundingBox())!;
