@@ -5,75 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **`1667 web` starts faster on a slow connection.** The first download holds
-  the code to read a story, write, and continue. The map, the settings page, the
-  inspector pages, the Facts, Chapters, Aside, and Findings views, and some
-  dialogs download when you first open them. While a view downloads, keys do not
-  act on the story. If a download fails, the page shows a message with a Retry
-  button.
+## 0.11.0-beta.8 - 2026-10-05
 
 - **`1667 web` is ready to use, and it has a guide.** The command is not
   experimental now. `1667 web --help` describes the web UI, and `1667 --help`
   lists the command. The new [Web UI](docs/web.md) guide explains how to start
   it, the token URL, the project lock, the keys that differ from the TUI, and
   how to import, export, and set the API key.
-
-- **`1667 web` has the remaining writing features.** Select text in a part,
-  open the part menu, and choose "Rewrite selection" to rewrite the text in
-  place. Choose "Copy story line below" and "Paste story line below" to copy a
-  story line to another part. The command palette has "summary take" and "prune
-  drafts & discarded". When the model accepts images, the composer has a button
-  to attach an image.
-
-- **`1667 web` shows the next request, the generation records, and the token
-  probabilities.** Open the command palette and choose "next request" to read
-  the exact messages of the next request. On a Mac, press Control+R. Press `h`
-  to read the generation records of a take. Press `l` to read the token
-  probabilities of a take. Press Esc or the Back button to close a page. Press
-  Shift+T to show or hide the stored thought of a take.
-
-- **The map of `1667 web` has a mass view and a Fact lens.** Press `m` to
-  change the view from path to tree to mass. In the mass view, press `s` to
-  change the order. In the tree view, press `f` to see one Fact on the map. Press
-  Tab to see the next Fact. In the path view, press `D` to delete a take and
-  press `t` to tag its line. While a generation writes, the map marks the part
-  that it writes.
-
-- **`1667 web` shows how much the next request holds.** The composer bar shows
-  the size of the next request and the context window. Click it to see the
-  parts of the request: voice, facts, recent text, summary, and note. On a Mac,
-  press Control+G to open and close it. Each Fact shows if the next request
-  sends it, if it did not match, or if the request drops it. The chapter table
-  shows which chapters the next request holds.
-
-- **`1667 web` can import files.** In the Library, click Import or drop a
-  `.md`, `.jsonl`, `.story`, or `.scenario` file on the page. Each file makes a
-  new story and opens it. In an open story, press `:` and choose "import
-  character card" to add the Facts of a card. Choose "import archive" to add the
-  Facts of a `.lorebook`, `.json`, or `.png` file, or to make a new story from
-  a `.story` or `.scenario` file. A dialog lists the Facts that the import added
-  and what it left out. The page refuses a file above 20 MB.
-
-- **`1667 web` can check a chapter or a story line against the Facts.** Press
-  `:` and choose "check chapter against Facts" or "check story line against
-  Facts". The page shows how many parts and requests the check uses. Choose
-  Check to start it. The Findings view of the right panel lists each Fact, the
-  quote, and the contradiction. Click a finding to go to its part. Choose
-  "show Fact findings" to open the last check again. The Fact editor can also
-  re-anchor a Fact State, convert it between text and an End State, and compare
-  it with the State before it.
-
-- **`1667 web` can search the text of your stories.** Press `/` to open the
-  search. Type at least two characters. Press Tab to search all stories, and
-  press Ctrl+S to match case. Press Enter to go to a hit.
-
-- **The map of `1667 web` opens in the path view.** The path view shows the
-  line that you read, part by part. Press `m` to show the tree view.
-
-- **`1667 web` has a command palette, a keys list, and a notice log.** Press `:`
-  to open the command palette. Type to find a command, and press Enter to run
-  it. Press `?` to see the keys that the page uses. Press `!` to see the
-  messages that the app showed in this tab. Press Esc to close each of them.
 
 - **`1667 web` has a settings page.** Press `,` or click the gear in the
   sidebar to open it. You can choose the provider, the base URL, the API key,
@@ -82,13 +20,6 @@ This file records notable changes to 1667. Product terms use the definitions in
   computer and never shows it again. Press Ctrl+S or Cmd+S to save. Press Esc
   to close the page. An unsaved draft stays when you leave the page.
 
-- **`1667 web` can copy text, write an Author's Note, and keep a part in the
-  middle of the page.** Press `y` to copy the part that has focus. Press `Y` to
-  copy the whole line. Press `n` to write an Author's Note with a depth. Press
-  `z` to keep the part that has focus in the middle of the page. The command
-  palette can set an author brief, name a story, and download a story as a
-  Markdown file.
-
 - **The settings page of `1667 web` has an advanced view.** Click Advanced in
   the page header to show it. You can add, copy, rename, and delete a
   profile. You can choose the profile for each task. You can also set the
@@ -96,6 +27,23 @@ This file records notable changes to 1667. Product terms use the definitions in
   cache, the prompt layout, the reasoning display, the timeouts, and the four
   guidance prompts. A row that does not apply to the provider shows the
   reason. On a wide screen, a list of sections stays beside the form.
+
+- **The advanced settings of `1667 web` have sampling, starter profiles, and
+  story lists.** The sampling section has the sampling numbers and the lists for
+  stop sequences, logit bias, phrase bias, banned strings, and DRY breakers.
+  A row that the provider does not accept shows the reason. A preview shows how
+  many token entries the phrases make. The button From starter adds a profile
+  from a starter profile. When you open the settings from a story, the section
+  This story has the phrase bias and the banned strings of that story.
+
+- **`1667 web` has a command palette, a keys list, and a notice log.** Press `:`
+  to open the command palette. Type to find a command, and press Enter to run
+  it. Press `?` to see the keys that the page uses. Press `!` to see the
+  messages that the app showed in this tab. Press Esc to close each of them.
+
+- **`1667 web` can search the text of your stories.** Press `/` to open the
+  search. Type at least two characters. Press Tab to search all stories, and
+  press Ctrl+S to match case. Press Enter to go to a hit.
 
 - **`1667 web` has Aside.** Press `a` on a part to ask a question about its
   take. The answer shows in the side panel and never changes the story. Press
@@ -110,13 +58,67 @@ This file records notable changes to 1667. Product terms use the definitions in
   the story, you choose a place with the arrow keys or a click. Nothing is
   written until you press Enter. Press Esc to cancel.
 
-- **The advanced settings of `1667 web` have sampling, starter profiles, and
-  story lists.** The sampling section has the sampling numbers and the lists for
-  stop sequences, logit bias, phrase bias, banned strings, and DRY breakers.
-  A row that the provider does not accept shows the reason. A preview shows how
-  many token entries the phrases make. The button From starter adds a profile
-  from a starter profile. When you open the settings from a story, the section
-  This story has the phrase bias and the banned strings of that story.
+- **`1667 web` can copy text, write an Author's Note, and keep a part in the
+  middle of the page.** Press `y` to copy the part that has focus. Press `Y` to
+  copy the whole line. Press `n` to write an Author's Note with a depth. Press
+  `z` to keep the part that has focus in the middle of the page. The command
+  palette can set an author brief, name a story, and download a story as a
+  Markdown file.
+
+- **`1667 web` has the remaining writing features.** Select text in a part,
+  open the part menu, and choose "Rewrite selection" to rewrite the text in
+  place. Choose "Copy story line below" and "Paste story line below" to copy a
+  story line to another part. The command palette has "summary take" and "prune
+  drafts & discarded". When the model accepts images, the composer has a button
+  to attach an image.
+
+- **The map of `1667 web` opens in the path view.** The path view shows the
+  line that you read, part by part. Press `m` to show the tree view.
+
+- **The map of `1667 web` has a mass view and a Fact lens.** Press `m` to
+  change the view from path to tree to mass. In the mass view, press `s` to
+  change the order. In the tree view, press `f` to see one Fact on the map. Press
+  Tab to see the next Fact. In the path view, press `D` to delete a take and
+  press `t` to tag its line. While a generation writes, the map marks the part
+  that it writes.
+
+- **`1667 web` shows the next request, the generation records, and the token
+  probabilities.** Open the command palette and choose "next request" to read
+  the exact messages of the next request. On a Mac, press Control+R. Press `h`
+  to read the generation records of a take. Press `l` to read the token
+  probabilities of a take. Press Esc or the Back button to close a page. Press
+  Shift+T to show or hide the stored thought of a take.
+
+- **`1667 web` shows how much the next request holds.** The composer bar shows
+  the size of the next request and the context window. Click it to see the
+  parts of the request: voice, facts, recent text, summary, and note. On a Mac,
+  press Control+G to open and close it. Each Fact shows if the next request
+  sends it, if it did not match, or if the request drops it. The chapter table
+  shows which chapters the next request holds.
+
+- **`1667 web` can check a chapter or a story line against the Facts.** Press
+  `:` and choose "check chapter against Facts" or "check story line against
+  Facts". The page shows how many parts and requests the check uses. Choose
+  Check to start it. The Findings view of the right panel lists each Fact, the
+  quote, and the contradiction. Click a finding to go to its part. Choose
+  "show Fact findings" to open the last check again. The Fact editor can also
+  re-anchor a Fact State, convert it between text and an End State, and compare
+  it with the State before it.
+
+- **`1667 web` can import files.** In the Library, click Import or drop a
+  `.md`, `.jsonl`, `.story`, or `.scenario` file on the page. Each file makes a
+  new story and opens it. In an open story, press `:` and choose "import
+  character card" to add the Facts of a card. Choose "import archive" to add the
+  Facts of a `.lorebook`, `.json`, or `.png` file, or to make a new story from
+  a `.story` or `.scenario` file. A dialog lists the Facts that the import added
+  and what it left out. The page refuses a file above 20 MB.
+
+- **`1667 web` starts faster on a slow connection.** The first download holds
+  the code to read a story, write, and continue. The map, the settings page, the
+  inspector pages, the Facts, Chapters, Aside, and Findings views, and some
+  dialogs download when you first open them. While a view downloads, keys do not
+  act on the story. If a download fails, the page shows a message with a Retry
+  button.
 
 ## 0.11.0-beta.7 - 2026-10-04
 
