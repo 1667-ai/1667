@@ -5,6 +5,31 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.0 - 2026-10-05
+
+- **You can write in a web browser.** Run `1667 web` in a project folder. The
+  command opens your project in a page on this computer only. The page has the
+  writing tools of the TUI: the Library, Continue, Direct, takes, edits, the
+  map, tags, chapters and summaries, Facts and Fact States, the Fact check,
+  Aside, search, the command palette, the inspectors, settings, and import and
+  export. Read the [Web UI](docs/web.md) guide.
+
+- **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On
+  the Anthropic provider, you can set effort for these models. 1667 shows
+  their thoughts and uses prompt caching for them.
+
+- **Claude plan lists Claude Opus 5.5 and Claude Fable 5.1.**
+- **ChatGPT plan lists GPT-6 Astra, GPT-6 Luna, and GPT-6 Sol.** It no longer
+  lists GPT-5.4 or GPT-5.4 mini, because ChatGPT accounts cannot use them. A
+  new ChatGPT plan connection starts with GPT-5.5. If your connection uses
+  GPT-5.4, select a different model in Settings.
+
+- **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same
+  thing.
+
+- **The TUI keeps your draft after a revision conflict.** It loads the stored
+  story before you retry the edit.
+
 ## 0.11.0-beta.9 - 2026-10-05
 
 - **`1667 web` has six fixes from release tests.** The part menu stays on the
