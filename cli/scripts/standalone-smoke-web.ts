@@ -106,12 +106,11 @@ export async function smokeStandaloneWeb(
 
 /**
  * Opens a story route and its map route in a real Chrome and requires a
- * clean console. A build machine with no Chrome skips this step, except in CI,
- * where a missing Chrome is a failure.
+ * clean console. A build machine with no Chrome skips this step: Chrome has
+ * no Linux arm64 build, and the CI `web-ui` job covers these routes in Chrome.
  */
 async function smokeRoutesInBrowser(url: URL, token: string): Promise<void> {
   const browser = await chromium.launch({ channel: "chrome" }).catch((error: unknown) => {
-    if (process.env.CI !== undefined && process.env.CI !== "") throw error;
     console.warn(`Standalone web smoke skipped the browser step: no Chrome (${String(error)})`);
     return null;
   });

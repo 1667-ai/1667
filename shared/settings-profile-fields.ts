@@ -21,7 +21,7 @@ import {
 } from "./reasoning-display-capabilities.js";
 import { resolveImageInputCapability } from "./image-input-capabilities.js";
 import { samplingContextForRoute, type SamplingContext } from "./sampling-capabilities.js";
-import { MAX_ALTERNATIVE_TOKENS } from "./token-probabilities.js";
+import { MAX_ALTERNATIVE_TOKENS } from "./token-probability-policy.js";
 import {
   resolveTokenProbabilities,
   type TokenProbabilityResolution
