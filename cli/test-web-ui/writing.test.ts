@@ -371,8 +371,8 @@ test("case 6: attach image: not offered on a route that cannot take one; on one 
   if (!ownedLoopbackHttpSupported()) {
     await page.getByRole("group", { name: "Plain HTTP" }).getByRole("button", { name: "On" }).click();
   }
-  await page.getByRole("combobox", { name: "Model" }).click();
-  await page.getByRole("option", { name: /^gpt-4o/ }).click();
+  await page.getByText(/1 model listed/).waitFor();
+  expect(await page.getByRole("combobox", { name: "Model" }).inputValue()).toBe("gpt-4o");
   await page.keyboard.press("ControlOrMeta+s");
   await page.getByText("Settings saved", { exact: true }).waitFor();
   await page.keyboard.press("Escape");

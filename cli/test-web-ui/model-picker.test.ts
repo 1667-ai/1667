@@ -118,10 +118,16 @@ test("multiple models have a dropdown despite a previous name, with search and r
   const { api, page, model } = await openPicker(["local-model-a", "local-model-b"]);
   await page.getByText(/2 models listed/).waitFor();
   expect(await model.inputValue()).toBe("previous-model");
+  const list = page.getByRole("listbox", { name: "Models" });
+  // Discovery can open the list after the fixture types the previous name.
+  await page.getByRole("heading", { name: "Settings", level: 1 }).click();
+  await list.waitFor({ state: "detached" });
   const choose = page.getByRole("button", { name: "Choose model", exact: true });
   await choose.click();
+  await page.getByRole("option", { name: /^local-model-b/ }).waitFor();
   expect(await page.getByRole("option").count()).toBe(2);
   await page.getByRole("option", { name: /^local-model-b/ }).click();
+  await list.waitFor({ state: "detached" });
   expect(await model.inputValue()).toBe("local-model-b");
 
   await model.click();
@@ -129,6 +135,7 @@ test("multiple models have a dropdown despite a previous name, with search and r
   await model.click();
   await page.getByRole("option", { name: /^local-model-b/ }).waitFor();
   await model.fill("model-b");
+  await page.getByRole("option", { name: /^local-model-a/ }).waitFor({ state: "detached" });
   expect(await page.getByRole("option").count()).toBe(1);
   await page.getByRole("option", { name: /^local-model-b/ }).click();
   expect(await saveModel(page, api)).toBe("local-model-b");
@@ -137,9 +144,10 @@ test("multiple models have a dropdown despite a previous name, with search and r
   await page.getByRole("option", { name: /^local-model-a/ }).waitFor();
   await screenshot(page, "multiple");
   await page.keyboard.press("Escape");
-  expect(await page.getByRole("listbox", { name: "Models" }).count()).toBe(0);
+  await list.waitFor({ state: "detached" });
   await model.fill("custom-model");
   await choose.click();
+  await page.getByRole("option", { name: /^local-model-b/ }).waitFor();
   expect(await page.getByRole("option").count()).toBe(2);
   expect(await model.inputValue()).toBe("custom-model");
   await page.keyboard.press("Escape");
