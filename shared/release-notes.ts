@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.1",
+    date: "2026-10-06",
+    body: "- **The web UI selects the only model automatically.** If the provider lists\n  more than one model, use the arrow beside the Model field to open the list.\n  A previous model name no longer hides the models in the list. You can search\n  the list or type a custom model name."
+  },
+  {
     version: "0.11.1-beta.1",
     date: "2026-10-06",
     body: "- **The web UI selects the only model automatically.** If the provider lists\n  more than one model, use the arrow beside the Model field to open the list.\n  A previous model name no longer hides the models in the list. You can search\n  the list or type a custom model name."
