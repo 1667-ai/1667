@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.1-beta.1 - 2026-10-06
+
+- **The web UI selects the only model automatically.** If the provider lists
+  more than one model, use the arrow beside the Model field to open the list.
+  A previous model name no longer hides the models in the list. You can search
+  the list or type a custom model name.
+
 ## 0.11.0 - 2026-10-05
 
 - **You can write in a web browser.** Run `1667 web` in a project folder. The

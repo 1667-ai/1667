@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.1-beta.1",
+    date: "2026-10-06",
+    body: "- **The web UI selects the only model automatically.** If the provider lists\n  more than one model, use the arrow beside the Model field to open the list.\n  A previous model name no longer hides the models in the list. You can search\n  the list or type a custom model name."
+  },
+  {
     version: "0.11.0",
     date: "2026-10-05",
     body: "- **You can write in a web browser.** Run `1667 web` in a project folder. The\n  command opens your project in a page on this computer only. The page has the\n  writing tools of the TUI: the Library, Continue, Direct, takes, edits, the\n  map, tags, chapters and summaries, Facts and Fact States, the Fact check,\n  Aside, search, the command palette, the inspectors, settings, and import and\n  export. Read the [Web UI](docs/web.md) guide.\n\n- **1667 knows Claude Opus 5.5, Claude Fable 5.1, and Claude Mythos 5.1.** On\n  the Anthropic provider, you can set effort for these models. 1667 shows\n  their thoughts and uses prompt caching for them.\n\n- **Claude plan lists Claude Opus 5.5 and Claude Fable 5.1.**\n- **ChatGPT plan lists GPT-6 Astra, GPT-6 Luna, and GPT-6 Sol.** It no longer\n  lists GPT-5.4 or GPT-5.4 mini, because ChatGPT accounts cannot use them. A\n  new ChatGPT plan connection starts with GPT-5.5. If your connection uses\n  GPT-5.4, select a different model in Settings.\n\n- **`1667 update` is a new name for `1667 upgrade`.** Both commands do the same\n  thing.\n\n- **The TUI keeps your draft after a revision conflict.** It loads the stored\n  story before you retry the edit."
