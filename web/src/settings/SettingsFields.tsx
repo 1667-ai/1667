@@ -59,6 +59,7 @@ function leaveFieldOnEscape(event: React.KeyboardEvent<HTMLElement>): void {
 function useTypedText(value: string, refused: string | undefined) {
   const [typed, setTyped] = useState<string | null>(null);
   return {
+    typed,
     shown: refused ?? typed ?? value,
     type: (text: string) => setTyped(text),
     done: () => setTyped(null)
@@ -338,20 +339,25 @@ export function ModelRow({ loaded, disabled, dryRun }: {
   const labelId = `${id}-label`;
   const { open, setOpen, containerRef } = usePopover();
   const typedState = useTypedText(loaded.draft.generation.model, undefined);
+  // Discovery can replace the model while the input still has focus.
+  const typed = typedState.typed?.trim() === loaded.draft.generation.model ? typedState.typed : null;
   const discovery = loaded.discovery !== null && loaded.discovery.target === targetIdentity(loaded) ? loaded.discovery : null;
   const models: readonly DiscoveredModelV2[] = discovery?.kind === "ready" ? discovery.models : [];
-  const needle = typedState.shown.trim().toLowerCase();
+  // A stored name must not hide models returned by a different server.
+  const needle = typed?.trim().toLowerCase() ?? "";
   const exact = models.some((model) => model.remoteId.toLowerCase() === needle);
   const shownModels = needle.length === 0 || exact
     ? models
     : models.filter((model) => model.remoteId.toLowerCase().includes(needle) || model.name.toLowerCase().includes(needle));
+  const menuOpen = open && !disabled && !dryRun && models.length > 1 && shownModels.length > 0;
   const hint = dryRun
     ? "Dry-run needs no model."
     : discovery === null ? "Type the model name."
       : discovery.kind === "loading" ? "Reading the model list…"
         : discovery.kind === "failed" ? `The model list is not available: ${discovery.message} Type the model name.`
           : models.length === 0 ? "The server lists no models. Type the model name."
-            : `${models.length.toLocaleString("en-US")} ${models.length === 1 ? "model" : "models"} listed. Pick one, or type a name.`;
+            : models.length === 1 ? "1 model listed."
+              : `${models.length.toLocaleString("en-US")} models listed. Pick one, or type a name.`;
   return (
     <Row label="Model" labelId={labelId} hint={hint} tone={discovery?.kind === "failed" ? "warning" : undefined}>
       <div className="settings-popover-wrap" ref={containerRef}>
@@ -361,19 +367,36 @@ export function ModelRow({ loaded, disabled, dryRun }: {
               type="text"
               role="combobox"
               aria-labelledby={labelId}
-              aria-expanded={open && shownModels.length > 0}
+              aria-expanded={menuOpen}
               aria-autocomplete="list"
               aria-controls={`${id}-list`}
-              value={typedState.shown}
+              value={typed ?? loaded.draft.generation.model}
               disabled={disabled || dryRun}
               spellCheck={false}
               autoComplete="off"
               onFocus={() => setOpen(true)}
+              onClick={() => setOpen(true)}
               onChange={(event) => { typedState.type(event.currentTarget.value); setOpen(true); actions.settings.setModel(event.currentTarget.value); }}
               onBlur={typedState.done}
               onKeyDown={(event) => { if (event.key === "Escape") { setOpen(false); } leaveFieldOnEscape(event); }}
             />
           </div>
+          {models.length > 1 && (
+            <button
+              type="button"
+              className="icon-btn"
+              title="Choose model"
+              aria-label="Choose model"
+              aria-haspopup="listbox"
+              aria-expanded={menuOpen}
+              aria-controls={`${id}-list`}
+              disabled={disabled || dryRun}
+              onMouseDown={(event) => event.preventDefault()}
+              onClick={() => { typedState.done(); setOpen(!menuOpen); }}
+            >
+              <Icon path={ICONS.chevronDown} />
+            </button>
+          )}
           <button
             type="button"
             className="icon-btn"
@@ -385,7 +408,7 @@ export function ModelRow({ loaded, disabled, dryRun }: {
             <Icon path={ICONS.rotate} />
           </button>
         </div>
-        {open && shownModels.length > 0 && (
+        {menuOpen && (
           <div ref={showMenu} className="menu settings-menu" role="listbox" id={`${id}-list`} aria-label="Models">
             {shownModels.map((model) => (
               <button

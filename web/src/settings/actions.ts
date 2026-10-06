@@ -251,13 +251,19 @@ export function createSettingsActions(store: Store<AppState>): SettingsActions {
       const result = await requireApi(store).discoverModels(probeTargetFor(current), controller.signal);
       const now = loaded();
       if (controller.signal.aborted || now === null || targetIdentity(now) !== target) return;
+      const only = result.models.length === 1 ? result.models[0]! : null;
       patch((state) => ({
         ...state,
-        discovery: { target, kind: "ready", models: result.models, observedAt: result.observedAt }
+        discovery: { target, kind: "ready", models: result.models, observedAt: result.observedAt },
+        // Late discovery is a newer draft edit. Keep an in-flight save's
+        // captured intent unchanged; settlement preserves the newer draft.
+        draft: only === null || !state.view.editable ? state.draft
+          : applyModel({ draft: state.draft, secrets: state.secrets }, only.remoteId, only.contextWindow).draft
       }));
-      // The only model a server lists is the one to use, when none is chosen.
-      const only = result.models.length === 1 ? result.models[0]! : null;
-      if (only !== null && now.draft.generation.model.trim().length === 0) pickModel(only);
+      if (only !== null) {
+        syncDiscovery(false);
+        scheduleProbe();
+      }
     } catch (error) {
       if (controller.signal.aborted) return;
       const now = loaded();
