@@ -280,6 +280,11 @@ web UI handles. The web UI differs from the TUI in these ways:
 Open the settings and choose the provider. Type the API key in the API key
 field. Choose Save.
 
+If the provider lists one model, the web UI selects it automatically. This
+replaces the previous model name. If the provider lists more than one model,
+use the arrow beside the Model field to open the list. Select a model from
+the list. You can also type a model name in the Model field.
+
 1667 stores the API key on this computer. The web UI never shows the key again
 after you save it. It shows only that a key is stored. To replace the key, type
 a new key.

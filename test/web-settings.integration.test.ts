@@ -76,17 +76,19 @@ interface Saves {
 
 function open(options: {
   readonly view?: SettingsView;
+  readonly getSettings?: StoryApi["getSettings"];
+  readonly discoverModels?: StoryApi["discoverModels"];
   readonly save?: (command: Parameters<StoryApi["saveSettings"]>[0], call: number) => Promise<SettingsMutationResult>;
 } = {}) {
   const saves: Saves = { commands: [] };
   const fake = fakeApi({
-    getSettings: async () => options.view ?? editableView(),
+    getSettings: options.getSettings ?? (async () => options.view ?? editableView()),
     methods: {
       saveSettings: async (command: Parameters<StoryApi["saveSettings"]>[0]) => {
         saves.commands.push(command);
         return await (options.save ?? (async () => SAVED))(command, saves.commands.length);
       },
-      discoverModels: async () => ({ observedAt: new Date(0).toISOString(), models: [] }),
+      discoverModels: options.discoverModels ?? (async () => ({ observedAt: new Date(0).toISOString(), models: [] })),
       probeContextWindow: async () => ({ contextWindow: null })
     }
   });
@@ -117,6 +119,50 @@ async function opened(options: Parameters<typeof open>[0] = {}) {
   await waitFor(() => page.store.get().settings.kind === "loaded");
   return page;
 }
+
+test("single-model discovery during a save keeps the sent model and selects the new draft model", async () => {
+  let stored = editableView();
+  let finishSave!: () => void;
+  const saveReady = new Promise<void>((resolve) => { finishSave = resolve; });
+  let finishDiscovery!: (result: Awaited<ReturnType<StoryApi["discoverModels"]>>) => void;
+  const discovery = new Promise<Awaited<ReturnType<StoryApi["discoverModels"]>>>((resolve) => { finishDiscovery = resolve; });
+  const { actions, store, saves } = await opened({
+    getSettings: async () => stored,
+    discoverModels: async () => discovery,
+    save: async (command) => {
+      await saveReady;
+      stored = editableView(command.document, stored.stateGeneration! + 1);
+      return SAVED;
+    }
+  });
+  actions.settings.chooseProvider("openai-compatible");
+  actions.settings.setBaseUrl("https://models.example.test/v1");
+  actions.settings.setModel("previous-model");
+  actions.settings.refreshModels();
+  const saving = actions.settings.save();
+  try {
+    await waitFor(() => saves.commands.length === 1);
+    finishDiscovery({
+      observedAt: new Date(0).toISOString(),
+      models: [{
+        remoteId: "local-model", name: "Local model", contextWindow: 32_768,
+        maxOutputTokens: null, source: "openai-models"
+      }]
+    });
+    await waitFor(() => loaded(store).discovery?.kind === "ready");
+    finishSave();
+    await saving;
+    assert.equal(loaded(store).draft.generation.model, "local-model");
+    await actions.settings.save();
+    assert.deepEqual(saves.commands.map(({ document }) => {
+      const profile = document.profiles[document.routing.default]!;
+      return document.models[profile.modelId]!.remoteId;
+    }), ["previous-model", "local-model"]);
+  } finally {
+    finishSave();
+    await saving;
+  }
+});
 
 test("a save whose answer was lost keeps its intent, and the next Save sends the same mutation id", async () => {
   const { actions, store, saves } = await opened({
