@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.2-beta.1 - 2026-11-15
+
 - **Stop keeps the streamed text with KoboldCpp.** A Stop during Continue,
   Direct, Retake, Rewrite selection, or Aside lost the streamed text when the
   model server ended its stream at connection close, as KoboldCpp does. The

@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.2-beta.1",
+    date: "2026-11-15",
+    body: "- **Stop keeps the streamed text with KoboldCpp.** A Stop during Continue,\n  Direct, Retake, Rewrite selection, or Aside lost the streamed text when the\n  model server ended its stream at connection close, as KoboldCpp does. The\n  page went back to the original take, and the notice log showed \"Model stream\n  ended before its terminal event.\" Now 1667 saves the streamed text, as it\n  does for other model servers."
+  },
+  {
     version: "0.11.1",
     date: "2026-10-06",
     body: "- **The web UI selects the only model automatically.** If the provider lists\n  more than one model, use the arrow beside the Model field to open the list.\n  A previous model name no longer hides the models in the list. You can search\n  the list or type a custom model name."
