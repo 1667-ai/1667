@@ -1654,6 +1654,33 @@ test("provider EOF before a terminal event rejects partial output", async (t) =>
   );
 });
 
+test("a body that ends cleanly because of a Stop reports the Stop, not a provider failure", async (t) => {
+  // Bun 1.4 ends an aborted response body without an error when the server
+  // ends its stream at connection close, as KoboldCpp does (issue #458).
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (_input: unknown, init?: RequestInit) => new Response(new ReadableStream({
+    start(controller) {
+      controller.enqueue(new TextEncoder().encode(openAiDelta("first")));
+      init?.signal?.addEventListener("abort", () => controller.close(), { once: true });
+    }
+  }), {
+    headers: { "content-type": "text/event-stream" }
+  })) as typeof fetch;
+  t.after(() => { globalThis.fetch = originalFetch; });
+  const controller = new AbortController();
+  const iterator = streamCompletion(attached(), PROMPT, controller.signal);
+
+  assert.deepEqual(await iterator.next(), { done: false, value: "first" });
+  // The reader waits for the next event when the Stop arrives, as it does
+  // between two deltas of a real stream.
+  const waiting = iterator.next();
+  await new Promise<void>((resolve) => setTimeout(resolve, 10));
+  const stop = new Error("user Stop");
+  controller.abort(stop);
+
+  await assert.rejects(waiting, (error: unknown) => error === stop);
+});
+
 test("provider event buffering stops transport reads at its memory bound", async (t) => {
   const originalFetch = globalThis.fetch;
   const encoder = new TextEncoder();

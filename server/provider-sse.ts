@@ -255,6 +255,14 @@ export async function* providerSseEvents(
           active = await enqueueParsedEvents(parser.push(decoder.decode()));
         }
         if (active && !terminalQueued) {
+          // An aborted request can end its body without an error. Bun 1.4
+          // does this for a response that ends at connection close, such as
+          // the HTTP/1.0 stream of KoboldCpp (issue #458). After a Stop or a
+          // deadline of this request, the early end is that cancellation,
+          // not a provider failure. Give the abort reason to
+          // `providerStreamFailure`, which classifies it.
+          if (callerSignal.aborted) throw callerSignal.reason;
+          if (combinedSignal.aborted) throw combinedSignal.reason;
           throw new ProviderError(
             "Model stream ended before its terminal event."
           );
