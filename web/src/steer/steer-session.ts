@@ -170,8 +170,13 @@ export function createSteerSession(source: PreviewSource, steering: Steering = N
     changed();
   }
 
+  /** A restart begins fresh: `dispose` cleared the timers that would lift a held regeneration or a retry wait. */
   function start(): void {
     disposed = false;
+    regenerationHeld = false;
+    restCount = shown;
+    retryAt = 0;
+    retryMs = RETRY_MS;
     scheduleTopUp();
   }
 

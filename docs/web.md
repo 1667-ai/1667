@@ -216,8 +216,8 @@ Move the knob back to write the text again. The page discards the words after
 the knob. When the knob stays still for 100 ms, the page writes new words from
 that place.
 
-The steer page is not available while a generation runs. It is also not
-available on a server that cannot preview.
+The steer page is not available while another model request runs, in any
+story. It is also not available on a server that cannot preview.
 
 ### Aside
 

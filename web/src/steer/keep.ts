@@ -1,6 +1,6 @@
 import type { StoryApi } from "../../../client/api.js";
 import type { AppActions } from "../app/actions.js";
-import { closeStoryPage } from "../app/router.js";
+import { closeStoryPage, currentRoute } from "../app/router.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { failureToast, findCreatedPart, runStoryMutation } from "../app/story-mutation.js";
@@ -45,6 +45,8 @@ export async function keepPreview(
   }
   const landed = findCreatedPart(outcome.payload, known, parentId, KEEP_INSTRUCTION, body);
   actions.story.adoptPayload(storyId, outcome.payload, landed === undefined ? {} : { focus: { kind: "part", partId: landed.id } });
-  closeStoryPage(storyId);
+  // The writer may have left the page while the save ran; never move them from where they went.
+  const route = currentRoute();
+  if (route.kind === "story" && route.id === storyId && route.page?.kind === "steer") closeStoryPage(storyId);
   return true;
 }

@@ -1,5 +1,5 @@
 import { isStoryPage, openStoryPage } from "../app/router.js";
-import { storyRunLocked } from "../app/run-lock.js";
+import { runBusyToast } from "../app/run-lock.js";
 import { registerCommands, type CommandContext } from "../palette/registry.js";
 
 /** A loaded story page whose line has a part, on a server that can preview, and no run holding the story. */
@@ -7,7 +7,7 @@ function canSteer(context: CommandContext): boolean {
   const { route, story, connection } = context.state;
   if (!isStoryPage(route) || story.kind !== "loaded" || story.payload.id !== route.id) return false;
   if (story.payload.path.length === 0 || connection.kind !== "connected") return false;
-  return connection.api.previewContinuation !== undefined && !storyRunLocked(context.state, route.id);
+  return connection.api.previewContinuation !== undefined && runBusyToast(context.state, route.id) === null;
 }
 
 registerCommands([
