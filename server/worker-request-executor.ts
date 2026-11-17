@@ -28,7 +28,7 @@ import { mutationFingerprint } from "./mutation-receipts.js";
 import { toPublicServiceError } from "./service-error-policy.js";
 import { StoryService } from "./story-service.js";
 import { storyIdForMutation } from "./story-identity.js";
-import { requireRecord, requireString } from "./validation.js";
+import { requireRecord, requireString, requireStringValue } from "./validation.js";
 import { WorkerDeltaBatcher } from "./worker-delta-batcher.js";
 import {
   executeWorkerMutation,
@@ -95,7 +95,8 @@ export async function executeWorkerRequest(
         message.method,
         message.input,
         cancellation.signal,
-        imageEntryPointsOpen
+        imageEntryPointsOpen,
+        onDelta
       );
     } else {
       value = await executeWorkerMutationWithRetry(
@@ -381,7 +382,11 @@ async function invokeReadOnly(
   method: WorkerMethod,
   value: unknown,
   signal: AbortSignal,
-  imageEntryPointsOpen: boolean
+  imageEntryPointsOpen: boolean,
+  /** Only `previewContinuation` streams from this read-only path: it saves
+   *  nothing, so it carries no mutation id, yet its deltas travel through the
+   *  same batcher as `continueStory`'s. */
+  onDelta: (text: string) => void
 ): Promise<unknown> {
   if (signal.aborted) {
     throw new ServiceError(
@@ -462,6 +467,17 @@ async function invokeReadOnly(
         parseAsideAnchorInput(input.anchor)
       );
     }
+    case "previewContinuation":
+      return await service.previewContinuation(
+        requireString(input.storyId, "storyId"),
+        {
+          parentId: input.parentId === null ? null : requireString(input.parentId, "parentId"),
+          instruction: requireStringValue(input.instruction, "instruction"),
+          prefix: requireStringValue(input.prefix, "prefix")
+        },
+        onDelta,
+        signal
+      );
     case "getSettings": return await service.getSettings();
     case "checkModelServer":
       return await service.checkModelServer(

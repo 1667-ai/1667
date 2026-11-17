@@ -188,6 +188,8 @@ function logicalRequestBody(
         ? undefined
         : { instruction: input.instruction, genId: input.genId, ...target };
     }
+    case "previewContinuation":
+      return { instruction: input.instruction, prefix: input.prefix };
     case "askAside":
       return {
         question: input.question,

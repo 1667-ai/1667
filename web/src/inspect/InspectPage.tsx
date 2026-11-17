@@ -9,6 +9,7 @@ import { SidebarToggle } from "../ui/SidebarToggle.js";
 import { ProbsViewer } from "./ProbsViewer.js";
 import { RecordViewer } from "./RecordViewer.js";
 import { RequestViewer } from "./RequestViewer.js";
+import { SteerPage } from "../steer/SteerPage.js";
 
 /** The page's chrome: the same header as the map, a body that scrolls, and
  * the stop bar underneath so a running generation stays stoppable. */
@@ -83,5 +84,6 @@ export function InspectPage(
     case "request": return <RequestViewer {...common} />;
     case "records": return <RecordViewer {...common} nodeId={page.nodeId} />;
     case "probs": return <ProbsViewer {...common} nodeId={page.nodeId} />;
+    case "steer": return <SteerPage {...common} />;
   }
 }

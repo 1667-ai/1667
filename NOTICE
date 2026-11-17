@@ -33,7 +33,12 @@ React
 Copyright (c) Meta Platforms, Inc. and affiliates.
 Covers the react, react-dom, and scheduler packages.
 
-The following MIT License applies to the four components above:
+Spaceship IDE
+Copyright (c) 2026 Sun
+The web steer page ports its knob and preview stream from
+https://github.com/chuanqisun/spaceship.
+
+The following MIT License applies to the five components above:
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

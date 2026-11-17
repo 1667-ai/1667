@@ -42,8 +42,8 @@ import {
 import { reasoningCapture, reasoningSafeToStore } from "./reasoning-capture.js";
 import { storySamplingBias } from "./sampling-phrase-bias.js";
 import { AnchoredOutputFilter, phraseRewritePlan, rewritePlan, supportsAssistantPrefill } from "./generation-prompts.js";
-import { assembleContinuation } from "./continuation-assembly.js";
-import { admitFactsIntoPrompt, assertImageContextAdmitted, type GenerationAdmissionRegistry } from "./generation-admission.js";
+import { buildContinueRequest, continueStreamOptions } from "./continue-request.js";
+import { admitFactsIntoPrompt, type GenerationAdmissionRegistry } from "./generation-admission.js";
 import {
   operationGuidanceContext,
   resolveContinueRequestDirection
@@ -54,13 +54,11 @@ import type { SettingsStore } from "./settings.js";
 import type { ProviderStoryRuntime } from "./story-mutation-runtime.js";
 import { hasCommittedGeneration, requireNode } from "./story-nodes.js";
 import {
-  activeImageContext,
   loadActiveImageBytes,
   resolveContinueStoryImages,
   type ImageAttachmentStore
 } from "./generation-image-attachments.js";
 import { parseWorkerContinueImages } from "./worker-continue-target.js";
-import { providerRuntimeFor } from "./provider-runtime.js";
 import { imageInputEntryPointsOpen } from "../shared/image-input-release.js";
 import { activeBudgetedFacts, activeBudgetedFactsForRewrite } from "../shared/fact-selection.js";
 import { formatFactsMessage } from "../shared/story-facts.js";
@@ -349,64 +347,43 @@ export async function continueStory(
     writing ?? DEFAULT_WRITING_PROMPT_SETTINGS,
     genuineAppend
   );
-  const budgetedFacts = activeBudgetedFacts(story, {
-    contextParts,
-    chapterBreaks: story.chapterBreaks,
-    nodes: story.nodes,
-    instruction
-  });
   const model = settings.provider === "dry-run" ? "dry-run" : settings.model;
   // Record it now: a Stop that saves the partial must credit this model, even if
   // the user switches models while the stream is still running.
   generationAdmission.rememberModel(id, genId, model);
-  // Every image the active prompt will carry, whether the model authorizes
-  // it, and the visual tokens to reserve. Closes the matching TODO in
-  // server/generation-admission.ts. A text-only request resolves no
-  // capability at all, so its behavior and request bytes stay exactly as
-  // before Image Input existed (image-input design's byte-identity promise).
-  // The stored override rides in ahead of built-in model knowledge, exactly
-  // the explicit-override-first order `resolveImageInputCapability`
-  // (shared/image-input-capabilities.ts) already documents.
-  const { activeImages, capability: imageCapability, fixedImageTokens } = activeImageContext(
-    contextParts,
-    resolvedImages.attachments,
-    {
-      protocol: providerRuntimeFor(settings).protocol ?? "dry-run",
-      remoteModelId: model,
-      override: imageInputCapability?.imageInput,
-      overrideTokenCeiling: imageInputCapability?.imageTokenCeiling
-    }
-  );
-  // Compatible endpoints get SillyTavern-style assistant prefill. Providers that
-  // reject prefill must first echo a short exact boundary which we strip below.
-  const continuationAssembly = assembleContinuation({
+  // The request itself: Facts, every image the prompt carries and whether the
+  // model authorizes it, the assembled prompt, and its admission. It is built
+  // by `buildContinueRequest` (server/continue-request.ts), which also builds a
+  // steer preview. A text-only request resolves no image capability at all, so
+  // its behavior and request bytes stay exactly as before Image Input existed
+  // (image-input design's byte-identity promise). The stored override rides in
+  // ahead of built-in model knowledge, exactly the explicit-override-first
+  // order `resolveImageInputCapability` (shared/image-input-capabilities.ts)
+  // already documents. Compatible endpoints get SillyTavern-style assistant
+  // prefill. Providers that reject prefill must first echo a short exact
+  // boundary which the request's output filter strips.
+  const request = buildContinueRequest({
     story,
     settings,
+    model,
     contextParts,
     instruction,
     appendLast: appendTo !== null,
-    images: resolvedImages.attachments
+    images: resolvedImages.attachments,
+    imageInputCapability
   });
-  const { plan: continuation, admission } = admitFactsIntoPrompt(
-    settings,
-    budgetedFacts.kept,
-    continuationAssembly.authorsNote,
-    continuationAssembly.plan,
-    fixedImageTokens
-  );
-  assertImageContextAdmitted(continuation.prompt, imageCapability);
-  // `admission.dropped` alone misses whatever the story's own Facts budget or
-  // a Fact's own budgetTokens cap already removed from `budgetedFacts.kept`
-  // before admission ever saw it — combine both so a Fact that never reached
-  // the prompt is never reported as if nothing had been dropped (issue #281
-  // review finding I).
-  onFactsDropped?.([...budgetedFacts.dropped, ...admission.dropped]);
+  const { continuation, continuationAssembly, activeImages, imageCapability } = request;
+  // `request.droppedFacts` covers both what the story's own Facts budget or a
+  // Fact's own budgetTokens cap removed before admission and what admission
+  // shed — a Fact that never reached the prompt is never reported as if
+  // nothing had been dropped (issue #281 review finding I).
+  onFactsDropped?.(request.droppedFacts);
   if (!genuineAppend) generationAdmission.rememberContinueDirection(id, genId, instruction);
   await bindIntent?.(settings, {
     kind: "continue",
     story: { title: story.title, nodes: story.nodes, chapterBreaks: story.chapterBreaks },
     contextPartIds: contextParts.map((part) => part.id),
-    facts: admission.factsMessage,
+    facts: request.factsMessage,
     authorsNote: continuationAssembly.authorsNote,
     authorsNoteDepth: story.authorsNoteDepth ?? null,
     authorBrief: story.authorBrief ?? null,
@@ -421,9 +398,7 @@ export async function continueStory(
   const continuationRecordSourceEntries = providerFoldsAuthorsNote(settings)
     ? foldContinuationAuthorsNote(continuation.entries)
     : continuation.entries;
-  const continuationOutput = continuation.requiresEcho
-    ? new AnchoredOutputFilter(continuation.leftAnchor, "", "", true)
-    : undefined;
+  const continuationOutput = request.output;
   // Filled only when the request actually asked for and received token
   // probabilities (server/token-probability-capture.ts decides that, not
   // here) — a failure anywhere in that path leaves this null rather than
@@ -491,15 +466,8 @@ export async function continueStory(
   let raw: string | null;
   try {
     raw = await streamModel(settings, continuation.prompt, signal, onDelta, {
-      output: continuationOutput,
+      ...continueStreamOptions(request, story, id, promptCacheRuntime, promptCache),
       providerStarted,
-      promptCache: createPromptCacheRequest(
-        promptCacheRuntime,
-        promptCache,
-        id,
-        continuation.prompt.operation
-      ),
-      storySampling: storySamplingBias(story),
       tokenProbabilities,
       generationRecord: generationRecordCollector,
       partialOutput,
@@ -964,7 +932,7 @@ const SMALL_MODEL_POINTER = " Smaller models often cannot complete this exact-bo
 function rejectedRewriteLeftAnchor(): GenerationResultError {
   return new GenerationResultError(502, "The model did not reconnect the replacement to the exact text before it; nothing was saved." + SMALL_MODEL_POINTER);
 }
-function rejectedContinuationEcho(): GenerationResultError {
+export function rejectedContinuationEcho(): GenerationResultError {
   return new GenerationResultError(502, "The model did not continue from the exact final characters; nothing was saved.");
 }
 /** Exact boundary copying degrades quickly above this temperature. */

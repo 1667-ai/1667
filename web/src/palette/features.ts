@@ -9,5 +9,6 @@ import "../search/commands.js";
 import "../notes/commands.js";
 import "../factcheck/commands.js";
 import "../imports/commands.js";
+import "../steer/commands.js";
 import "../story/commands.js";
 import "../theme/commands.js";

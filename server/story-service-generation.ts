@@ -1,4 +1,10 @@
-import { resolveRewriteDestination, type StoryPayload } from "../shared/types.js";
+import {
+  resolveRewriteDestination,
+  type ContinuationPreviewRequest,
+  type ContinuationPreviewResult,
+  type StoryPayload
+} from "../shared/types.js";
+import { previewContinuation } from "./continuation-preview.js";
 import type { AsideAnchor } from "../shared/aside-session.js";
 import type {
   AsideAskInput,
@@ -220,6 +226,29 @@ export class StoryServiceGeneration {
         );
         return story === null ? null : { payload: buildStoryPayload(story), droppedFacts };
       })
+    );
+  }
+
+  /** Streams a continuation and saves nothing. It takes no generation
+   *  admission slot and no provider mutation: nothing here can change the
+   *  story or leave a receipt, so a Stop only cancels the stream. */
+  async previewContinuation(
+    id: string,
+    request: ContinuationPreviewRequest,
+    onDelta: DeltaConsumer,
+    signal: AbortSignal
+  ): Promise<ContinuationPreviewResult | null> {
+    this.dependencies.ensureOpen();
+    return await this.dependencies.cancellable(signal, async (active) =>
+      await previewContinuation(
+        id,
+        request,
+        this.dependencies.stories,
+        this.dependencies.settings,
+        this.dependencies.promptCache,
+        onDelta,
+        active
+      )
     );
   }
 

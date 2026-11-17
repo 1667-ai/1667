@@ -1,0 +1,72 @@
+/**
+ * The steer page: a live continuation shown up to a round knob. Looks ported
+ * from chuanqisun/spaceship (MIT), `index.html`'s `#pointer`, in the app's
+ * tokens. The page uses the inspector frame (`inspect.css`).
+ */
+
+@property --buffer {
+  syntax: "<number>";
+  inherits: false;
+  initial-value: 0;
+}
+
+.steer-column { align-self: center; display: flex; flex-direction: column; gap: var(--s-3); max-width: 42rem; width: 100%; }
+.steer-label { color: var(--dim); font: var(--font-meta); letter-spacing: var(--ls-label); margin: 0; text-transform: uppercase; }
+.steer-context, .steer-continuation {
+  font-family: var(--prose); font-size: var(--prose-size); line-height: 1.78; margin: 0; overflow-wrap: anywhere; white-space: pre-wrap;
+}
+.steer-context { color: var(--dim); }
+.steer-continuation { color: var(--ink); min-height: 3.6em; }
+.steer-text-wrap { padding-inline-end: var(--s-8); position: relative; }
+.steer-word { cursor: pointer; }
+/* Words already written past the knob show faded; click one to move the knob after it. */
+.steer-word-ahead { color: var(--faint); }
+.steer-word-ahead:hover { color: var(--dim); }
+.steer-status { color: var(--dim); font: var(--font-meta); margin: 0; }
+.steer-error { color: var(--danger); font-size: var(--fs-small); margin: 0; }
+.steer-actions { display: flex; gap: var(--s-2); }
+.steer-footer {
+  background: var(--bg); border-top: 1px solid var(--line); bottom: calc(-1 * var(--s-4)); display: flex; flex-direction: column;
+  gap: var(--s-2); padding-block: var(--s-3) var(--s-4); position: sticky;
+}
+
+/*
+ * Six segments on a ring around the centre hole, lit clockwise from twelve,
+ * one whole segment at a time, as the buffer ahead of the knob fills. Three
+ * bars through the middle cut gaps of even width between them.
+ */
+.steer-knob {
+  --arc: var(--ink);
+  --gap-bar: transparent calc(50% - 0.75px), var(--surface) 0 calc(50% + 0.75px), transparent 0;
+  background:
+    radial-gradient(circle closest-side, var(--surface) 4px, transparent 5px 7px, var(--surface) 8px),
+    linear-gradient(90deg, var(--gap-bar)), linear-gradient(30deg, var(--gap-bar)), linear-gradient(150deg, var(--gap-bar)),
+    conic-gradient(var(--arc) calc(round(up, var(--buffer), 1 / 6) * 1turn), var(--line) 0);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--r-round);
+  cursor: grab;
+  height: 22px;
+  padding: 0;
+  position: absolute;
+  touch-action: none;
+  transition: border-color 0.2s, --buffer 0.2s;
+  user-select: none;
+  width: 22px;
+}
+/* A pip marks the exact place of the knob. */
+.steer-knob::before { background: var(--ink); border-radius: var(--r-round); content: ""; inset: calc(50% - 2px); position: absolute; }
+.steer-knob::after {
+  border: 1.5px solid var(--faint); border-radius: var(--r-round); content: ""; inset: -6px; opacity: 0; position: absolute;
+  scale: 0.8; transition: opacity 0.15s, scale 0.15s;
+}
+.steer-knob:hover::after, .steer-knob:focus-visible::after { opacity: 1; scale: 1; }
+.steer-knob:focus-visible { outline: none; }
+.steer-knob[data-generating] { --arc: var(--accent); }
+.steer-knob[data-generating]::after { animation: steer-spin 0.9s linear infinite; border-color: transparent; border-top-color: var(--accent); opacity: 1; scale: 1; }
+.steer-knob[data-dragging] { border-color: var(--accent); cursor: grabbing; transition: none; }
+.steer-knob[data-dragging]::before { background: var(--accent); }
+.steer-knob[data-dragging]::after { animation: none; border-color: var(--accent); opacity: 1; scale: 1; }
+@keyframes steer-spin { to { rotate: 1turn; } }
+@media (prefers-reduced-motion: reduce) {
+  .steer-knob[data-generating]::after { animation: none; }
+}

@@ -17,6 +17,8 @@ import type {
 import type {
   TagStatus,
   CreateFactsRequest,
+  ContinuationPreviewRequest,
+  ContinuationPreviewResult,
   CreateNodeRequest,
   FactPatch,
   FactStateInput,
@@ -298,6 +300,16 @@ export interface StoryApi {
   planFactConsistency?(input: FactConsistencyInput): Promise<FactConsistencyPlan>;
   checkFactConsistency?(input: FactConsistencyCheckInput): Promise<FactConsistencyCheckResult>;
   getFactConsistencyRun?(storyId: string): Promise<import("../shared/fact-consistency-contract.js").FactConsistencyRun | null>;
+
+  /** Streams a continuation that is never saved: no part, no Generation
+   * Record, no story version change. The web steer page uses it. Null means
+   * `signal` stopped it. Optional: only the worker facade has it. */
+  previewContinuation?(
+    storyId: string,
+    request: ContinuationPreviewRequest,
+    onDelta: (text: string) => void,
+    signal: AbortSignal
+  ): Promise<ContinuationPreviewResult | null>;
 
   continueStory(
     storyId: string,

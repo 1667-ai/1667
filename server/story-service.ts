@@ -12,6 +12,8 @@ import type {
   SettingsView
 } from "../shared/settings-v2-types.js";
 import type {
+  ContinuationPreviewRequest,
+  ContinuationPreviewResult,
   GenerationSettings,
   Story,
   StoryPayload,
@@ -1198,6 +1200,15 @@ export class StoryService extends StoryServiceRuntime {
       signal,
       hooks
     );
+  }
+
+  async previewContinuation(
+    id: string,
+    request: ContinuationPreviewRequest,
+    onDelta: DeltaConsumer,
+    signal: AbortSignal
+  ): Promise<ContinuationPreviewResult | null> {
+    return await this.storyGeneration.previewContinuation(id, request, onDelta, signal);
   }
 
   async rewriteNode(
