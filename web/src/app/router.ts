@@ -10,9 +10,11 @@
  * changed): a `#/story/<id>` hash is never mistaken for a token carrier.
  */
 /** A full page of a story other than its own page and the map: the next
- * request, and a take's generation records and token probabilities. */
+ * request, a take's generation records and token probabilities, and the
+ * steer page. */
 export type StoryPage =
   | { readonly kind: "request" }
+  | { readonly kind: "steer" }
   | { readonly kind: "records"; readonly nodeId: string }
   | { readonly kind: "probs"; readonly nodeId: string };
 
@@ -36,7 +38,7 @@ export function parseRoute(hash: string): Route {
     const id = decodeURIComponent(rawId);
     if (id.length === 0) return { kind: "library" };
     if (section === "map" && rawNode === undefined) return { kind: "story", id, map: true };
-    if (section === "request" && rawNode === undefined) return { kind: "story", id, page: { kind: "request" } };
+    if ((section === "request" || section === "steer") && rawNode === undefined) return { kind: "story", id, page: { kind: section } };
     if ((section === "records" || section === "probs") && rawNode !== undefined && rawNode.length > 0) {
       return { kind: "story", id, page: { kind: section, nodeId: decodeURIComponent(rawNode) } };
     }
@@ -55,7 +57,8 @@ export function routeHash(route: Route): string {
   const story = `${STORY_PREFIX}${encodeURIComponent(route.id)}`;
   if (route.map === true) return `${story}/map`;
   if (route.page === undefined) return story;
-  return route.page.kind === "request" ? `${story}/request` : `${story}/${route.page.kind}/${encodeURIComponent(route.page.nodeId)}`;
+  if (route.page.kind === "request" || route.page.kind === "steer") return `${story}/${route.page.kind}`;
+  return `${story}/${route.page.kind}/${encodeURIComponent(route.page.nodeId)}`;
 }
 
 /** Goes to `route` as a new history entry, so Back returns here. `replace`
