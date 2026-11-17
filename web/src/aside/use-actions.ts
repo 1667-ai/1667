@@ -1,6 +1,6 @@
 import { countWords } from "../../../shared/story-text.js";
 import { runBusyToast } from "../app/run-lock.js";
-import { failureToast, runStoryMutation } from "../app/story-mutation.js";
+import { failureToast, findCreatedPart, runStoryMutation } from "../app/story-mutation.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
 import { pushToast } from "../app/toasts.js";
@@ -15,7 +15,6 @@ import { SWITCHING_TOAST, storyChangeRefusal } from "../story/story-policy.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import {
   FROM_ASIDE_INSTRUCTION,
-  findCreatedNode,
   indexOfPick,
   initialPick,
   parentOfStop,
@@ -165,7 +164,7 @@ export function createAsideUseActions(
         api,
         storyId,
         async () => ({ payload: await api.createNode(storyId, { parentId, text, instruction: FROM_ASIDE_INSTRUCTION }) }),
-        (reloaded) => (findCreatedNode(reloaded, known, parentId, text) === undefined ? null : {})
+        (reloaded) => (findCreatedPart(reloaded, known, parentId, FROM_ASIDE_INSTRUCTION, text) === undefined ? null : {})
       );
       set((aside) => ({ ...aside, run: null }));
       if (outcome.kind !== "saved") {
@@ -175,7 +174,7 @@ export function createAsideUseActions(
         pushToast(store, failureToast(outcome, "Insert into story"));
         return;
       }
-      const landed = findCreatedNode(outcome.payload, known, parentId, text);
+      const landed = findCreatedPart(outcome.payload, known, parentId, FROM_ASIDE_INSTRUCTION, text);
       const number = landed === undefined ? stop.partNumber : outcome.payload.path.findIndex((node) => node.id === landed.id) + 1;
       deps.story.adoptPayload(storyId, outcome.payload, {
         ...(landed === undefined ? {} : { focus: { kind: "part" as const, partId: landed.id } }),

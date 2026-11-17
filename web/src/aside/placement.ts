@@ -1,4 +1,4 @@
-import type { StoryNode, StoryPayload } from "../../../shared/types.js";
+import type { StoryPayload } from "../../../shared/types.js";
 
 /**
  * Where an Aside answer can go in the story ("Insert here"): above any part,
@@ -59,17 +59,4 @@ export function parentOfStop(stop: PlacementStop): string | null {
 /** What a stop says it will do. */
 export function stopLabel(stop: PlacementStop): string {
   return stop.kind === "take" ? `new take of part ${stop.partNumber}` : `new part ${stop.partNumber}, after the last part`;
-}
-
-/** The take a create made: new, under the right parent, with this direction
- * and text. The server trims the text. */
-export function findCreatedNode(
-  payload: StoryPayload,
-  known: ReadonlySet<string>,
-  parentId: string | null,
-  text: string
-): StoryNode | undefined {
-  const wanted = text.trim();
-  return payload.path.find((node) => !known.has(node.id) && node.parentId === parentId
-    && node.instruction === FROM_ASIDE_INSTRUCTION && node.text === wanted);
 }

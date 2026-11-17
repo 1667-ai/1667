@@ -1,10 +1,25 @@
 import { apiErrorCode, isExplicitMutationUnsent } from "../../../client/api-error.js";
 import type { StoryApi } from "../../../client/api.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
-import type { StoryPayload } from "../../../shared/types.js";
+import type { StoryNode, StoryPayload } from "../../../shared/types.js";
 import { STORY_RELOADED_TOAST } from "../story/actions.js";
 import { retryWhenBusy } from "./busy-retry.js";
 import { errorMessage } from "./toasts.js";
+
+/** The part a `createNode` made: not in `known` (the parts before the call),
+ * under `parentId`, with this direction and text. The server trims the text.
+ * It tells a landed create apart when the answer was lost. */
+export function findCreatedPart(
+  payload: StoryPayload,
+  known: ReadonlySet<string>,
+  parentId: string | null,
+  instruction: string,
+  text: string
+): StoryNode | undefined {
+  const wanted = text.trim();
+  return payload.path.find((node) => !known.has(node.id) && node.parentId === parentId
+    && node.instruction === instruction && node.text === wanted);
+}
 
 /**
  * One story change with the conflict and unknown-outcome handling every

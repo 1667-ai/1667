@@ -3,9 +3,12 @@ import type { AppActions } from "../app/actions.js";
 import { closeStoryPage } from "../app/router.js";
 import type { AppState } from "../app/state.js";
 import type { Store } from "../app/store.js";
-import { failureToast, runStoryMutation } from "../app/story-mutation.js";
+import { failureToast, findCreatedPart, runStoryMutation } from "../app/story-mutation.js";
 import { pushToast } from "../app/toasts.js";
 import { storyChangeRefusal } from "../story/story-policy.js";
+
+/** A kept part has no direction of its own in step 1: the preview sent the Default Continue direction. */
+const KEEP_INSTRUCTION = "";
 
 /**
  * Saves the shown words as a new part under the end of the story line, then
@@ -32,15 +35,15 @@ export async function keepPreview(
   const outcome = await runStoryMutation(
     api,
     storyId,
-    async () => ({ payload: await api.createNode(storyId, { parentId, text: body, instruction: "" }) }),
-    (reloaded) => (reloaded.path.some((node) => !known.has(node.id) && node.parentId === parentId && node.text === body) ? {} : null)
+    async () => ({ payload: await api.createNode(storyId, { parentId, text: body, instruction: KEEP_INSTRUCTION }) }),
+    (reloaded) => (findCreatedPart(reloaded, known, parentId, KEEP_INSTRUCTION, body) === undefined ? null : {})
   );
   if (outcome.kind !== "saved") {
     if (outcome.kind !== "unresolved" && outcome.payload !== null) actions.story.adoptPayload(storyId, outcome.payload);
     pushToast(store, failureToast(outcome, "Keep"));
     return false;
   }
-  const landed = outcome.payload.path.find((node) => !known.has(node.id) && node.parentId === parentId && node.text === body);
+  const landed = findCreatedPart(outcome.payload, known, parentId, KEEP_INSTRUCTION, body);
   actions.story.adoptPayload(storyId, outcome.payload, landed === undefined ? {} : { focus: { kind: "part", partId: landed.id } });
   closeStoryPage(storyId);
   return true;

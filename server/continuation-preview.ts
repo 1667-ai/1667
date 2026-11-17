@@ -3,7 +3,9 @@ import { DEFAULT_WRITING_PROMPT_SETTINGS } from "../shared/settings-v5-writing.j
 import { resolveContinueRequestDirection } from "../shared/writing-prompt-runtime.js";
 import { pathTo } from "../shared/story-tree.js";
 import { buildContinueRequest, continueStreamOptions } from "./continue-request.js";
+import { timeoutProvenanceOf } from "./errors.js";
 import { rejectedContinuationEcho } from "./generation-http.js";
+import { loadActiveImageBytes, type ImageAttachmentStore } from "./generation-image-attachments.js";
 import { streamModel, type DeltaConsumer } from "./generation-stream.js";
 import type { PromptCacheRuntime } from "./provider-cache-policy.js";
 import type { SettingsStore } from "./settings.js";
@@ -32,7 +34,7 @@ const PREVIEW_PART_ID = "continuation-preview";
 export async function previewContinuation(
   id: string,
   request: ContinuationPreviewRequest,
-  stories: Pick<StoryStore, "loadVersioned" | "hydratePath">,
+  stories: Pick<StoryStore, "loadVersioned" | "hydratePath"> & ImageAttachmentStore,
   settingsStore: SettingsStore,
   promptCacheRuntime: PromptCacheRuntime,
   onDelta: DeltaConsumer,
@@ -76,13 +78,22 @@ export async function previewContinuation(
     images: [],
     imageInputCapability
   });
-  const raw = await streamModel(
-    settings,
-    built.continuation.prompt,
-    signal,
-    onDelta,
-    continueStreamOptions(built, story, id, promptCacheRuntime, promptCache)
-  );
+  // A line part can carry images; the preview sends them as Continue does.
+  const imageBytes = built.activeImages.length === 0
+    ? undefined
+    : await loadActiveImageBytes(stories, id, built.activeImages);
+  let raw: string | null;
+  try {
+    raw = await streamModel(settings, built.continuation.prompt, signal, onDelta, {
+      ...continueStreamOptions(built, story, id, promptCacheRuntime, promptCache),
+      imageBytes,
+      imageCapability: built.imageCapability
+    });
+  } catch (error) {
+    // As in `continueStory`: a clean timeout after a rejected echo is the echo rejection.
+    if (timeoutProvenanceOf(error) !== null && built.output?.prefixRejected === true) throw rejectedContinuationEcho();
+    throw error;
+  }
   if (raw === null) {
     if (built.output?.prefixRejected === true) throw rejectedContinuationEcho();
     return null;
