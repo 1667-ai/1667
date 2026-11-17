@@ -849,6 +849,10 @@ export function storyApiFromWorkerTransport(transport: StoryWorkerTransport): St
           : { payload: rememberPayload(result.payload), droppedFacts: result.droppedFacts };
       });
     },
+    // Saves nothing, so no provider mutation, no expected version, and no
+    // payload to remember afterwards.
+    previewContinuation: async (storyId, request, onDelta, signal) =>
+      await transport.call("previewContinuation", { storyId, ...request }, { onDelta, signal }),
     rewriteNode: async (storyId, nodeId, body, onDelta, signal, onCommitted, callbacks: StreamCallbacks = {}) => {
       const { onStopped, onReasoning, onReasoningStopped } = callbacks;
       return await runProviderMutation(storyId, async () => {

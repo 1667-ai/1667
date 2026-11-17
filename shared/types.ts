@@ -966,6 +966,20 @@ export type CreateNodeRequest =
   | AppendNodeRequest
   | CreateEditedTakeRequest;
 
+/** A continuation that is streamed and never saved: the request Continue
+ *  would send for a new part under `parentId`, with `prefix` as the text the
+ *  new part already holds. The streamed text follows `prefix` directly. */
+export interface ContinuationPreviewRequest {
+  parentId: string | null;
+  instruction: string;
+  prefix: string;
+}
+
+export interface ContinuationPreviewResult {
+  /** Every streamed text delta, joined. */
+  text: string;
+}
+
 export interface EditNodeRequest {
   text?: string;
   instruction?: string;

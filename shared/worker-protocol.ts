@@ -4,6 +4,8 @@ import type {
   CreateFactsRequest,
   FactStateInput,
   FactStatePatch,
+  ContinuationPreviewRequest,
+  ContinuationPreviewResult,
   CreateNodeRequest,
   EditNodeRequest,
   FactPatch,
@@ -354,6 +356,11 @@ export interface WorkerMethodContract {
      *  has no way to know. See server/generation-admission.ts. */
     output: { payload: StoryPayload; droppedFacts: readonly FactBudgetDrop[] } | null;
   };
+  /** Not a mutation: it streams and saves nothing. Null = cancelled. */
+  previewContinuation: {
+    input: { storyId: string } & ContinuationPreviewRequest;
+    output: ContinuationPreviewResult | null;
+  };
   rewriteNode: { input: { storyId: string; nodeId: string; body: RewriteRequest }; output: string | null };
   /** Settle a stopped or timed-out rewrite's stashed partial (issue #339).
    * `streamedDigest` identifies the exact prose the caller watched stream;
@@ -445,7 +452,7 @@ export type MutatingWorkerMethod =
   | "askAside" | "clearAside" | "asideSessionMutation" | "retakeAside" | "checkFactConsistency";
 
 export const STREAM_METHODS: ReadonlySet<WorkerMethod> = new Set([
-  "continueStory", "rewriteNode", "createSummaryTake", "askAside", "retakeAside"
+  "continueStory", "previewContinuation", "rewriteNode", "createSummaryTake", "askAside", "retakeAside"
 ]);
 
 /** Provider-backed calls share the long generation deadline even when their
@@ -733,7 +740,7 @@ const METHODS: ReadonlySet<string> = new Set<WorkerMethod>([
   "saveSettings", "discardPendingSettings", "checkModelServer", "probeContextWindow",
   "discoverModels", "resolveSamplingBias", "countPromptTokens",
   "importSillyTavern", "importMarkdown", "importNovelAI", "importScenario", "importLorebook", "importCard", "continueStory",
-
+  "previewContinuation",
   "rewriteNode", "commitPartialRewrite", "createSummaryTake",
   "stageStoryImage", "releaseStoryImage",
   "getAside", "askAside", "clearAside", "asideSessionMutation", "retakeAside"

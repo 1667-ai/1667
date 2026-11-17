@@ -89,6 +89,7 @@ const HTTP_OPERATION_LIFETIME_BY_METHOD = {
   importLorebook: "local",
   importCard: "local",
   continueStory: "generation",
+  previewContinuation: "generation",
   rewriteNode: "generation",
   // Settling a stashed partial contacts no provider; it is one local
   // splice-and-save.
