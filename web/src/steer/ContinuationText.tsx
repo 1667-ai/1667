@@ -1,4 +1,5 @@
 import { Fragment, useLayoutEffect, useMemo, useRef, type MouseEvent, type ReactNode, type RefObject } from "react";
+import { wordCountAt } from "./word-index.js";
 import { splitWords } from "./words.js";
 
 /** Space between the last shown word and the knob. */
@@ -27,8 +28,9 @@ function placeKnob(paragraph: HTMLElement, knob: HTMLElement, shown: number): vo
 }
 
 /**
- * The preview text, one span per word. Words past the knob stay in the layout
- * but are hidden, so nothing moves when the knob does. The knob is one
+ * The preview text, one span per word. Words past the knob show faded and
+ * keep their place, so nothing moves when the knob does. Assistive technology
+ * reads only the shown words. The knob is one
  * element outside the text, put after the last shown word.
  */
 export function ContinuationText(
@@ -57,16 +59,24 @@ export function ContinuationText(
     observer.observe(paragraph);
     return () => observer.disconnect();
   }, [text, shown, textRef, knobRef]);
+  /** A click on a word moves the knob after it; a click between words or lines
+   * moves it to the nearest place, as a drag would. */
   const onClick = (event: MouseEvent<HTMLElement>): void => {
     const word = (event.target as HTMLElement).closest<HTMLElement>("[data-word]");
-    if (word !== null) onPickWord(Number(word.dataset.word) + 1);
+    onPickWord(word !== null ? Number(word.dataset.word) + 1 : wordCountAt(event.currentTarget, event.clientX, event.clientY));
   };
   return (
     <div className="steer-text-wrap">
       <p ref={textRef} className="steer-continuation" aria-label="Continuation" onClick={onClick}>
         {words.map((word, index) => (
           <Fragment key={index}>
-            <span data-word={index} className={index < shown ? "steer-word" : "steer-word steer-word-ahead"}>{word.text}</span>
+            <span
+              data-word={index}
+              className={index < shown ? "steer-word" : "steer-word steer-word-ahead"}
+              aria-hidden={index < shown ? undefined : true}
+            >
+              {word.text}
+            </span>
             {word.gap}
           </Fragment>
         ))}

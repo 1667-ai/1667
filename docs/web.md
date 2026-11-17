@@ -205,8 +205,9 @@ saved until you keep it.
 
 1. Open a story that has at least one part.
 2. Press `:` and choose "steer".
-3. Wait for the words to appear. The page keeps 300 words ahead of the knob.
-4. Move the knob. Drag it, or click a word. You can also press the Left and
+3. Wait for the words to appear. The page writes up to 300 words ahead of the
+   knob. It shows the words ahead of the knob faded.
+4. Move the knob. Drag it, or click in the text. You can also press the Left and
    Right Arrow keys to move one word. Press Shift with an arrow key to move
    ten words. Press Home or End to go to the first or last word.
 5. Press Enter or choose Keep to save the shown words as a new part.

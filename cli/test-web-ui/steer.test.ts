@@ -72,7 +72,7 @@ async function shownWords(page: Page): Promise<string> {
   return (await page.locator(".steer-word:not(.steer-word-ahead)").allTextContents()).join(" ");
 }
 
-test("case 1: steer streams words ahead; five steps and Enter keep exactly the shown words as a new part", async () => {
+test("case 1: steer streams words ahead; five steps, a click on a faded word, and Enter keep exactly the shown words", async () => {
   const web = await spawnSteerWeb();
   const api = await openInspectionApi(web);
   const created = await api.createStory("Steer Keep");
@@ -86,8 +86,13 @@ test("case 1: steer streams words ahead; five steps and Enter keep exactly the s
   await knobOf(page).focus();
   for (let step = 0; step < 5; step += 1) await page.keyboard.press("ArrowRight");
   expect(await knobValue(page, "aria-valuenow")).toBe(5);
+
+  // A word ahead of the knob shows faded; a click moves the knob after it.
+  expect(await poll(async () => (await knobValue(page, "aria-valuemax")) >= 8)).toBeTrue();
+  await page.locator('.steer-word-ahead[data-word="7"]').click();
+  expect(await knobValue(page, "aria-valuenow")).toBe(8);
   const shown = await shownWords(page);
-  expect(shown.split(" ")).toHaveLength(5);
+  expect(shown.split(" ")).toHaveLength(8);
 
   await page.keyboard.press("Enter");
   await page.locator(".part").nth(1).waitFor();

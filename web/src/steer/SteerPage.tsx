@@ -124,7 +124,7 @@ function SteerBody(
           />
         )}
       />
-      {/* The words ahead of the knob are hidden but keep their place, so the
+      {/* The words ahead of the knob are faded but keep their place, so the
           column grows with the buffer: the footer stays in view at the bottom. */}
       <div className="steer-footer">
         <p className="steer-status">{formatStatus(snapshot)}</p>

@@ -1,7 +1,7 @@
 /**
  * The number of words before a point: the knob goes to after the last word
  * that starts above the point's line, or on that line and left of the point.
- * Words past the knob are hidden but keep their place, so their boxes are
+ * Words past the knob are faded but keep their place, so their boxes are
  * where the words will show.
  */
 export function wordCountAt(container: HTMLElement, x: number, y: number): number {

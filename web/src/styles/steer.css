@@ -19,7 +19,9 @@
 .steer-continuation { color: var(--ink); min-height: 3.6em; }
 .steer-text-wrap { padding-inline-end: var(--s-8); position: relative; }
 .steer-word { cursor: pointer; }
-.steer-word-ahead { visibility: hidden; }
+/* Words already written past the knob show faded; click one to move the knob after it. */
+.steer-word-ahead { color: var(--faint); }
+.steer-word-ahead:hover { color: var(--dim); }
 .steer-status { color: var(--dim); font: var(--font-meta); margin: 0; }
 .steer-error { color: var(--danger); font-size: var(--fs-small); margin: 0; }
 .steer-actions { display: flex; gap: var(--s-2); }
