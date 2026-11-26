@@ -10,6 +10,7 @@ import { retryWhenBusy } from "../app/busy-retry.js";
 import type { Store } from "../app/store.js";
 import { errorMessage, pushToast } from "../app/toasts.js";
 import { WebBridgeTransportError } from "../../../client/web-bridge-transport.js";
+import { forgetLiveThought } from "../inspect/thoughts.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 import { STORY_RELOADED_TOAST, type AdoptFocus } from "../story/actions.js";
 import { RETAKE_GONE_TOAST, generationEditorRefusal, partActionRefusal, planEditorRefusal } from "../story/part-policy.js";
@@ -228,9 +229,13 @@ export function createGenerationActions(
   const isCurrentRun = (run: ActiveRun): boolean => activeRun === run;
   const connectionCurrent = (run: ActiveRun): boolean => store.get().connection === run.connection;
 
+  /** A new take's live thought ends with its run, so the next run starts
+   * folded, and a landed take shows its stored thought folded (as the TUI
+   * does: its stream id does not survive the landing). */
   function setIdle(): void {
     activeRun = null;
     store.set((state) => (state.generation.kind === "idle" ? state : { ...state, generation: { kind: "idle" } }));
+    forgetLiveThought(store);
   }
 
   /** The one way a run ends, and what happens to the writer's draft with it:

@@ -1,13 +1,17 @@
+import { LiveThought } from "../inspect/LiveThought.js";
+import { LIVE_TAKE_THOUGHT } from "../inspect/thoughts.js";
 import { Prose } from "../story/Prose.js";
+import type { GenerationReasoning } from "./state.js";
 
 export interface StreamingPartProps {
   readonly partNumber: number;
   readonly instruction: string;
   readonly showDirections: boolean;
   readonly text: string;
-  /** Reasoning has arrived and no prose yet — the "Thinking…" phase (owner
-   * decision 5: an indicator only, never the thought text itself, never a
-   * `T` toggle). */
+  /** The thought streamed so far. `LiveThought` shows it under the header,
+   * folded or open as the reasoning setting and `T` say. */
+  readonly reasoning: GenerationReasoning | null;
+  /** Reasoning has arrived and no prose yet — the "Thinking…" phase. */
   readonly thinking: boolean;
   /** False for a frozen `"unsaved"` leftover: the text still shows, but
    * nothing is still being written, so no caret. */
@@ -23,7 +27,7 @@ export interface StreamingPartProps {
  * its `continuation` prop — so this component only ever exists for
  * `mode: "take"`.
  */
-export function StreamingPart({ partNumber, instruction, showDirections, text, thinking, live }: StreamingPartProps) {
+export function StreamingPart({ partNumber, instruction, showDirections, text, reasoning, thinking, live }: StreamingPartProps) {
   return (
     <li>
       <article
@@ -34,6 +38,7 @@ export function StreamingPart({ partNumber, instruction, showDirections, text, t
         <div className="part-header">
           <span className="part-number">Part {partNumber}</span>
         </div>
+        {reasoning !== null && <LiveThought thoughtId={LIVE_TAKE_THOUGHT} reasoning={reasoning} live={live} />}
         {showDirections && instruction.length > 0 && (
           <div className="part-instruction">{instruction}</div>
         )}

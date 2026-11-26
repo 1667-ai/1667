@@ -54,7 +54,7 @@ registerCommands([
   {
     id: "thought",
     title: "thought",
-    description: "show or hide the stored thought of this take",
+    description: "show or hide the thought of this take, also while it streams",
     section: "view",
     shortcut: "T",
     available: onStoryPage,

@@ -158,6 +158,8 @@ export interface ManuscriptGeneration {
   readonly partNumber: number;
   readonly instruction: string;
   readonly text: string;
+  /** The thought streamed so far, shown live beside the text. */
+  readonly reasoning: GenerationReasoning | null;
   readonly thinking: boolean;
   /** "Waiting…" / "Thinking…" / "Writing…" / "Not saved" — this story's own
    *  status text, reused verbatim by both `StoryView`'s live region and
@@ -197,6 +199,7 @@ export function manuscriptGenerationView(
     partNumber: state.seamPathIndex + 2,
     instruction: state.instruction,
     text: state.text,
+    reasoning: state.reasoning,
     thinking,
     statusLabel: statusLabelOf(state, thinking),
     live: state.kind !== "unsaved"

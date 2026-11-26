@@ -7,6 +7,8 @@ import { appendContinuationText } from "../../../shared/story-text.js";
 import type { StoryPayload } from "../../../shared/types.js";
 import { AsideMark } from "../aside/AsideMark.js";
 import { PartEditor } from "../editor/PartEditor.js";
+import type { GenerationReasoning } from "../generation/state.js";
+import { LiveThought } from "../inspect/LiveThought.js";
 import { ThoughtBlock } from "../inspect/ThoughtBlock.js";
 import { Icon, ICONS } from "../ui/icons.js";
 import { usePopover } from "../ui/usePopover.js";
@@ -24,6 +26,8 @@ import { TakeStrip } from "./TakeStrip.js";
  * is still being written). */
 export interface PartContinuation {
   readonly text: string;
+  /** The run's thought so far, shown live in place of the stored one. */
+  readonly reasoning: GenerationReasoning | null;
   readonly thinking: boolean;
   readonly live: boolean;
   /** A rewrite: the text takes the place of this range of the part's text,
@@ -272,7 +276,9 @@ function PartCardImpl({
           <AsideMark payload={payload} part={part} />
           <PartActionsMenu part={part} isLeaf={part.pathIndex === payload.path.length - 1} disabled={editing} menuSerial={menuSerial} />
         </div>
-        {node.reasoning === true && !editing && <ThoughtBlock storyId={payload.id} partId={part.id} version={node.text.length} streaming={continuation !== null} />}
+        {!editing && continuation?.reasoning != null
+          ? <LiveThought thoughtId={part.id} reasoning={continuation.reasoning} live={continuation.live} />
+          : node.reasoning === true && !editing && <ThoughtBlock storyId={payload.id} partId={part.id} version={node.text.length} streaming={continuation !== null} />}
         {editing && <PartEditor partNumber={part.number} showDirections={showDirections} />}
         {!editing && showDirections && node.instruction.length > 0 && (
           <div className="part-instruction">{node.instruction}</div>

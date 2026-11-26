@@ -6,9 +6,9 @@ import { thoughtKey, thoughtUnfolded } from "./thoughts.js";
 
 /**
  * A landed take's thought, under its part header: a ghost "Thought" button
- * that unfolds the stored text beside a rail. The thought of text that is
- * still streaming is never shown (owner decision 5), so a part that a live
- * append is growing shows nothing here.
+ * that unfolds the stored text beside a rail. While a run streams into the
+ * part, `LiveThought` shows the new thought instead, so this block shows
+ * nothing then.
  */
 export function ThoughtBlock({ storyId, partId, version, streaming }: { readonly storyId: string; readonly partId: string; readonly version: number; readonly streaming: boolean }) {
   const { store, actions } = useAppContext();

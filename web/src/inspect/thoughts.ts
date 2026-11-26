@@ -6,10 +6,11 @@ import type { Store } from "../app/store.js";
 import { effectiveFocusedPartId } from "../story/state.js";
 
 /**
- * A landed take's stored thought (`T` in the TUI, #409 step 10g, owner
- * decision 5): folded unless the reasoning setting is "open", and never shown
- * while text streams. The record is fetched when the part is first unfolded
- * and kept, because a take's thought never changes.
+ * A take's thought (`T` in the TUI, #409 step 10g): folded unless the
+ * reasoning setting is "open". While a take streams, `LiveThought` shows the
+ * thought as it arrives. After the take lands, `ThoughtBlock` shows the
+ * stored record, fetched when the part is first unfolded and kept, because a
+ * landed take's thought never changes.
  */
 export type ThoughtEntry =
   | { readonly status: "loading" }
@@ -30,6 +31,31 @@ export function thoughtKey(partId: string, version: number): string {
   return `${partId}:${version}`;
 }
 
+/** The fold key of the thought of a new take that streams into no part yet.
+ * The key ends with the run (`forgetLiveThought`). */
+export const LIVE_TAKE_THOUGHT = "live-take";
+
+/** The fold key of the thought that streams in `storyId` now, or null when no
+ * run there has a thought yet. An append and a rewrite stream into a part. */
+export function liveThoughtId(state: AppState, storyId: string): string | null {
+  const run = state.generation;
+  if (run.kind === "idle" || run.storyId !== storyId || run.reasoning === null) return null;
+  if (run.mode === "take") return LIVE_TAKE_THOUGHT;
+  return run.appendTo ?? run.rewrite?.partId ?? null;
+}
+
+/** A run ended: a new take's live thought goes back to the setting's
+ * default. An append keeps its part's fold, because the part stays. */
+export function forgetLiveThought(store: Store<AppState>): void {
+  store.set((state) => {
+    const flipped = state.thoughts.flipped;
+    if (!flipped.has(LIVE_TAKE_THOUGHT)) return state;
+    const next = new Set(flipped);
+    next.delete(LIVE_TAKE_THOUGHT);
+    return { ...state, thoughts: { ...state.thoughts, flipped: next } };
+  });
+}
+
 export const THOUGHTS_OFF_TOAST = "thoughts are off · settings turns them on";
 export const NO_THOUGHT_TOAST = "no thought on this take";
 
@@ -43,6 +69,12 @@ export interface ThoughtActions {
   readonly toggle: (partId?: string) => void;
   /** Reads the thought when its part is unfolded and it is not read yet. */
   readonly ensureLoaded: (storyId: string, partId: string, version: number) => void;
+}
+
+function flip(thoughts: ThoughtsState, id: string): ThoughtsState {
+  const flipped = new Set(thoughts.flipped);
+  if (!flipped.delete(id)) flipped.add(id);
+  return { ...thoughts, flipped };
 }
 
 export function createThoughtActions(store: Store<AppState>): ThoughtActions {
@@ -76,17 +108,18 @@ export function createThoughtActions(store: Store<AppState>): ThoughtActions {
         pushToast(store, THOUGHTS_OFF_TOAST);
         return;
       }
+      const live = liveThoughtId(state, state.story.payload.id);
+      if (live !== null && (partId === undefined || partId === live)) {
+        patch((thoughts) => flip(thoughts, live));
+        return;
+      }
       const id = partId ?? effectiveFocusedPartId(state.story);
       const node = id === null ? undefined : state.story.payload.path.find((candidate) => candidate.id === id);
       if (node === undefined || node.reasoning !== true) {
         pushToast(store, NO_THOUGHT_TOAST);
         return;
       }
-      patch((thoughts) => {
-        const flipped = new Set(thoughts.flipped);
-        if (!flipped.delete(node.id)) flipped.add(node.id);
-        return { ...thoughts, flipped };
-      });
+      patch((thoughts) => flip(thoughts, node.id));
       if (thoughtUnfolded(reasoning, store.get().thoughts.flipped, node.id)) ensureLoaded(state.story.payload.id, node.id, node.text.length);
     }
   };
