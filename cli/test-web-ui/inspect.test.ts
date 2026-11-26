@@ -285,6 +285,13 @@ test("case 6: T follows the thought while it streams; the landed take folds it, 
   const before = await leafText();
   await page.getByRole("button", { name: "Continue" }).click();
   expect(await poll(async () => ((await page.locator(".part").last().getByRole("button", { name: /^Thought/ }).textContent()) ?? "").includes("…"), 10_000)).toBeTrue();
+  // T acts on the focused part: with focus on an earlier part, the live
+  // thought stays open.
+  await page.keyboard.press("ArrowUp");
+  await page.keyboard.press("Shift+T");
+  await page.getByText("no thought on this take").waitFor();
+  expect(await thought.count()).toBe(1);
+  await page.keyboard.press("ArrowDown");
   expect(await poll(async () => (await leafText()).length > before.length, 30_000)).toBeTrue();
   expect(await poll(async () => (await page.getByRole("button", { name: "Continue" }).count()) === 1, 30_000)).toBeTrue();
   const stored = (await api.getReasoning(storyId, leafId)).text;

@@ -108,8 +108,12 @@ export function createThoughtActions(store: Store<AppState>): ThoughtActions {
         pushToast(store, THOUGHTS_OFF_TOAST);
         return;
       }
+      // Without a part, T acts on the live thought only while the reader
+      // still looks at the run: focus where it started, or on its part.
       const live = liveThoughtId(state, state.story.payload.id);
-      if (live !== null && (partId === undefined || partId === live)) {
+      const runHasFocus = live !== null && state.generation.kind !== "idle"
+        && (state.story.focusedPartId === state.generation.focusAtStart || effectiveFocusedPartId(state.story) === live);
+      if (live !== null && (partId === live || (partId === undefined && runHasFocus))) {
         patch((thoughts) => flip(thoughts, live));
         return;
       }
