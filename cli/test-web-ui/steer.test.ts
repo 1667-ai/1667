@@ -53,6 +53,8 @@ async function knobValue(page: Page, name: "aria-valuenow" | "aria-valuemax"): P
 
 async function openSteerPage(web: ReadyWeb, storyId: string, title: string): Promise<Page> {
   const page = await openTestPage(await sharedBrowser());
+  // The steer page is experimental; case 4 turns it on in Settings.
+  await page.addInitScript(() => localStorage.setItem("1667.web.experiment.steer", "1"));
   await page.goto(web.url);
   await page.getByRole("button", { name: "New story" }).waitFor();
   await page.evaluate((id) => { location.hash = `#/story/${id}`; }, storyId);
@@ -164,4 +166,49 @@ test("case 3: a preview saves nothing, finished or aborted", async () => {
   const after = await api.loadStory(created.id);
   expect(after.path).toHaveLength(before.path.length);
   expect(after.aggregateVersion).toEqual(before.aggregateVersion);
+}, 40_000);
+
+test("case 4: the steer page stays hidden until Settings › Experimental turns it on", async () => {
+  const web = await spawnSteerWeb();
+  const api = await openInspectionApi(web);
+  const created = await api.createStory("Steer Switch");
+  await api.createNode(created.id, { text: "The opening line.", parentId: null });
+  const page = await openTestPage(await sharedBrowser());
+  await page.goto(web.url);
+  await page.getByRole("button", { name: "New story" }).waitFor();
+  await page.evaluate((id) => { location.hash = `#/story/${id}`; }, created.id);
+  await page.getByRole("heading", { name: "Steer Switch" }).waitFor();
+  await page.locator(".part").first().click();
+
+  const palette = page.getByRole("dialog", { name: "Command palette" });
+  const steerOption = palette.getByRole("option", { name: /^steer/ });
+  await page.keyboard.press(":");
+  await palette.waitFor();
+  await page.keyboard.type("steer");
+  expect(await steerOption.count()).toBe(0);
+  await page.keyboard.press("Escape");
+
+  // A direct address shows why the page is closed.
+  await page.evaluate((id) => { location.hash = `#/story/${id}/steer`; }, created.id);
+  await page.getByText("The steer page is experimental. Turn it on in Settings, under Experimental.").waitFor();
+  expect(await knobOf(page).count()).toBe(0);
+  await page.keyboard.press("Escape");
+  await page.getByRole("heading", { name: "Steer Switch" }).waitFor();
+
+  await page.keyboard.press(",");
+  const steerSwitch = page.getByRole("group", { name: "Steer page" });
+  await steerSwitch.getByRole("button", { name: "On" }).click();
+  expect(await steerSwitch.getByRole("button", { name: "On" }).getAttribute("aria-pressed")).toBe("true");
+  await page.keyboard.press("Escape");
+  await page.getByRole("heading", { name: "Steer Switch" }).waitFor();
+  await page.locator(".part").first().click();
+
+  await page.keyboard.press(":");
+  await palette.waitFor();
+  await page.keyboard.type("steer");
+  await steerOption.waitFor();
+  expect(await steerOption.textContent()).toContain("experimental");
+  await page.keyboard.press("Enter");
+  await knobOf(page).waitFor();
+  await page.getByText(/^Experimental\. Scrub a preview/).waitFor();
 }, 40_000);

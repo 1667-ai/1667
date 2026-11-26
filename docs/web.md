@@ -203,8 +203,12 @@ Esc or choose Back to close it.
 The steer page shows a live preview of the next part. The preview is not
 saved until you keep it.
 
+The steer page is experimental. It can change or stop working. It is off by
+default. To turn it on, open the settings and set Steer page to On in the
+Experimental section. The web UI remembers this choice in this browser.
+
 1. Open a story that has at least one part.
-2. Press `:` and choose "steer".
+2. Press `:` and choose "steer (experimental)".
 3. Wait for the words to appear. The page writes up to 300 words ahead of the
    knob. It shows the words ahead of the knob faded.
 4. Move the knob. Drag it, or click in the text. You can also press the Left and
@@ -247,6 +251,10 @@ shows the main rows. The Advanced view shows every row. The settings include
 the provider, the base URL, the model, the context size, the Default Author
 Brief, and the Default Continue direction. They also include the sampling
 parameters and the Generation Profiles. Choose Save to keep your changes.
+
+The Experimental section shows in both views. It turns on pages that are not
+finished, such as the steer page. A change there applies at once, in this
+browser only. You do not need to choose Save.
 
 ### Context meter
 

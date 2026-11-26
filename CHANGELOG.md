@@ -5,11 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
-- **Preview a continuation on the steer page.** In the web UI, press `:` and
-  choose "steer". The page streams a live continuation of the story. Move the
-  knob to read ahead, or move it back to write the text again. Choose Keep to
-  save the shown words as a new part. The preview saves nothing until you keep
-  it.
+- **Preview a continuation on the steer page (experimental).** The steer
+  page is off by default, because it can change or stop working. To turn it
+  on, open the web UI settings and set Steer page to On in the Experimental
+  section. Then press `:` and choose "steer (experimental)". The page streams
+  a live continuation of the story. Move the knob to read ahead, or move it
+  back to write the text again. Choose Keep to save the shown words as a new
+  part. The preview saves nothing until you keep it.
 
 ## 0.11.2 - 2026-11-15
 

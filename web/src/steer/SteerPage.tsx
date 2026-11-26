@@ -9,6 +9,7 @@ import { useInspectKeys } from "../inspect/keys.js";
 import { ContinuationText } from "./ContinuationText.js";
 import { keepPreview } from "./keep.js";
 import { Knob } from "./Knob.js";
+import { STEER_OFF_TEXT } from "./experiment.js";
 import { createPreviewSource } from "./preview-source.js";
 import { BUFFER_WORDS } from "./steer-session.js";
 import { formatStatus, trimContext } from "./status.js";
@@ -37,9 +38,11 @@ export function SteerPage(
   const api = useStore(store, (state) => (state.connection.kind === "connected" ? state.connection.api : null));
   // The web UI runs one provider call at a time, in any story.
   const busy = useStore(store, (state) => runBusyToast(state, storyId));
+  const enabled = useStore(store, (state) => state.experiments.steer);
   const lineEnd = payload.path.at(-1);
   let content;
-  if (api === null || api.previewContinuation === undefined) content = <SteerMessage text={NOT_AVAILABLE_TEXT} onClose={onClose} />;
+  if (!enabled) content = <SteerMessage text={STEER_OFF_TEXT} onClose={onClose} />;
+  else if (api === null || api.previewContinuation === undefined) content = <SteerMessage text={NOT_AVAILABLE_TEXT} onClose={onClose} />;
   else if (busy !== null) content = <SteerMessage text={busy} onClose={onClose} />;
   else if (lineEnd === undefined) content = <SteerMessage text="This story has no part yet." onClose={onClose} />;
   else content = <SteerBody storyId={storyId} payload={payload} api={api as PreviewingApi} lineEnd={lineEnd} onClose={onClose} />;
@@ -47,7 +50,7 @@ export function SteerPage(
     <InspectChrome
       storyTitle={payload.title}
       title="Steer"
-      detail="Scrub a preview. Keep saves the shown words."
+      detail="Experimental. Scrub a preview. Keep saves the shown words."
       onOpenSidebar={onOpenSidebar}
       onClose={onClose}
     >

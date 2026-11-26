@@ -20,7 +20,8 @@ import {
   Row,
   Section,
   sectionAnchor,
-  TextInputRow
+  TextInputRow,
+  ToggleRow
 } from "./SettingsFields.js";
 import { ThisStorySection } from "./ThisStorySection.js";
 import { settingsStory } from "../app/router.js";
@@ -190,6 +191,24 @@ function DisplaySection() {
   );
 }
 
+/** Browser switches for pages that are not finished. Like Display, they
+ * apply at once and are never part of the settings draft. */
+function ExperimentalSection() {
+  const { store, actions } = useAppContext();
+  const steer = useStore(store, (state) => state.experiments.steer);
+  return (
+    <Section title="Experimental">
+      <ToggleRow
+        label="Steer page"
+        hint="Experimental. It can change or stop working. Adds the steer command to the palette. Applies at once, in this browser only."
+        on={steer}
+        disabled={false}
+        onChange={actions.experiments.setSteer}
+      />
+    </Section>
+  );
+}
+
 function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; readonly advanced: boolean }) {
   const { store, actions } = useAppContext();
   const editable = loaded.view.editable;
@@ -217,7 +236,7 @@ function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; r
 
   const prompts = WRITING_PROMPT_FIELD_DEFINITIONS.filter((definition) => advanced || definition.view === "simple");
   const storyId = settingsStory();
-  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing", ...(storyId === null ? [] : ["This story"])];
+  const sections = ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing", ...(storyId === null ? [] : ["This story"]), "Experimental"];
   const showPlainHttp = advanced ? !dryRun : plainHttp;
   return (
     <div className="settings-scroll">
@@ -338,6 +357,7 @@ function SettingsForm({ loaded, advanced }: { readonly loaded: LoadedSettings; r
               {storyId !== null && <ThisStorySection loaded={loaded} storyId={storyId} />}
             </>
           )}
+          <ExperimentalSection />
         </div>
       </div>
     </div>

@@ -17,6 +17,7 @@ import { initialPanelState, type PanelState } from "../panel/state.js";
 import { initialTagsState, type TagsState } from "../tags/state.js";
 import { initialSettingsState, type SettingsState } from "../settings/state.js";
 import type { StoryListDrafts } from "../settings/story-lists.js";
+import { readStoredSteerEnabled } from "../steer/experiment.js";
 import { initialPartUiState, type PartUiState } from "../story/part-ui-state.js";
 import { initialStoryState, type StoryState } from "../story/state.js";
 import type { ThemeMode } from "../theme/themes.js";
@@ -94,6 +95,8 @@ export interface AppState {
   /** Aside, the non-canon chat about a take (#409 step 10d). See `aside/state.ts`. */
   readonly aside: AsideState;
   readonly reading: ReadingPreferences;
+  /** Browser switches for experimental pages. See `steer/experiment.ts`. */
+  readonly experiments: { readonly steer: boolean };
   readonly toasts: readonly Toast[];
   /** The notice log, oldest first. See `app/notices.ts`. */
   readonly notices: readonly Notice[];
@@ -132,6 +135,7 @@ export function initialAppState(
     storyListDrafts: {},
     aside: initialAsideState(),
     reading: { showDirections: readStoredShowDirections(), typewriter: readStoredTypewriter() },
+    experiments: { steer: readStoredSteerEnabled() },
     toasts: [],
     notices: [],
     overlay: null,

@@ -261,7 +261,7 @@ test("case 3: the simple view shows the simple rows and nothing more", async () 
   await page.getByRole("heading", { name: "Settings", level: 1 }).waitFor();
 
   const headings = await page.getByRole("heading", { level: 2 }).allTextContents();
-  expect(headings).toEqual(["Display", "Prompts", "Connection", "Model"]);
+  expect(headings).toEqual(["Display", "Prompts", "Connection", "Model", "Experimental"]);
   await page.getByRole("button", { name: /^Provider/ }).waitFor();
   await page.getByLabel("Base URL", { exact: true }).waitFor();
   await page.getByLabel("API key", { exact: true }).waitFor();
@@ -528,7 +528,7 @@ test("case 3b: the advanced view shows the extra sections and a section list, an
   await openAdvancedSettings(page);
 
   expect(await page.getByRole("heading", { level: 2 }).allTextContents()).toEqual(
-    ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing"]
+    ["Display", "Prompts", "Connection", "Model", "Generation", "Sampling", "Thoughts", "Routing", "Experimental"]
   );
   for (const label of ["Rewrite guidance", "Title guidance", "Summary guidance", "Aside guidance", "Temperature", "Max tokens"]) {
     await page.getByLabel(label, { exact: true }).waitFor();
