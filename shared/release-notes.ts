@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.3-beta.1",
+    date: "2026-11-26",
+    body: "- **`1667 web` shows the thought while the model thinks.** Before, the page\n  showed only \"Thinking…\" until the text arrived. Now, a Thought button shows\n  under the header of the part that the model writes. Press Shift+T or click\n  it to read the thought as it arrives. The button shows the number of\n  thought tokens when the provider sends it. The open thought moves to the\n  newest text until you scroll up. The thought is closed until you open it.\n  When a new take is saved, its thought closes again, as in the TUI.\n\n- **A local model server keeps its provider on any port.** Before, 1667 used\n  the port to find the provider. A llama.cpp server on a port other than 8080\n  became a Custom connection. Custom cannot use banned strings or phrase bias,\n  so Settings did not save. Now, when you select llama.cpp, KoboldCpp, LM\n  Studio, or Ollama, the provider stays when you change the Base URL. Select\n  the provider again if you saved a connection on another port."
+  },
+  {
     version: "0.11.2",
     date: "2026-11-15",
     body: "- **Stop keeps the streamed text with KoboldCpp.** A Stop during Continue,\n  Direct, Retake, Rewrite selection, or Aside lost the streamed text when the\n  model server ended its stream at connection close, as KoboldCpp does. The\n  page went back to the original take, and the notice log showed \"Model stream\n  ended before its terminal event.\" Now 1667 saves the streamed text, as it\n  does for other model servers."

@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.3-beta.1 - 2026-11-26
+
 - **`1667 web` shows the thought while the model thinks.** Before, the page
   showed only "Thinking…" until the text arrived. Now, a Thought button shows
   under the header of the part that the model writes. Press Shift+T or click
