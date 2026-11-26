@@ -101,7 +101,12 @@ export function StoryView(
   // Sticks to the bottom while this story's own generation streams; a
   // reader who scrolls up (to reread, or to keep an earlier part in view)
   // un-pins it until they scroll back down themselves.
-  useFollowStream(scrollRef, generationView?.live === true, generationView?.text);
+  // The thought grows before the prose does, so its length counts too.
+  useFollowStream(
+    scrollRef,
+    generationView?.live === true,
+    `${generationView?.text.length ?? 0}:${generationView?.reasoning?.text.length ?? 0}`
+  );
 
   useEffect(() => {
     void actions.story.load(storyId);

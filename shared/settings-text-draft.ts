@@ -256,21 +256,28 @@ export function settingsTextDraftWithProviderChoice(
   if (protocol !== "text-completions" && protocol !== "openai-chat-completions") return draft;
   const preset = settingsProviderChoicePreset(choice)
     ?? incompletePreset(draft.generation.provider, route.connection.baseUrl);
+  const name = basicSettingsConnectionName(preset);
+  const textPromptFormat = protocol === "text-completions"
+    ? route.connection.textPromptFormat === "server-template" && preset !== "llama-cpp"
+      ? "raw" as const
+      : route.connection.textPromptFormat ?? "raw" as const
+    : route.connection.textPromptFormat;
+  if (route.connection.preset === preset && route.connection.name === name && route.connection.textPromptFormat === textPromptFormat) {
+    return draft;
+  }
+  // A duplicated profile can share this connection; the choice must not
+  // change the other profile.
+  const isolated = isolateSettingsProfileConnection(document, profileId);
+  const isolatedRoute = resolveSettingsProfile(isolated, profileId);
   const connection: ModelConnectionV2 = {
-    ...route.connection,
-    name: basicSettingsConnectionName(preset),
+    ...isolatedRoute.connection,
+    name,
     preset,
-    ...(protocol === "text-completions"
-      ? {
-          textPromptFormat: route.connection.textPromptFormat === "server-template" && preset !== "llama-cpp"
-            ? "raw" as const
-            : route.connection.textPromptFormat ?? "raw" as const
-        }
-      : {})
+    ...(protocol === "text-completions" ? { textPromptFormat } : {})
   };
   return settingsTextDraftForDocument({
-    ...document,
-    connections: { ...document.connections, [route.model.connectionId]: connection }
+    ...isolated,
+    connections: { ...isolated.connections, [isolatedRoute.model.connectionId]: connection }
   }, profileId);
 }
 

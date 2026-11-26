@@ -135,6 +135,31 @@ describe("Generation Profile settings", () => {
     expect(original.connection.protocol).toBe("dry-run");
   });
 
+  test("selecting a local server provider on a duplicated profile keeps the original provider", () => {
+    const { source } = settingsHarness();
+    if (!source.settingsView.editable) throw new Error("demo settings must be editable");
+    const originalId = source.settingsView.document.routing.default;
+    const choice = (id: string) => SETTINGS_PROVIDER_CHOICES.find((candidate) => candidate.id === id)!;
+    const original = settingsTextDraftForDocument(source.settingsView.document, originalId);
+    const llamaCpp = settingsTextDraftWithProviderChoice(settingsTextDraftWithGeneration(original, {
+      ...original.generation,
+      provider: "openai-compatible",
+      baseUrl: "http://127.0.0.1:5001/v1",
+      model: "gemma",
+      apiKeyEnv: null,
+      contextWindow: null
+    }), choice("llama-cpp"));
+    const duplicate = duplicateSettingsProfile(llamaCpp.document!, originalId);
+    if ("error" in duplicate) throw new Error(duplicate.error);
+    // KoboldCpp's default URL is the same port, so only the preset changes.
+    const next = settingsTextDraftWithProviderChoice(
+      settingsTextDraftForDocument(duplicate.document, duplicate.profileId),
+      choice("koboldcpp")
+    );
+    expect(resolveSettingsProfile(next.document!, duplicate.profileId).connection.preset).toBe("koboldcpp");
+    expect(resolveSettingsProfile(next.document!, originalId).connection.preset).toBe("llama-cpp");
+  });
+
   test("selecting a subscription plan resets timeout defaults after a protocol change", () => {
     const { source } = settingsHarness();
     if (!source.settingsView.editable) throw new Error("demo settings must be editable");
