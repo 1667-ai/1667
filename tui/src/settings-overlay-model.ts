@@ -50,8 +50,8 @@ import {
   settingsTextDraftForDocument,
   settingsTextDraftForView,
   settingsTextDraftWithGeneration,
-  settingsTextDraftWithSubscriptionPlan,
-  settingsTextDraftWithTextPreset
+  settingsTextDraftWithProviderChoice,
+  settingsTextDraftWithSubscriptionPlan
 } from "./settings-text.js";
 import {
   draftWriting,
@@ -434,14 +434,10 @@ export function cycleSettingsProvider(
   } else {
     replaceSettingsProviderDraft(
       overlay,
-      settingsTextDraftWithGeneration(overlay.draft, generation)
-    );
-  }
-  const textPreset = textPresetForChoice(choice);
-  if (textPreset !== null) {
-    replaceSettingsDraft(
-      overlay,
-      settingsTextDraftWithTextPreset(overlay.draft, textPreset)
+      settingsTextDraftWithProviderChoice(
+        settingsTextDraftWithGeneration(overlay.draft, generation),
+        choice
+      )
     );
   }
   rekeyPendingStoredSecret(overlay);
@@ -466,14 +462,6 @@ function selectedConnectionPreset(
   const profileId = overlay.draft.selectedProfileId;
   if (document === null || profileId === null) return undefined;
   return resolveSettingsProfile(document, profileId).connection.preset;
-}
-
-function textPresetForChoice(
-  choice: SettingsProviderChoice
-): "custom" | "llama-cpp" | "koboldcpp" | null {
-  if (choice.id === "llama-cpp-text") return "llama-cpp";
-  if (choice.id === "koboldcpp-text") return "koboldcpp";
-  return choice.id === "text-completion" ? "custom" : null;
 }
 
 export function cycleSettingsModel(

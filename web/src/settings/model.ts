@@ -25,7 +25,7 @@ import {
   settingsTextDraftWithDetectedContext,
   settingsTextDraftWithGeneration,
   settingsTextDraftWithSubscriptionPlan,
-  settingsTextDraftWithTextPreset,
+  settingsTextDraftWithProviderChoice,
   type SettingsTextDraft
 } from "../../../shared/settings-text-draft.js";
 import {
@@ -93,11 +93,7 @@ export function applyProviderChoice(edit: SettingsEdit, choice: SettingsProvider
     };
     state.draft = choice.id === "chatgpt-plan" || choice.id === "claude-plan"
       ? settingsTextDraftWithSubscriptionPlan(state.draft, choice.id, generation)
-      : settingsTextDraftWithGeneration(state.draft, generation);
-    const textPreset = choice.id === "llama-cpp-text" ? "llama-cpp"
-      : choice.id === "koboldcpp-text" ? "koboldcpp"
-        : choice.id === "text-completion" ? "custom" : null;
-    if (textPreset !== null) state.draft = settingsTextDraftWithTextPreset(state.draft, textPreset);
+      : settingsTextDraftWithProviderChoice(settingsTextDraftWithGeneration(state.draft, generation), choice);
     rekeyPendingStoredSecret(state);
     discardUnreferencedConnectionSecretWrites(state);
     return null;

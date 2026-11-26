@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { parseSettingsDocumentV5 } from "../../server/settings-v5-codec.js";
 import { resolveSettingsProfile, selectSettingsRoute } from "../../shared/settings-route.js";
 import { defaultConnectionTimeouts } from "../../shared/settings-provider-defaults.js";
+import { SETTINGS_PROVIDER_CHOICES } from "../../shared/settings-provider-choices.js";
 import { applySamplingSettings } from "../../shared/sampling-capabilities.js";
 import { EMPTY_SAMPLING_V2 } from "../../shared/settings-v2-types.js";
 import type { SaveSettingsCommand } from "../../shared/settings-v2-types.js";
@@ -24,7 +25,7 @@ import {
   settingsTextDraftForDocument,
   settingsTextDraftWithGeneration,
   settingsTextDraftWithSubscriptionPlan,
-  settingsTextDraftWithTextPreset
+  settingsTextDraftWithProviderChoice
 } from "../src/settings-text.js";
 import { publishCurrentSettingsModelDiscovery } from "../src/settings-model-discovery.js";
 import {
@@ -190,7 +191,7 @@ describe("Generation Profile settings", () => {
     await openSettings(press);
     const overlay = state.settings!;
     const profileId = overlay.draft.selectedProfileId!;
-    const textDraft = settingsTextDraftWithTextPreset(
+    const textDraft = settingsTextDraftWithProviderChoice(
       settingsTextDraftWithGeneration(overlay.draft, {
         ...overlay.draft.generation,
         provider: "text-completion",
@@ -199,7 +200,7 @@ describe("Generation Profile settings", () => {
         apiKeyEnv: null,
         contextWindow: null
       }),
-      "koboldcpp"
+      SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === "koboldcpp-text")!
     );
     overlay.draft = textDraft;
     applySettingsModelChoice(

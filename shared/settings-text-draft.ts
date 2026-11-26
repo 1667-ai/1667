@@ -26,6 +26,10 @@ import {
   defaultModelCapabilitiesV3
 } from "./settings-provider-defaults.js";
 import {
+  settingsProviderChoicePreset,
+  type SettingsProviderChoice
+} from "./settings-provider-choices.js";
+import {
   subscriptionProtocolForPresetV2
 } from "./settings-v2-types.js";
 import {
@@ -237,31 +241,36 @@ export function settingsTextDraftWithCachePolicy(
   );
 }
 
-/** Apply the explicit native text adapter selected in the provider picker. */
-export function settingsTextDraftWithTextPreset(
+/** Apply the preset of the choice that the writer selected in the provider
+ * picker. A local-server choice names its preset. A generic choice follows
+ * its URL, so it clears a native preset that the URL rule would keep. */
+export function settingsTextDraftWithProviderChoice(
   draft: SettingsTextDraft,
-  preset: "custom" | "llama-cpp" | "koboldcpp"
+  choice: SettingsProviderChoice
 ): SettingsTextDraft {
   const document = draft.document;
   const profileId = draft.selectedProfileId;
   if (document === null || profileId === null) return draft;
   const route = resolveSettingsProfile(document, profileId);
-  if (route.connection.protocol !== "text-completions") return draft;
-  const textPromptFormat = route.connection.textPromptFormat === "server-template"
-    && preset !== "llama-cpp"
-    ? "raw"
-    : route.connection.textPromptFormat ?? "raw";
+  const protocol = route.connection.protocol;
+  if (protocol !== "text-completions" && protocol !== "openai-chat-completions") return draft;
+  const preset = settingsProviderChoicePreset(choice)
+    ?? incompletePreset(draft.generation.provider, route.connection.baseUrl);
+  const connection: ModelConnectionV2 = {
+    ...route.connection,
+    name: basicSettingsConnectionName(preset),
+    preset,
+    ...(protocol === "text-completions"
+      ? {
+          textPromptFormat: route.connection.textPromptFormat === "server-template" && preset !== "llama-cpp"
+            ? "raw" as const
+            : route.connection.textPromptFormat ?? "raw" as const
+        }
+      : {})
+  };
   return settingsTextDraftForDocument({
     ...document,
-    connections: {
-      ...document.connections,
-      [route.model.connectionId]: {
-        ...route.connection,
-        name: basicSettingsConnectionName(preset),
-        preset,
-        textPromptFormat
-      }
-    }
+    connections: { ...document.connections, [route.model.connectionId]: connection }
   }, profileId);
 }
 
