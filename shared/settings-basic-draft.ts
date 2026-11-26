@@ -415,18 +415,27 @@ function connectionFor(
   };
 }
 
-/** Keep only a native text adapter that the writer selected explicitly.
- * Generic text routes still follow their URL between custom and OpenAI. */
+/** The local-server presets that the provider picker names. A connection
+ * keeps one of these when its URL changes, because a server can listen on any
+ * port: llama-server on 8081 is still llama.cpp. */
+const NATIVE_PRESETS: Readonly<Partial<Record<SettingsProtocolV2, readonly SettingsPresetV2[]>>> = {
+  "openai-chat-completions": ["lm-studio", "ollama", "llama-cpp", "koboldcpp"],
+  "text-completions": ["llama-cpp", "koboldcpp"]
+};
+
+/** Keep a native local-server preset when only the URL changes. A generic
+ * route still follows its URL, for example between custom and OpenAI. The
+ * provider picker sets the preset explicitly (`settingsTextDraftWithPreset`),
+ * so a change to a generic choice clears a native preset. */
 export function basicSettingsPresetAfterIdentityChange(
   currentPreset: SettingsPresetV2,
   protocol: SettingsProtocolV2,
   protocolChanged: boolean,
   inferredPreset: SettingsPresetV2
 ): SettingsPresetV2 {
-  const preserveNativeTextPreset = protocol === "text-completions"
-    && !protocolChanged
-    && (currentPreset === "llama-cpp" || currentPreset === "koboldcpp");
-  return preserveNativeTextPreset ? currentPreset : inferredPreset;
+  const preserveNativePreset = !protocolChanged
+    && NATIVE_PRESETS[protocol]?.includes(currentPreset) === true;
+  return preserveNativePreset ? currentPreset : inferredPreset;
 }
 
 function authFor(

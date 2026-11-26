@@ -197,6 +197,23 @@ export function selectableSettingsProviderChoices(
   return SETTINGS_PROVIDER_CHOICES;
 }
 
+/** The preset that a provider choice names. Null means that the preset
+ * follows the URL. */
+export function settingsProviderChoicePreset(
+  choice: SettingsProviderChoice
+): "custom" | "lm-studio" | "ollama" | "llama-cpp" | "koboldcpp" | null {
+  switch (choice.id) {
+    case "lm-studio": return "lm-studio";
+    case "ollama": return "ollama";
+    case "llama-cpp":
+    case "llama-cpp-text": return "llama-cpp";
+    case "koboldcpp":
+    case "koboldcpp-text": return "koboldcpp";
+    case "text-completion": return "custom";
+    default: return null;
+  }
+}
+
 export function settingsProviderChoice(
   settings: GenerationSettings,
   textPreset?: SettingsPresetV2
@@ -214,6 +231,14 @@ export function settingsProviderChoice(
     return SETTINGS_PROVIDER_CHOICES.find(
       (choice) => choice.id === settings.provider
     )!;
+  }
+  // A stored local-server preset names its choice on any port. The port
+  // guess below applies only when no such preset is stored.
+  if (
+    textPreset === "lm-studio" || textPreset === "ollama"
+    || textPreset === "llama-cpp" || textPreset === "koboldcpp"
+  ) {
+    return SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === textPreset)!;
   }
   if (isOfficialOpenAiBaseUrl(settings.baseUrl)) {
     return SETTINGS_PROVIDER_CHOICES.find((choice) => choice.id === "openai")!;

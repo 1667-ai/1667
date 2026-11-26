@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **A local model server keeps its provider on any port.** Before, 1667 used
+  the port to find the provider. A llama.cpp server on a port other than 8080
+  became a Custom connection. Custom cannot use banned strings or phrase bias,
+  so Settings did not save. Now, when you select llama.cpp, KoboldCpp, LM
+  Studio, or Ollama, the provider stays when you change the Base URL. Select
+  the provider again if you saved a connection on another port.
+
 ## 0.11.2 - 2026-11-15
 
 - **Stop keeps the streamed text with KoboldCpp.** A Stop during Continue,
