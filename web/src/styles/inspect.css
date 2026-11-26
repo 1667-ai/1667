@@ -64,3 +64,4 @@
 .thought-body { border-left: 2px solid var(--line); margin-top: var(--s-1); padding-left: var(--s-3); }
 .thought-text { color: var(--dim); font-family: var(--prose); font-size: var(--fs-body); font-style: italic; line-height: 1.6; margin: 0; white-space: pre-wrap; }
 .thought-note { color: var(--faint); font: var(--font-meta); margin: 0; }
+.thought-body-live { max-height: 40vh; overflow-y: auto; overscroll-behavior: contain; }

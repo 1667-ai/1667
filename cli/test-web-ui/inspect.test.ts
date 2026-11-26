@@ -52,11 +52,13 @@ async function screenshot(page: Page, name: string): Promise<void> {
   await page.screenshot({ path: `${dir}/web-${name}.png` });
 }
 
-async function spawnInspectWeb(): Promise<ReadyWeb> {
+/** `wordDelayMs` paces the dry-run stream; a slow one leaves time to read a
+ * thought while it streams. */
+async function spawnInspectWeb(wordDelayMs = 2): Promise<ReadyWeb> {
   const project = await scratchProject();
   return await spawnWeb(
     ["--data", project.dataDir, "--port", "0", "--no-open"],
-    { ...project.env, [DRY_RUN_WORD_DELAY_VARIABLE]: "2" }
+    { ...project.env, [DRY_RUN_WORD_DELAY_VARIABLE]: String(wordDelayMs) }
   );
 }
 
@@ -240,37 +242,54 @@ test("case 5: h on a map row opens the records of that take, and Back returns to
   expect(await hash(page)).toBe(`#/story/${storyId}/map`);
 }, 90_000);
 
-test("case 6: T shows and hides the stored thought of a landed take; none shows while text streams", async () => {
-  const web = await spawnInspectWeb();
+test("case 6: T follows the thought while it streams; the landed take folds it, and T shows the stored one", async () => {
+  const web = await spawnInspectWeb(120);
   const api = await openInspectionApi(web);
   const storyId = await seedStory(api, "Mind Story");
   const page = await openStory(web, storyId, "Mind Story");
   await part(page, "lighthouse stairs").click();
   await page.getByRole("textbox", { name: "What happens next?" }).fill("Go on.");
   await page.getByRole("button", { name: "Continue" }).click();
-  await page.locator(".part-streaming").waitFor();
-  expect(await page.getByRole("button", { name: "Thought", exact: true }).count()).toBe(0);
-  expect(await page.getByRole("region", { name: "Thought" }).count()).toBe(0);
-  expect(await poll(async () => (await page.locator(".part").count()) === 3 && (await page.getByRole("button", { name: "Continue" }).count()) === 1, 20_000)).toBeTrue();
 
-  const toggle = page.getByRole("button", { name: /^Thought/ });
-  await toggle.waitFor();
-  expect(await toggle.getAttribute("aria-expanded")).toBe("false");
-  expect(await page.getByRole("region", { name: "Thought" }).count()).toBe(0);
+  // The thought shows while it streams: folded first, then open with T.
+  const streaming = page.locator(".part-streaming");
+  const liveToggle = streaming.getByRole("button", { name: /^Thought/ });
+  await liveToggle.waitFor();
+  expect(await liveToggle.getAttribute("aria-expanded")).toBe("false");
+  expect(await liveToggle.textContent()).toContain("…");
   await page.keyboard.press("Shift+T");
-  await page.getByRole("region", { name: "Thought" }).waitFor();
-  expect((await page.getByRole("region", { name: "Thought" }).textContent())?.length).toBeGreaterThan(10);
+  const liveThought = streaming.getByRole("region", { name: "Thought" });
+  await liveThought.waitFor();
+  const firstRead = (await liveThought.textContent()) ?? "";
+  expect(await poll(async () => ((await liveThought.textContent()) ?? "").length > firstRead.length, 10_000)).toBeTrue();
+  expect(await liveToggle.textContent()).toMatch(/^Thought · \d+/);
+  await screenshot(page, "10g-thought-live");
+
+  // The landed take folds its thought, as the TUI does. T shows the stored one.
+  expect(await poll(async () => (await page.locator(".part").count()) === 3 && (await page.getByRole("button", { name: "Continue" }).count()) === 1, 30_000)).toBeTrue();
+  const landedToggle = page.locator(".part").last().getByRole("button", { name: /^Thought/ });
+  await landedToggle.waitFor();
+  expect(await landedToggle.getAttribute("aria-expanded")).toBe("false");
+  const thought = page.locator(".part").last().getByRole("region", { name: "Thought" });
+  expect(await thought.count()).toBe(0);
+  await page.keyboard.press("Shift+T");
+  const leafId = (await api.loadStory(storyId)).path.at(-1)!.id;
+  const landed = (await api.getReasoning(storyId, leafId)).text;
+  await thought.filter({ hasText: landed.slice(0, 20) }).waitFor();
+  expect((await thought.textContent())?.trim()).toBe(landed.trim());
   await screenshot(page, "10g-thought");
-  // An append rewrites the take's thought: the page shows the stored one, not a cached one.
+
+  // An append keeps the part's open block: the new thought streams into it,
+  // then the stored one shows.
   const leafText = (): Promise<string> => page.locator(".part").last().locator(".prose").innerText();
   const before = await leafText();
   await page.getByRole("button", { name: "Continue" }).click();
-  expect(await poll(async () => (await leafText()).length > before.length, 20_000)).toBeTrue();
-  expect(await poll(async () => (await page.getByRole("button", { name: "Continue" }).count()) === 1, 20_000)).toBeTrue();
-  const leafId = (await api.loadStory(storyId)).path.at(-1)!.id;
+  expect(await poll(async () => ((await page.locator(".part").last().getByRole("button", { name: /^Thought/ }).textContent()) ?? "").includes("…"), 10_000)).toBeTrue();
+  expect(await poll(async () => (await leafText()).length > before.length, 30_000)).toBeTrue();
+  expect(await poll(async () => (await page.getByRole("button", { name: "Continue" }).count()) === 1, 30_000)).toBeTrue();
   const stored = (await api.getReasoning(storyId, leafId)).text;
-  await page.getByRole("region", { name: "Thought" }).filter({ hasText: stored.slice(0, 20) }).waitFor();
-  expect((await page.getByRole("region", { name: "Thought" }).textContent())?.trim()).toBe(stored.trim());
+  await thought.filter({ hasText: stored.slice(0, 20) }).waitFor();
+  expect((await thought.textContent())?.trim()).toBe(stored.trim());
   await page.keyboard.press("Shift+T");
-  await page.getByRole("region", { name: "Thought" }).waitFor({ state: "detached" });
-}, 90_000);
+  await thought.waitFor({ state: "detached" });
+}, 120_000);

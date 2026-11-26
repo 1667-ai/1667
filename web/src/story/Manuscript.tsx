@@ -47,7 +47,7 @@ export interface ManuscriptProps {
 /** What a part shows of the run writing into it: an append grows the leaf, a
  * rewrite puts its text where the passage was. */
 function continuationOf(generation: ManuscriptGeneration, partId: string): PartContinuation | null {
-  const shared = { text: generation.text, thinking: generation.thinking, live: generation.live };
+  const shared = { text: generation.text, reasoning: generation.reasoning, thinking: generation.thinking, live: generation.live };
   if (generation.appendTo === partId) return shared;
   if (generation.rewrite !== null && generation.rewrite.partId === partId) {
     return { ...shared, rewrite: { start: generation.rewrite.start, end: generation.rewrite.end } };
@@ -154,6 +154,7 @@ export function Manuscript({ payload, focusedPartId, switching, showDirections, 
           instruction={generation.instruction}
           showDirections={showDirections}
           text={generation.text}
+          reasoning={generation.reasoning}
           thinking={generation.thinking}
           live={generation.live}
         />

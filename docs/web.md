@@ -196,7 +196,11 @@ Esc or choose Back to close it.
   works in the map.
 - The token probabilities page shows the probabilities of the tokens of a
   take. Press `l`.
-- Press Shift+T to show or hide the stored thought of a take.
+- Press Shift+T to show or hide the thought of a take. You can also click
+  Thought under the part header. While the model thinks, the thought shows
+  the new text as it arrives. The open thought moves to the newest text. If
+  you scroll up, it stops. Scroll to the end to start again. When a new take
+  is saved, its thought closes. Press Shift+T again to read the saved thought.
 
 ### Aside
 
