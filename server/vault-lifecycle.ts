@@ -12,7 +12,9 @@ import {
   sealVersion,
   unsealKeyslot,
   unsealVaultBytes,
+  VAULT_SEAL_OVERHEAD,
   VAULT_SEAL_VERSION_BOUND,
+  VAULT_SEAL_VERSION_UNBOUND,
   VaultSealVersionError
 } from "../shared/vault-cipher.js";
 import {
@@ -93,6 +95,7 @@ export async function encryptVault(options: VaultLifecycleOptions): Promise<void
       if (lock.dataFormat !== 4) throw new Error("encrypt requires data format 4 and no Vault Keyslot");
       await VaultUnsealProgress.assertAbsent(root);
       await assertVaultTraversalSafe(root);
+      await assertSupportedSealVersions(root);
       const password = await resolveVaultPassword(options.password, {
         command: "encrypt",
         resume: false
@@ -118,6 +121,7 @@ export async function encryptVault(options: VaultLifecycleOptions): Promise<void
     }
     await VaultUnsealProgress.assertAbsent(root);
     await assertVaultTraversalSafe(root);
+    await assertSupportedSealVersions(root);
     const password = await resolveVaultPassword(options.password, {
       command: "encrypt",
       resume: true
@@ -306,6 +310,46 @@ function requireAgreedGroupBinding(
         `Vault hard-link group disagrees on its seal binding: ${files[0]!} and ${alias}`
       );
     }
+  }
+}
+
+/**
+ * Refuse a seal version this build cannot open before `encrypt` changes
+ * anything.
+ *
+ * `sealFiles` refuses one too, but by then the Keyslot and the format-5 marker
+ * are published and some files are sealed, which strands a vault that was
+ * usable: a retry raises the same error, and `decrypt` and startup both refuse
+ * the sealing state. Reading eight bytes for each group first keeps that
+ * refusal harmless.
+ *
+ * Only `encrypt` runs this. `decrypt` works through witnessed plaintext
+ * replacements, whose bytes can begin with the seal prefix and any version
+ * byte, so judging them here would refuse a vault that is mid-recovery.
+ * `encrypt` has already established that no witness exists.
+ */
+async function assertSupportedSealVersions(root: string): Promise<void> {
+  const groups = await collectVaultInodeGroups(root);
+  for (const group of groups.values()) {
+    const file = group.payloads[0];
+    if (file === undefined) continue;
+    const header = await readSealHeader(file);
+    if (header === null || !isSealed(header)) continue;
+    const version = sealVersion(header);
+    if (version !== VAULT_SEAL_VERSION_UNBOUND && version !== VAULT_SEAL_VERSION_BOUND) {
+      throw new VaultSealVersionError(version, file);
+    }
+  }
+}
+
+async function readSealHeader(file: string): Promise<Buffer | null> {
+  const handle = await open(file, constants.O_RDONLY);
+  try {
+    const header = Buffer.alloc(VAULT_SEAL_OVERHEAD);
+    const { bytesRead } = await handle.read(header, 0, header.byteLength, 0);
+    return bytesRead < header.byteLength ? null : header;
+  } finally {
+    await handle.close();
   }
 }
 

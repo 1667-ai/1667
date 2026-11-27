@@ -13,7 +13,10 @@ import {
   VAULT_SEAL_VERSION_BOUND,
   VAULT_SEAL_VERSION_UNBOUND
 } from "../shared/vault-cipher.js";
-import { publishDataDirectoryOwnerMarker } from "../server/data-directory-format.js";
+import {
+  publishDataDirectoryOwnerMarker,
+  readDataDirectoryFormat
+} from "../server/data-directory-format.js";
 import { DataDirectoryLock } from "../server/data-directory-lock.js";
 import { writeDurableAtomic } from "../server/story-lifecycle.js";
 import { readUnsealedFile } from "../server/vault-file-read.js";
@@ -179,15 +182,26 @@ test("a bound seal at a path that takes no binding fails closed", async (t) => {
   await assert.rejects(readUnsealedFile(plain), /needs its location binding/);
 });
 
-test("a seal version this build cannot open is refused, not sealed again", async (t) => {
+test("a seal version this build cannot open is refused and leaves the vault usable", async (t) => {
+  // The refusal has to be harmless. `encrypt` publishes the Keyslot and the
+  // format-5 marker before it seals, and a vault left in the sealing state
+  // takes neither another `encrypt` nor a `decrypt`, so refusing too late
+  // would strand a vault that was usable.
   const root = await newVault(t, "1667-seal-version-unknown-");
-  const file = path.join(root, "newer.json");
-  await writeFile(file, withSealVersion(sealVaultBytes(randomBytes(32), Buffer.alloc(48, 0x61)), 9));
+  const newer = path.join(root, "newer.json");
+  const ordinary = path.join(root, "ordinary.json");
+  const ordinaryText = "untouched sentinel: the ordinary page";
+  await writeFile(newer, withSealVersion(sealVaultBytes(randomBytes(32), Buffer.alloc(48, 0x61)), 9));
+  await writeFile(ordinary, ordinaryText);
 
   await assert.rejects(
     encryptVault({ dataDirectory: root, password: PASSWORD }),
     /needs a newer 1667/
   );
+
+  assert.equal(await readDataDirectoryFormat(root), 4);
+  await assert.rejects(readFile(path.join(root, VAULT_KEYSLOT_FILE)), { code: "ENOENT" });
+  assert.equal(await readFile(ordinary, "utf8"), ordinaryText);
 });
 
 test("decrypt restores a vault that mixes unbound and bound seals", async (t) => {
