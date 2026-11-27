@@ -342,6 +342,10 @@ test("case 10: c opens the chapters panel; its keys move, jump, rename, summariz
   await waitForAttribute(part(page, "A:"), "aria-current", "true");
 
   await page.keyboard.press("ArrowDown");
+  // Every key below acts on the selected row, so each move waits for the
+  // selection to land before the next key: a key sent into the gap acts on
+  // the row the panel is still showing as selected.
+  await waitForAttribute(rows.nth(1), "aria-current", "true");
   await page.keyboard.press("e");
   await page.getByRole("textbox", { name: "Chapter title" }).waitFor();
   await page.keyboard.press("ArrowRight");
@@ -350,11 +354,13 @@ test("case 10: c opens the chapters panel; its keys move, jump, rename, summariz
   expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).chapterBreaks[0]!.title === "Second act")).toBeTrue();
 
   await page.keyboard.press("ArrowUp");
+  await waitForAttribute(rows.nth(0), "aria-current", "true");
   await page.keyboard.press("r");
   expect(await poll(async () => (await seeded.api.loadStory(seeded.storyId)).nodes.some((node) => node.chapterBreakId === seeded.breakId), 30_000)).toBeTrue();
   await panel.getByText("✓ stands in").waitFor();
 
   await page.keyboard.press("ArrowDown");
+  await waitForAttribute(rows.nth(1), "aria-current", "true");
   // A held key acts once.
   await page.keyboard.down("Shift");
   await page.keyboard.down("D");
@@ -389,6 +395,8 @@ test("case 11: below 1200 px the panel is a drawer; Enter jumps and closes it; E
   await page.keyboard.press("Escape");
   await waitForCount(renameBox, 0);
   await page.keyboard.press("ArrowUp");
+  // Enter jumps to the selected chapter, so wait for the move to land.
+  await waitForAttribute(panel.getByRole("listitem").nth(0), "aria-current", "true");
   await page.keyboard.press("Enter");
   await waitForCount(panel, 0);
   await waitForAttribute(part(page, "A:"), "aria-current", "true");
