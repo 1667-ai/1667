@@ -143,7 +143,13 @@ export function PartActionsMenu(
   useEffect(() => {
     if (open) {
       closedByItem.current = false;
-      listRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus();
+      // `preventScroll`: the menu is placed and capped to the room beside the
+      // trigger, so the first item is already inside the scroll area. Letting
+      // the browser scroll to it would move the manuscript, and with it the
+      // trigger this menu is anchored to, out from under the placement above
+      // — which runs once and would not see the move. An upward menu then
+      // grows past the top of the screen (#477).
+      listRef.current?.querySelector<HTMLButtonElement>("button:not(:disabled)")?.focus({ preventScroll: true });
     } else if (wasOpen.current && !closedByItem.current) {
       // Escape or an outside press: the keyboard goes back to the trigger.
       triggerRef.current?.focus();
@@ -167,17 +173,36 @@ export function PartActionsMenu(
   useLayoutEffect(() => {
     const trigger = triggerRef.current;
     const list = listRef.current;
-    if (!open || trigger === null || list === null) return;
-    const rect = trigger.getBoundingClientRect();
-    const area = trigger.closest(".story-scroll")?.getBoundingClientRect();
-    const top = Math.max(area?.top ?? 0, 0);
-    const bottom = Math.min(area?.bottom ?? window.innerHeight, window.innerHeight);
-    const below = bottom - rect.bottom - EDGE_GAP;
-    const above = rect.top - top - EDGE_GAP;
-    const natural = list.scrollHeight + (list.offsetHeight - list.clientHeight);
-    const up = natural > below && above > below;
-    const room = Math.max(0, up ? above : below);
-    setPlace({ up, maxHeight: natural > room ? room : null });
+    if (!open || trigger === null || list === null) return undefined;
+    const area = trigger.closest(".story-scroll");
+    const measure = (): void => {
+      const rect = trigger.getBoundingClientRect();
+      const areaRect = area?.getBoundingClientRect();
+      const top = Math.max(areaRect?.top ?? 0, 0);
+      const bottom = Math.min(areaRect?.bottom ?? window.innerHeight, window.innerHeight);
+      const below = bottom - rect.bottom - EDGE_GAP;
+      const above = rect.top - top - EDGE_GAP;
+      // `scrollHeight` is the whole list, so this stays the natural height
+      // even once `maxHeight` caps the box.
+      const natural = list.scrollHeight + (list.offsetHeight - list.clientHeight);
+      const up = natural > below && above > below;
+      const room = Math.max(0, up ? above : below);
+      const next = { up, maxHeight: natural > room ? room : null };
+      setPlace((current) => (current.up === next.up && current.maxHeight === next.maxHeight ? current : next));
+    };
+    measure();
+    // The menu is anchored to the trigger and an upward one grows from its
+    // bottom edge, so a placement measured once stops fitting as soon as the
+    // manuscript scrolls under it — which the open menu's own effects cause,
+    // through `focus-dom.ts`'s `scrollIntoView` for the part the click
+    // selected. A stale placement put the menu above the top of the screen
+    // (#477), so it is measured again whenever the trigger can have moved.
+    area?.addEventListener("scroll", measure, { passive: true });
+    addEventListener("resize", measure);
+    return () => {
+      area?.removeEventListener("scroll", measure);
+      removeEventListener("resize", measure);
+    };
   }, [open, items.length]);
 
   const run = (id: WebPartActionId): void => {
