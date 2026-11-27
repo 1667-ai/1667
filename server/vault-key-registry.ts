@@ -133,7 +133,7 @@ export function unsealVaultFileForPath(file: string, bytes: Uint8Array): Buffer 
   const scope = vaultScopeForPath(file);
   if (scope === null) return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   if (!isSealed(bytes)) throw new Error(`Vault file is not sealed: ${file}`);
-  return unsealVaultBytes(scope.key, bytes, file, vaultSealBinding(scope.relative));
+  return unsealVaultBytes(scope.key, bytes, file, vaultSealBinding(scope.relative) ?? undefined);
 }
 
 /** The on-disk cap has the same plaintext meaning in sealed and plain vaults. */

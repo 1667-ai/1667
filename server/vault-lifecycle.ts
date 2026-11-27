@@ -197,7 +197,7 @@ async function sealFiles(root: string, key: Uint8Array): Promise<void> {
       // A sealed file must authenticate with this vault key before a resumed
       // pass can classify it as complete. A non-authentic magic prefix is
       // ordinary plaintext and gets one normal seal.
-      unsealVaultBytes(key, bytes, file, binding);
+      unsealVaultBytes(key, bytes, file, binding ?? undefined);
       return null;
     } catch (error) {
       // A seal version this build cannot open is a newer build's work, not
@@ -229,7 +229,7 @@ async function unsealFiles(
     }
     let plaintext: Buffer;
     try {
-      plaintext = unsealVaultBytes(key, bytes, file, binding);
+      plaintext = unsealVaultBytes(key, bytes, file, binding ?? undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -249,7 +249,7 @@ async function transformFiles(
     files: readonly string[],
     file: string,
     bytes: Buffer,
-    binding: Buffer
+    binding: Buffer | null
   ) => Promise<Uint8Array | null>,
   afterReplacement?: (files: readonly string[]) => Promise<void>
 ): Promise<void> {
@@ -281,13 +281,14 @@ async function transformFiles(
  * location at all, so a check here would reject vaults that open today
  * without protecting anything.
  */
-function requireGroupBinding(root: string, files: readonly string[], bytes: Buffer): Buffer {
+function requireGroupBinding(root: string, files: readonly string[], bytes: Buffer): Buffer | null {
   const binding = vaultSealBinding(path.relative(root, files[0]!));
   if (files.length === 1 || !isSealed(bytes) || sealVersion(bytes) !== VAULT_SEAL_VERSION_BOUND) {
     return binding;
   }
   for (const alias of files.slice(1)) {
-    if (!vaultSealBinding(path.relative(root, alias)).equals(binding)) {
+    const aliasBinding = vaultSealBinding(path.relative(root, alias));
+    if (aliasBinding === null || binding === null || !aliasBinding.equals(binding)) {
       throw new Error(
         `Vault hard-link group disagrees on its seal binding: ${files[0]!} and ${alias}`
       );

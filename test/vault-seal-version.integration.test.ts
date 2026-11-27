@@ -46,11 +46,11 @@ test("a sealed vault reads both the unbound and the bound seal version", async (
   const registration = registerVaultKey(root, key);
   t.after(() => registration.clear());
 
-  const unbound = path.join(root, "mutation-outbox", "unbound.json");
-  const bound = path.join(root, "mutation-outbox", "bound.json");
-  await mkdir(path.dirname(unbound), { recursive: true });
   const unboundText = "unbound seal sentinel: amber lighthouse";
   const boundText = "bound seal sentinel: small green comet";
+  const unbound = path.join(root, "mutation-outbox", "unbound.json");
+  const bound = await objectPath(root, "story-a", "chunks", boundText);
+  await mkdir(path.dirname(unbound), { recursive: true });
   await writeFile(unbound, sealVaultBytes(key, Buffer.from(unboundText)));
   await writeFile(bound, sealBound(key, root, bound, boundText));
 
@@ -113,14 +113,41 @@ test("a changed seal version byte fails instead of selecting another rule", asyn
   const registration = registerVaultKey(root, key);
   t.after(() => registration.clear());
 
-  const text = "version tamper sentinel: nine brass keys";
-  const unbound = path.join(root, "unbound.json");
-  const bound = path.join(root, "bound.json");
-  await writeFile(unbound, withSealVersion(sealVaultBytes(key, Buffer.from(text)), VAULT_SEAL_VERSION_BOUND));
-  await writeFile(bound, withSealVersion(sealBound(key, root, bound, text), VAULT_SEAL_VERSION_UNBOUND));
+  const first = "version tamper sentinel: nine brass keys";
+  const second = "version tamper sentinel: four copper bells";
+  const raisedObject = await objectPath(root, "story-a", "chunks", first);
+  const loweredObject = await objectPath(root, "story-a", "chunks", second);
+  const raisedPlain = path.join(root, "unbound.json");
+  await writeFile(raisedObject, withSealVersion(sealVaultBytes(key, Buffer.from(first)), VAULT_SEAL_VERSION_BOUND));
+  await writeFile(loweredObject, withSealVersion(sealBound(key, root, loweredObject, second), VAULT_SEAL_VERSION_UNBOUND));
+  await writeFile(raisedPlain, withSealVersion(sealVaultBytes(key, Buffer.from(first)), VAULT_SEAL_VERSION_BOUND));
 
-  await assert.rejects(readUnsealedFile(unbound), /authentication failed/);
-  await assert.rejects(readUnsealedFile(bound), /authentication failed/);
+  // Where a binding exists, the tag covers the version byte, so a flip in
+  // either direction fails authentication.
+  await assert.rejects(readUnsealedFile(raisedObject), /authentication failed/);
+  await assert.rejects(readUnsealedFile(loweredObject), /authentication failed/);
+  // Where none exists, the raised version is refused for the missing binding.
+  await assert.rejects(readUnsealedFile(raisedPlain), /needs its location binding/);
+});
+
+test("a bound seal at a path that takes no binding fails closed", async (t) => {
+  // Only a story object carries a binding. A bound seal anywhere else has
+  // nothing to authenticate against, so the read must refuse it rather than
+  // fall back to reading it unbound.
+  const root = await newVault(t, "1667-seal-version-unbindable-");
+  const key = randomBytes(32);
+  const registration = registerVaultKey(root, key);
+  t.after(() => registration.clear());
+
+  const secret = "unbindable sentinel: the private chapter";
+  const object = await objectPath(root, "story-a", "chunks", secret);
+  const plain = path.join(root, "mutation-outbox", "record.json");
+  await mkdir(path.dirname(plain), { recursive: true });
+  await writeFile(object, sealBound(key, root, object, secret));
+  await writeFile(plain, await readFile(object));
+
+  assert.equal(vaultSealBinding(path.relative(root, plain)), null);
+  await assert.rejects(readUnsealedFile(plain), /needs its location binding/);
 });
 
 test("a seal version this build cannot open is refused, not sealed again", async (t) => {
@@ -200,7 +227,9 @@ test("this build still writes the unbound seal version", async (t) => {
 });
 
 function sealBound(key: Uint8Array, root: string, file: string, text: string): Buffer {
-  return sealVaultBytes(key, Buffer.from(text), vaultSealBinding(path.relative(root, file)));
+  const binding = vaultSealBinding(path.relative(root, file));
+  assert.notEqual(binding, null, `${file} takes no seal binding`);
+  return sealVaultBytes(key, Buffer.from(text), binding!);
 }
 
 /** Rewrite the seal version byte the way a tampering attacker would. */
