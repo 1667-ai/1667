@@ -4,6 +4,7 @@ read_when:
   - changing `1667 web` or the web UI
   - changing the keys of the web UI
   - answering a question about the token URL or the project lock
+  - answering a question about the update notice of the web UI
 ---
 
 # Web UI
@@ -16,6 +17,8 @@ This document uses these Technical Names:
 - The web UI is the browser page that `1667 web` serves.
 - The token URL is the address that `1667 web` prints. It has a private token.
 - The project lock is the lock that lets one process at a time open a project.
+- The update notice is the message that tells you that a newer version of 1667
+  is available.
 
 ## Start the web UI
 
@@ -77,6 +80,29 @@ To use the TUI again, press Ctrl+C in the terminal that runs `1667 web`.
 
 The web UI and the TUI keep one reading position for each story. The program
 that runs second opens the story at the position that the first one saved.
+
+## Update notice
+
+1667 looks for a newer version in the background. The web UI shows the update
+notice as one toast. The toast names the new version. Click the X in the toast
+to close it. Press `!` to read the update notice again in the notice log.
+
+The web UI does not install the new version. If an Ownership Record identifies
+a Managed Installation, the update notice also shows the `1667 upgrade`
+command. Run that command in a terminal.
+
+The check reads public package data from the npm registry. It sends no story,
+prompt, account, or configuration data. The TUI and the web UI make the same
+request and keep one result for 24 hours. A run of `1667 web` after a run of
+the TUI usually makes no request.
+
+To stop the check, use one of these methods:
+
+- Set `updates.mode` to `off` in `~/.config/1667/config.json`.
+- Set the environment variable `AI_1667_NO_UPDATE_CHECK` to `1`.
+
+The TUI and the web UI read the same file and the same variable. A change
+applies to both.
 
 ## What the web UI does
 

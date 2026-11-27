@@ -6,6 +6,7 @@ import {
 import { storyApiFromWorkerTransport } from "../../../client/worker-story-api.js";
 import type { StoryApi } from "../../../client/api.js";
 import { createReadingPositionsApi } from "../../../client/reading-positions-api.js";
+import { createUpdateNoticeApi } from "../../../client/update-notice-api.js";
 import type { WebBridgeTransport } from "../../../client/web-bridge-transport.js";
 import {
   createReadingPositionSync,
@@ -15,6 +16,7 @@ import type { BridgeRecoveryWarning } from "../../../shared/web-bridge-protocol.
 import { recordNotice } from "./notices.js";
 import type { AppState } from "./state.js";
 import type { Store } from "./store.js";
+import { watchUpdateNotice } from "./update-notice.js";
 
 /**
  * Moved here from step 2's `web/src/main.ts`: the guarded `sessionStorage`
@@ -70,11 +72,14 @@ function recordRecoveryWarnings(store: Store<AppState>, warnings: readonly Bridg
 export function connect(store: Store<AppState>, onConnected: () => void): () => void {
   let disposed = false;
   let transport: WebBridgeTransport | null = null;
+  let stopUpdateNotice: (() => void) | null = null;
 
   void run();
 
   return () => {
     disposed = true;
+    stopUpdateNotice?.();
+    stopUpdateNotice = null;
     transport?.close();
   };
 
@@ -132,6 +137,15 @@ export function connect(store: Store<AppState>, onConnected: () => void): () => 
       recoveryWarnings: outcome.recoveryWarnings
     }));
     recordRecoveryWarnings(store, outcome.recoveryWarnings);
+    // Starts from the answer the connect-time `/api/status` read already
+    // carried, and asks again only while the check is still running. Its
+    // own keyed notice keeps a Reconnect from repeating a notice the reader
+    // already saw.
+    stopUpdateNotice = watchUpdateNotice({
+      store,
+      api: createUpdateNoticeApi(fetch, outcome.token),
+      initial: outcome.status.update
+    });
     if (everConnected) recordNotice(store, "connection", "Reconnected.");
     everConnected = true;
     onConnected();

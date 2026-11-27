@@ -601,7 +601,10 @@ Settings. The check reads public package metadata from the npm registry. It
 does not send story, prompt, account, or configuration data. The check stays
 notify-only. It never installs a Candidate. A notice shows `1667 upgrade` only
 when a valid Ownership Record identifies a Managed Installation. Other notices
-show only the new version.
+show only the new version. The TUI shows one low-priority toast. `1667 web`
+shows the same message as one toast in the browser page, which reads it from
+`/api/status`. Both surfaces make the same request under the same cache key,
+so neither one is distinguishable from the other.
 
 The homepage must serve bytes that match one attested channel Installer for the
 promoted release.

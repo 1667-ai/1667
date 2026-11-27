@@ -70,13 +70,23 @@ export interface ScratchProject {
 }
 
 /** A fresh project directory and an isolated machine-tier override, so a test
- * run never touches this machine's real 1667 state. */
+ * run never touches this machine's real 1667 state.
+ *
+ * The background update check is off here. `1667 web` starts one a second
+ * after launch (`cli/src/web-update-notice.ts`), and a suite that left it on
+ * would reach `registry.npmjs.org` once per spawn and depend on that
+ * registry answering. `web-update-notice-e2e.test.ts` drops this variable
+ * for the cases that are about the check itself. */
 export async function scratchProject(): Promise<ScratchProject> {
   const root = await mkdtemp(path.join(tmpdir(), "1667-web-e2e-"));
   roots.push(root);
   return {
     dataDir: path.join(root, "project"),
-    env: { ...process.env, AI_1667_STATE: path.join(root, "machine") }
+    env: {
+      ...process.env,
+      AI_1667_STATE: path.join(root, "machine"),
+      AI_1667_NO_UPDATE_CHECK: "1"
+    }
   };
 }
 

@@ -434,7 +434,17 @@ async function smokeEnvironment(directory: string): Promise<Record<string, strin
     HOME: home,
     XDG_STATE_HOME: state,
     XDG_DATA_HOME: data,
-    XDG_CONFIG_HOME: config
+    XDG_CONFIG_HOME: config,
+    // No background update check inside a build smoke. The check reaches
+    // `registry.npmjs.org`, and it keeps its cache in the private platform
+    // state root, which `windowsLocalAppDataDirectory` resolves through
+    // Windows `SHGetFolderPathW` on purpose: a private root must not follow
+    // an environment variable, so the `LOCALAPPDATA` override below cannot
+    // redirect it. Without this, the `1667 web` smoke creates the real
+    // `%LOCALAPPDATA%\1667\State`, and the default-state smoke in
+    // `standalone-smoke-package.ts` then fails because it requires that
+    // root to be absent.
+    AI_1667_NO_UPDATE_CHECK: "1"
   };
   for (const name of ["PATH", "LANG", "LC_ALL", "NO_COLOR", "SystemRoot", "WINDIR", "COMSPEC", "PATHEXT"]) {
     const value = process.env[name];
