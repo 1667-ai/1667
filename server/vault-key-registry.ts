@@ -6,6 +6,7 @@ import {
   unsealVaultBytes
 } from "../shared/vault-cipher.js";
 import { isStoryId } from "./story-v5-strict.js";
+import { vaultSealBinding } from "./vault-seal-binding.js";
 import { isVaultUnsealProgressPath } from "./vault-unseal-progress-layout.js";
 
 const keys = new Map<string, VaultKeyRegistrationImpl>();
@@ -44,7 +45,18 @@ export function registerVaultKey(dataDirectory: string, key: Uint8Array): VaultK
   return registration;
 }
 
-export function vaultKeyForPath(file: string): Buffer | null {
+/**
+ * One file's vault scope: the key that seals it and its path relative to the
+ * vault root that claimed it. The relative path comes from the matched root,
+ * never from the caller's spelling, so a path alias cannot change the seal
+ * binding of the same file.
+ */
+export interface VaultScope {
+  readonly key: Buffer;
+  readonly relative: string;
+}
+
+export function vaultScopeForPath(file: string): VaultScope | null {
   // The ordinary project path must stay a no-op. Most process starts have no
   // Vault Key, and avoiding path normalization here preserves the bounded
   // read/write hot path for an unsealed project.
@@ -61,7 +73,14 @@ export function vaultKeyForPath(file: string): Buffer | null {
     }
   }
   if (selected === null || isVaultControlPath(selected.root, resolved)) return null;
-  return selected.registration.key;
+  return {
+    key: selected.registration.key,
+    relative: path.relative(selected.root, resolved)
+  };
+}
+
+export function vaultKeyForPath(file: string): Buffer | null {
+  return vaultScopeForPath(file)?.key ?? null;
 }
 
 class VaultKeyRegistrationImpl implements VaultKeyRegistration {
@@ -96,6 +115,11 @@ export function hasVaultKeyForPath(file: string): boolean {
   return vaultKeyForPath(file) !== null;
 }
 
+/**
+ * Writes stay on the unbound seal version. This build reads a location-bound
+ * file so that a vault written by a newer build still opens here, which is
+ * what lets the bound writer ship in a later release without a one-way door.
+ */
 export function sealVaultFileForPath<T extends Uint8Array | string>(
   file: string,
   bytes: T
@@ -106,10 +130,10 @@ export function sealVaultFileForPath<T extends Uint8Array | string>(
 }
 
 export function unsealVaultFileForPath(file: string, bytes: Uint8Array): Buffer {
-  const key = vaultKeyForPath(file);
-  if (key === null) return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
+  const scope = vaultScopeForPath(file);
+  if (scope === null) return Buffer.isBuffer(bytes) ? bytes : Buffer.from(bytes);
   if (!isSealed(bytes)) throw new Error(`Vault file is not sealed: ${file}`);
-  return unsealVaultBytes(key, bytes, file);
+  return unsealVaultBytes(scope.key, bytes, file, vaultSealBinding(scope.relative) ?? undefined);
 }
 
 /** The on-disk cap has the same plaintext meaning in sealed and plain vaults. */

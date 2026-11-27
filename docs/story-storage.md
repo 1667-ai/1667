@@ -100,6 +100,33 @@ unsealed. 1667 removes the directory after it publishes the format-4 marker.
 Provider secrets stay in the machine tier. Vault encryption does not change the
 machine tier.
 
+### Seal versions
+
+Each sealed file holds a Seal Version. 1667 reads two Seal Versions:
+
+- Version 1 protects the contents of the file.
+- Version 2 protects the contents of the file and the Seal Binding.
+
+The Seal Binding gives protection against an attacker who can write in a sealed
+vault. That attacker cannot move the contents of one story object to the name of
+a different story object. The authentication of the file fails, and 1667 refuses
+the file.
+
+Only a story object has a Seal Binding. A story object holds a content hash in
+its name, and the Seal Binding is its object kind and its content hash. Thus
+1667 can store one story object in more than one story as links to the same
+file, and all of these names keep the same Seal Binding.
+
+Each other sealed file has no Seal Binding. 1667 writes these files first with
+a temporary name, then gives them their correct name. A Seal Binding would
+protect only the temporary name, and the file would then fail. If a version-2
+sealed file is at one of these locations, 1667 refuses the file.
+
+This version of 1667 reads both Seal Versions and writes Seal Version 1. An
+older version of 1667 cannot read a version-2 sealed file. Thus you must not
+use an older version of 1667 after a newer version writes version-2 sealed
+files.
+
 ## Story objects
 
 1667 stores story prose in the project tier as text revisions and chunks. A

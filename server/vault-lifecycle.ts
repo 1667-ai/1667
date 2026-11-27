@@ -9,8 +9,13 @@ import {
   keyslotWithState,
   parseKeyslot,
   sealVaultBytes,
+  sealVersion,
   unsealKeyslot,
-  unsealVaultBytes
+  unsealVaultBytes,
+  VAULT_SEAL_OVERHEAD,
+  VAULT_SEAL_VERSION_BOUND,
+  VAULT_SEAL_VERSION_UNBOUND,
+  VaultSealVersionError
 } from "../shared/vault-cipher.js";
 import {
   VAULT_KEYSLOT_FILE
@@ -26,6 +31,7 @@ import {
 import { replacePrivateFile } from "./private-file-replacement.js";
 import { syncDirectory } from "./story-lifecycle.js";
 import { isVaultControlPath } from "./vault-key-registry.js";
+import { vaultSealBinding } from "./vault-seal-binding.js";
 import {
   isVaultUnsealProgressPath,
   VaultUnsealProgress
@@ -89,6 +95,7 @@ export async function encryptVault(options: VaultLifecycleOptions): Promise<void
       if (lock.dataFormat !== 4) throw new Error("encrypt requires data format 4 and no Vault Keyslot");
       await VaultUnsealProgress.assertAbsent(root);
       await assertVaultTraversalSafe(root);
+      await assertSupportedSealVersions(root);
       const password = await resolveVaultPassword(options.password, {
         command: "encrypt",
         resume: false
@@ -114,6 +121,7 @@ export async function encryptVault(options: VaultLifecycleOptions): Promise<void
     }
     await VaultUnsealProgress.assertAbsent(root);
     await assertVaultTraversalSafe(root);
+    await assertSupportedSealVersions(root);
     const password = await resolveVaultPassword(options.password, {
       command: "encrypt",
       resume: true
@@ -187,15 +195,19 @@ async function replaceKeyslotState(
 }
 
 async function sealFiles(root: string, key: Uint8Array): Promise<void> {
-  await transformFiles(root, async (_files, file, bytes) => {
+  await transformFiles(root, async (_files, file, bytes, binding) => {
     if (!isSealed(bytes)) return sealVaultBytes(key, bytes);
     try {
       // A sealed file must authenticate with this vault key before a resumed
       // pass can classify it as complete. A non-authentic magic prefix is
       // ordinary plaintext and gets one normal seal.
-      unsealVaultBytes(key, bytes, file);
+      unsealVaultBytes(key, bytes, file, binding ?? undefined);
       return null;
-    } catch {
+    } catch (error) {
+      // A seal version this build cannot open is a newer build's work, not
+      // plaintext. Sealing it again would bury a readable file one layer
+      // deeper, so the pass stops and says which file needs the newer build.
+      if (error instanceof VaultSealVersionError) throw error;
       return sealVaultBytes(key, bytes);
     }
   });
@@ -207,7 +219,7 @@ async function unsealFiles(
   afterReplacement: ((files: readonly string[]) => Promise<void>) | undefined
 ): Promise<VaultUnsealProgress> {
   const progress = await VaultUnsealProgress.load(root, key);
-  await transformFiles(root, async (files, file, bytes) => {
+  await transformFiles(root, async (files, file, bytes, binding) => {
     const matching = files.map((path) => progress.matches(path, bytes));
     if (matching.every(Boolean)) return null;
     if (matching.some(Boolean)) {
@@ -219,9 +231,10 @@ async function unsealFiles(
       }
       throw new Error(`cannot unseal ${file}: sealed vault file is plaintext without a progress witness`);
     }
+    requireAgreedGroupBinding(root, files, bytes, binding);
     let plaintext: Buffer;
     try {
-      plaintext = unsealVaultBytes(key, bytes, file);
+      plaintext = unsealVaultBytes(key, bytes, file, binding ?? undefined);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -240,7 +253,8 @@ async function transformFiles(
   transform: (
     files: readonly string[],
     file: string,
-    bytes: Buffer
+    bytes: Buffer,
+    binding: Buffer | null
   ) => Promise<Uint8Array | null>,
   afterReplacement?: (files: readonly string[]) => Promise<void>
 ): Promise<void> {
@@ -251,10 +265,91 @@ async function transformFiles(
     const files = group.payloads;
     const first = files[0]!;
     const bytes = await readFile(first);
-    const replacement = await transform(files, first, bytes);
+    const replacement = await transform(
+      files,
+      first,
+      bytes,
+      vaultSealBinding(path.relative(root, first))
+    );
     if (replacement === null) continue;
     await replaceInodeGroup(files, replacement);
     await afterReplacement?.(files);
+  }
+}
+
+/**
+ * Refuse a bound hard-link group whose paths do not share one binding.
+ *
+ * A legitimate group holds one content-addressed object, whose binding leaves
+ * the story out, so every alias agrees. A group that disagrees is a hard link
+ * nothing in 1667 creates, and unsealing it would publish one alias's
+ * plaintext at every other name through `replaceInodeGroup`. That is the
+ * relocation the bound seal exists to refuse.
+ *
+ * Only the unseal pass calls this, and only once the progress witnesses have
+ * had their say: a witnessed plaintext replacement can carry the seal prefix
+ * and any version byte, and that plaintext is already published, so judging it
+ * as ciphertext would refuse a vault that is mid-recovery. The seal pass needs
+ * no such check, because it publishes ciphertext rather than plaintext.
+ *
+ * An unbound group keeps its historical freedom. Those files authenticate no
+ * location at all, so a check would reject vaults that open today without
+ * protecting anything.
+ */
+function requireAgreedGroupBinding(
+  root: string,
+  files: readonly string[],
+  bytes: Buffer,
+  binding: Buffer | null
+): void {
+  if (files.length === 1 || sealVersion(bytes) !== VAULT_SEAL_VERSION_BOUND) return;
+  for (const alias of files.slice(1)) {
+    const aliasBinding = vaultSealBinding(path.relative(root, alias));
+    if (aliasBinding === null || binding === null || !aliasBinding.equals(binding)) {
+      throw new Error(
+        `Vault hard-link group disagrees on its seal binding: ${files[0]!} and ${alias}`
+      );
+    }
+  }
+}
+
+/**
+ * Refuse a seal version this build cannot open before `encrypt` changes
+ * anything.
+ *
+ * `sealFiles` refuses one too, but by then the Keyslot and the format-5 marker
+ * are published and some files are sealed, which strands a vault that was
+ * usable: a retry raises the same error, and `decrypt` and startup both refuse
+ * the sealing state. Reading eight bytes for each group first keeps that
+ * refusal harmless.
+ *
+ * Only `encrypt` runs this. `decrypt` works through witnessed plaintext
+ * replacements, whose bytes can begin with the seal prefix and any version
+ * byte, so judging them here would refuse a vault that is mid-recovery.
+ * `encrypt` has already established that no witness exists.
+ */
+async function assertSupportedSealVersions(root: string): Promise<void> {
+  const groups = await collectVaultInodeGroups(root);
+  for (const group of groups.values()) {
+    const file = group.payloads[0];
+    if (file === undefined) continue;
+    const header = await readSealHeader(file);
+    if (header === null || !isSealed(header)) continue;
+    const version = sealVersion(header);
+    if (version !== VAULT_SEAL_VERSION_UNBOUND && version !== VAULT_SEAL_VERSION_BOUND) {
+      throw new VaultSealVersionError(version, file);
+    }
+  }
+}
+
+async function readSealHeader(file: string): Promise<Buffer | null> {
+  const handle = await open(file, constants.O_RDONLY);
+  try {
+    const header = Buffer.alloc(VAULT_SEAL_OVERHEAD);
+    const { bytesRead } = await handle.read(header, 0, header.byteLength, 0);
+    return bytesRead < header.byteLength ? null : header;
+  } finally {
+    await handle.close();
   }
 }
 

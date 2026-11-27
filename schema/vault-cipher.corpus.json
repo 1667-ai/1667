@@ -1,6 +1,9 @@
 {
   "sealedFile": {
+    "prefixHex": "00313636375601",
     "magicHex": "0031363637560101",
+    "sealVersionUnbound": 1,
+    "sealVersionBound": 2,
     "overheadBytes": 36,
     "nonceBytes": 12,
     "tagBytes": 16

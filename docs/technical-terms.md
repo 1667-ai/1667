@@ -29,6 +29,8 @@ read_when:
 | Vault Key | The random key that seals the files of one vault |
 | Vault Password | The secret text that opens the Vault Key |
 | Keyslot | The plaintext `vault.json` control file that contains the sealed Vault Key |
+| Seal Version | The number in a sealed file that tells 1667 what the authentication of the file protects |
+| Seal Binding | The object kind and content hash that a version-2 sealed file authenticates |
 | Image Input | An image that 1667 sends to a text-generation model |
 | Source Image | The image bytes that the writer gives to 1667 |
 | Normalized Image | The bounded image that 1667 makes from a Source Image |
