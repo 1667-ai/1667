@@ -9,8 +9,10 @@ import {
   keyslotWithState,
   parseKeyslot,
   sealVaultBytes,
+  sealVersion,
   unsealKeyslot,
   unsealVaultBytes,
+  VAULT_SEAL_VERSION_BOUND,
   VaultSealVersionError
 } from "../shared/vault-cipher.js";
 import {
@@ -258,19 +260,40 @@ async function transformFiles(
     const files = group.payloads;
     const first = files[0]!;
     const bytes = await readFile(first);
-    // Every path in one hard-link group shares an inode, and a group only
-    // forms for content-addressed objects, whose binding leaves the story out.
-    // So the representative's binding is every alias's binding.
-    const replacement = await transform(
-      files,
-      first,
-      bytes,
-      vaultSealBinding(path.relative(root, first))
-    );
+    const replacement = await transform(files, first, bytes, requireGroupBinding(root, files, bytes));
     if (replacement === null) continue;
     await replaceInodeGroup(files, replacement);
     await afterReplacement?.(files);
   }
+}
+
+/**
+ * The one binding every path in a hard-link group shares.
+ *
+ * A legitimate group forms only for content-addressed objects, whose binding
+ * leaves the story out, so every alias agrees. A group that disagrees is a
+ * hard link nothing in 1667 creates, and it must not be unsealed: one alias
+ * would authenticate, and `replaceInodeGroup` would then publish that
+ * plaintext at every other name in the group. That is exactly the relocation
+ * the bound seal exists to refuse, so refuse it here too.
+ *
+ * An unbound group keeps its historical freedom. Those files authenticate no
+ * location at all, so a check here would reject vaults that open today
+ * without protecting anything.
+ */
+function requireGroupBinding(root: string, files: readonly string[], bytes: Buffer): Buffer {
+  const binding = vaultSealBinding(path.relative(root, files[0]!));
+  if (files.length === 1 || !isSealed(bytes) || sealVersion(bytes) !== VAULT_SEAL_VERSION_BOUND) {
+    return binding;
+  }
+  for (const alias of files.slice(1)) {
+    if (!vaultSealBinding(path.relative(root, alias)).equals(binding)) {
+      throw new Error(
+        `Vault hard-link group disagrees on its seal binding: ${files[0]!} and ${alias}`
+      );
+    }
+  }
+  return binding;
 }
 
 async function assertVaultTraversalSafe(root: string): Promise<void> {

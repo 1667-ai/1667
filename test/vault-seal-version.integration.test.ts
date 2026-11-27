@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -157,6 +157,35 @@ test("decrypt restores a vault that mixes unbound and bound seals", async (t) =>
 
   assert.equal(await readFile(story, "utf8"), text);
   await assert.rejects(readFile(path.join(root, VAULT_KEYSLOT_FILE)), { code: "ENOENT" });
+});
+
+test("decrypt refuses a hard-link group that disagrees on its binding", async (t) => {
+  // Hard-linking reaches the plaintext without touching the ciphertext: one
+  // alias authenticates, and the group replacement would then publish that
+  // plaintext at every other name. `decrypt` must refuse the whole group.
+  const root = await newVault(t, "1667-seal-version-alias-");
+  const key = randomBytes(32);
+  const secret = "alias relocation sentinel: the private chapter";
+  const story = await objectPath(root, "story-a", "revisions", secret);
+  const relocated = path.join(root, "relocated.json");
+  await writeFile(story, secret);
+  await writeFile(
+    path.join(root, VAULT_KEYSLOT_FILE),
+    encodeKeyslot(keyslotWithState(await createKeyslot(PASSWORD, key), "sealing")),
+    { mode: 0o600 }
+  );
+  await publishDataDirectoryOwnerMarker(root, 5);
+  await encryptVault({ dataDirectory: root, password: PASSWORD });
+  await writeFile(story, sealBound(key, root, story, secret));
+  await link(story, relocated);
+
+  await assert.rejects(
+    decryptVault({ dataDirectory: root, password: PASSWORD }),
+    /disagrees on its seal binding/
+  );
+
+  assert.equal((await readFile(relocated)).includes(Buffer.from(secret)), false);
+  assert.equal((await readFile(story)).includes(Buffer.from(secret)), false);
 });
 
 test("this build still writes the unbound seal version", async (t) => {
