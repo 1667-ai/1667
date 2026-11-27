@@ -5,6 +5,14 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.5-beta.1 - 2026-11-27
+
+- **The part actions menu stays inside the screen.** Before, the menu of the
+  last part could open above the top of the screen when the manuscript was
+  scrolled to the end. About four of its items were then out of reach. Now,
+  the menu measures its place again when the manuscript scrolls or the window
+  changes size, so every item stays on the screen.
+
 ## 0.11.4 - 2026-11-27
 
 - **`1667 web` tells you when a newer version is available.** Before, only the
