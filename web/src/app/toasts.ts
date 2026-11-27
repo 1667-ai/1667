@@ -6,11 +6,19 @@ import type { Store } from "./store.js";
 const TOAST_LIFETIME_MS = 6_000;
 let nextToastId = 0;
 
-export function pushToast(store: Store<AppState>, message: string): void {
+/** `key` makes one message show once for the life of the tab: the keyed
+ * notice-log entry is the record, so a later call with the same key adds
+ * neither a toast nor a second log line. Used where a message can be
+ * reported again after the reader already saw and dismissed it — the
+ * background update notice, which a Reconnect would otherwise repeat
+ * (`app/update-notice.ts`). Without a key every call shows its own toast,
+ * which is what every other call site wants. */
+export function pushToast(store: Store<AppState>, message: string, key?: string): void {
+  if (key !== undefined && store.get().notices.some((notice) => notice.key === key)) return;
   const id = `toast-${(nextToastId += 1)}`;
   const toast: Toast = { id, message };
   store.set((state) => ({ ...state, toasts: [...state.toasts, toast] }));
-  recordNotice(store, "toast", message);
+  recordNotice(store, "toast", message, key);
   setTimeout(() => dismissToast(store, id), TOAST_LIFETIME_MS);
 }
 

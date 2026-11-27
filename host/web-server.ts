@@ -10,6 +10,7 @@ import {
 import { listenLoopback } from "../server/loopback-listen.js";
 import { ownedLoopbackHttpSupportedOn } from "../shared/provider-transport-capability.js";
 import type { ReadingPositions } from "../shared/reading-position.js";
+import type { UpdateNoticeStatus } from "../shared/update-notice.js";
 import {
   WEB_BRIDGE_SUBPROTOCOL,
   WEB_BRIDGE_TOKEN_PREFIX
@@ -76,6 +77,15 @@ export interface ReadingPositionsService {
   set(storyId: string, partId: string | null): void;
 }
 
+/** The running background update check, as `/api/status` reports it. The
+ * check resolves after this server is already up, so the holder has to be
+ * read on every request rather than captured once — `cli/src/web-command.ts`
+ * owns the check itself and this server only publishes its result. Notify
+ * only: nothing here installs anything. */
+export interface UpdateNoticeService {
+  read(): UpdateNoticeStatus;
+}
+
 export interface WebServerOptions {
   readonly port: number;
   readonly assets: ReadonlyMap<string, WebAsset>;
@@ -84,6 +94,7 @@ export interface WebServerOptions {
   /** The running build's version, shown once `/api/status` is authorized. */
   readonly version: string;
   readonly readingPositions: ReadingPositionsService;
+  readonly updateNotice: UpdateNoticeService;
 }
 
 export interface WebServer {
@@ -127,7 +138,8 @@ export async function startWebServer(options: WebServerOptions): Promise<WebServ
     assets: options.assets,
     projectLabel: options.projectLabel,
     version: options.version,
-    readingPositions: options.readingPositions
+    readingPositions: options.readingPositions,
+    updateNotice: options.updateNotice
   };
   server.on("request", (request, response) => {
     void handleRequest(request, response, context);
@@ -172,6 +184,7 @@ export interface RequestContext {
   readonly projectLabel: string;
   readonly version: string;
   readonly readingPositions: ReadingPositionsService;
+  readonly updateNotice: UpdateNoticeService;
 }
 
 export interface RouteResponse {
@@ -212,7 +225,10 @@ const ROUTES: readonly Route[] = [
         ownedLoopbackHttp: ownedLoopbackHttpSupportedOn(
           process.platform,
           typeof process.getuid === "function"
-        )
+        ),
+        // Read per request, not captured: the background update check
+        // settles after this server is already serving.
+        update: context.updateNotice.read()
       })
     })
   },

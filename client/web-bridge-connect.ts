@@ -5,6 +5,7 @@ import {
   type WebBridgeSocket,
   type WebBridgeTransport
 } from "./web-bridge-transport.js";
+import type { UpdateNoticeStatus } from "../shared/update-notice.js";
 import type { BridgeRecoveryWarning } from "../shared/web-bridge-protocol.js";
 
 const TOKEN_STORAGE_KEY = "1667.web.token";
@@ -31,6 +32,12 @@ export interface WebBridgeStatus {
   /** Whether the server's platform supports plain-HTTP local providers. The
    * server always sends it; it is optional so a test status can omit it. */
   readonly ownedLoopbackHttp?: boolean;
+  /** The background update check's result at the moment this tab connected,
+   * so a page that already has an answer needs no second request. The check
+   * usually settles later than this, which is what `update.pending` says;
+   * `web/src/app/update-notice.ts` reads `/api/status` again while it does.
+   * Optional for the same reason as the field above. */
+  readonly update?: UpdateNoticeStatus;
 }
 
 export type ConnectWebBridgeOutcome =

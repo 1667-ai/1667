@@ -5,6 +5,13 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+- **`1667 web` tells you when a newer version is available.** Before, only the
+  TUI showed the update notice, so a reader who used the web UI never saw it.
+  Now, the page shows one toast that names the new version. Click the X to
+  close it, or press `!` to read it again in the notice log. The check stays
+  notify-only. `updates.mode: "off"` and `AI_1667_NO_UPDATE_CHECK=1` silence
+  it for the web UI and the TUI together.
+
 ## 0.11.3 - 2026-11-26
 
 - **`1667 web` shows the thought while the model thinks.** Before, the page

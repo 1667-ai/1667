@@ -14,6 +14,7 @@ import { embeddedVaultOptions, openProject } from "./embedded-project.js";
 import { errorMessage, openInBrowser } from "./open-browser.js";
 import { inlineValue, separatedValue } from "./project-command.js";
 import { loadWebAssets } from "./web-assets.js";
+import { createWebUpdateNotice } from "./web-update-notice.js";
 
 /** A fresh port on every run gives every run a fresh browser origin, so
  * nothing an earlier program left on that origin (a service worker, say) can
@@ -117,6 +118,10 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
 
     if (stop.settled()) return await finishStop(stop.outcome);
 
+    // The same check the TUI runs, reaching the registry the same way under
+    // the same cache key. It starts below, once the server can answer for
+    // it; `/api/status` reads its result and the page shows a toast.
+    const updateNotice = createWebUpdateNotice();
     const assets = await loadWebAssets();
     let server: WebServer;
     try {
@@ -125,7 +130,8 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
         assets,
         projectLabel: opened.project.root,
         version: formatBuildVersion(),
-        readingPositions
+        readingPositions,
+        updateNotice
       });
     } catch (error) {
       throw new Error(
@@ -133,6 +139,7 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
           + "Try a different --port."
       );
     }
+    const stopUpdateCheck = updateNotice.start();
     try {
       hub = startWebBridgeServer({ webServer: server, host });
       process.stdout.write(
@@ -156,6 +163,10 @@ export async function runWebCommand(argv: readonly string[]): Promise<void> {
       // it from that path.
       await finishStop(stop.outcome);
     } finally {
+      // Before the server closes: the check holds a timer and can hold an
+      // open registry request, and either would keep the process alive past
+      // a Ctrl+C.
+      stopUpdateCheck();
       // The http server's own connection draining may not reach an
       // already-upgraded WebSocket (host/web-bridge-server.ts's `close`
       // doc explains why), so the hub closes and destroys those first.
