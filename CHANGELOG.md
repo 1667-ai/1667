@@ -5,6 +5,16 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.5-beta.2 - 2026-11-27
+
+- **1667 reads a sealed vault file that has a Seal Binding.** A later version
+  of 1667 will give each sealed story object a Seal Binding. The Seal Binding
+  ties the file to its content hash. An attacker who copies such a file to
+  another place in the vault then cannot make 1667 read it. This version only
+  reads the new Seal Version. It still writes the old Seal Version. Install
+  this version first. Install the version that writes the new Seal Version
+  after it. 1667 also names an unreadable Seal Version in its error message.
+
 ## 0.11.5-beta.1 - 2026-11-27
 
 - **The part actions menu stays inside the screen.** Before, the menu of the
