@@ -10,7 +10,8 @@ import {
   parseKeyslot,
   sealVaultBytes,
   unsealKeyslot,
-  unsealVaultBytes
+  unsealVaultBytes,
+  VaultSealVersionError
 } from "../shared/vault-cipher.js";
 import {
   VAULT_KEYSLOT_FILE
@@ -26,6 +27,7 @@ import {
 import { replacePrivateFile } from "./private-file-replacement.js";
 import { syncDirectory } from "./story-lifecycle.js";
 import { isVaultControlPath } from "./vault-key-registry.js";
+import { vaultSealBinding } from "./vault-seal-binding.js";
 import {
   isVaultUnsealProgressPath,
   VaultUnsealProgress
@@ -187,15 +189,19 @@ async function replaceKeyslotState(
 }
 
 async function sealFiles(root: string, key: Uint8Array): Promise<void> {
-  await transformFiles(root, async (_files, file, bytes) => {
+  await transformFiles(root, async (_files, file, bytes, binding) => {
     if (!isSealed(bytes)) return sealVaultBytes(key, bytes);
     try {
       // A sealed file must authenticate with this vault key before a resumed
       // pass can classify it as complete. A non-authentic magic prefix is
       // ordinary plaintext and gets one normal seal.
-      unsealVaultBytes(key, bytes, file);
+      unsealVaultBytes(key, bytes, file, binding);
       return null;
-    } catch {
+    } catch (error) {
+      // A seal version this build cannot open is a newer build's work, not
+      // plaintext. Sealing it again would bury a readable file one layer
+      // deeper, so the pass stops and says which file needs the newer build.
+      if (error instanceof VaultSealVersionError) throw error;
       return sealVaultBytes(key, bytes);
     }
   });
@@ -207,7 +213,7 @@ async function unsealFiles(
   afterReplacement: ((files: readonly string[]) => Promise<void>) | undefined
 ): Promise<VaultUnsealProgress> {
   const progress = await VaultUnsealProgress.load(root, key);
-  await transformFiles(root, async (files, file, bytes) => {
+  await transformFiles(root, async (files, file, bytes, binding) => {
     const matching = files.map((path) => progress.matches(path, bytes));
     if (matching.every(Boolean)) return null;
     if (matching.some(Boolean)) {
@@ -221,7 +227,7 @@ async function unsealFiles(
     }
     let plaintext: Buffer;
     try {
-      plaintext = unsealVaultBytes(key, bytes, file);
+      plaintext = unsealVaultBytes(key, bytes, file, binding);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -240,7 +246,8 @@ async function transformFiles(
   transform: (
     files: readonly string[],
     file: string,
-    bytes: Buffer
+    bytes: Buffer,
+    binding: Buffer
   ) => Promise<Uint8Array | null>,
   afterReplacement?: (files: readonly string[]) => Promise<void>
 ): Promise<void> {
@@ -251,7 +258,15 @@ async function transformFiles(
     const files = group.payloads;
     const first = files[0]!;
     const bytes = await readFile(first);
-    const replacement = await transform(files, first, bytes);
+    // Every path in one hard-link group shares an inode, and a group only
+    // forms for content-addressed objects, whose binding leaves the story out.
+    // So the representative's binding is every alias's binding.
+    const replacement = await transform(
+      files,
+      first,
+      bytes,
+      vaultSealBinding(path.relative(root, first))
+    );
     if (replacement === null) continue;
     await replaceInodeGroup(files, replacement);
     await afterReplacement?.(files);

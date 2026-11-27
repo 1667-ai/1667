@@ -1,4 +1,9 @@
 import { readBoundedFile } from "./bounded-file.js";
+import {
+  isObjectKind,
+  OBJECT_EXTENSIONS,
+  type ObjectKind
+} from "./story-object-layout.js";
 import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
 
 /**
@@ -8,9 +13,11 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
  * bytes, path, kind, or error it needs.
  */
 
-/** The kinds of immutable object a story bundle stores. A revision's chunks
- * are the prose; a revision is the ordered chunk list; a probabilities
- * object is one take's captured token probabilities (issue #291 phase 3); a
+/** The kinds of immutable object a story bundle stores, and their on-disk
+ * extensions, both declared in `server/story-object-layout.ts` and re-exported
+ * here so the table has exactly one definition. A revision's chunks are the
+ * prose; a revision is the ordered chunk list; a probabilities object is one
+ * take's captured token probabilities (issue #291 phase 3); a
  * generation-records object is one Generation Record event (Generation
  * Records project); a reasoning object is one take's captured thought
  * (shared/reasoning.ts); an images object is one Normalized Image's raw
@@ -18,33 +25,7 @@ import { StoryFormatError, sha256, type ObjectHash } from "./story-format.js";
  * an aside object is one story's bounded Side Note document
  * (shared/aside.ts); a fact-consistency object is one bounded machine report
  * (shared/fact-consistency-types.ts). */
-export type ObjectKind =
-  | "chunks"
-  | "revisions"
-  | "probabilities"
-  | "generation-records"
-  | "reasoning"
-  | "images"
-  | "aside"
-  | "fact-consistency";
-
-/** The on-disk extension for one object kind, kept as the single table every
- * writer and reader shares. `objectFilename` below, `objectPath`
- * (server/story-objects.ts), and the sweep's suffix strip all read this same
- * table rather than repeating the choice, so the three can never disagree —
- * a disagreement would make the sweep silently ignore or delete files of
- * that kind. Text kinds keep `.json`; `chunks` keeps its historical `.txt`;
- * an image is binary, so it gets its own extension and no JSON codec. */
-export const OBJECT_EXTENSIONS: Record<ObjectKind, string> = {
-  chunks: ".txt",
-  revisions: ".json",
-  probabilities: ".json",
-  "generation-records": ".json",
-  reasoning: ".json",
-  images: ".bin",
-  aside: ".json",
-  "fact-consistency": ".json"
-};
+export { isObjectKind, OBJECT_EXTENSIONS, type ObjectKind };
 
 export class SweepCancelled extends Error {}
 
