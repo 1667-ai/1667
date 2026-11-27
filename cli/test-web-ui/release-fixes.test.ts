@@ -72,11 +72,32 @@ function part(page: Page, text: string): Locator {
 
 const LONG_PART = Array.from({ length: 3 }, (_, index) => `Paragraph ${index + 1} of a long part. `.repeat(12).trim()).join("\n\n");
 
+/** The menu is placed from a measurement taken when it opens, and the click
+ * also moves reading focus to the part, which scrolls it into view. So the
+ * box moves for a frame or two after the menu appears. Read it once two
+ * reads in a row agree, never on the first frame. */
+async function settledBox(menu: Locator): Promise<{ y: number; height: number }> {
+  let previous: { readonly y: number; readonly height: number } | null = null;
+  let agreements = 0;
+  let box = (await menu.boundingBox())!;
+  // `poll` leaves 50 ms between checks, so three readings that agree mean the
+  // box held still for about 100 ms. That also outlasts the 140 ms `rise`
+  // animation, which moves the box by 8 px on its own.
+  const settled = await poll(async () => {
+    box = (await menu.boundingBox())!;
+    agreements = previous !== null && box.y === previous.y && box.height === previous.height ? agreements + 1 : 0;
+    previous = box;
+    return agreements >= 2;
+  });
+  expect(settled).toBeTrue();
+  return box;
+}
+
 async function expectMenuOnScreen(page: Page, partIndex: number): Promise<void> {
   await page.locator(".part").nth(partIndex).getByRole("button", { name: "Part actions (x)" }).click();
   const menu = page.getByRole("menu");
   await menu.waitFor();
-  const box = (await menu.boundingBox())!;
+  const box = await settledBox(menu);
   const viewport = page.viewportSize()!;
   expect(box.y).toBeGreaterThanOrEqual(0);
   expect(box.y + box.height <= viewport.height).toBeTrue();
@@ -85,7 +106,7 @@ async function expectMenuOnScreen(page: Page, partIndex: number): Promise<void> 
   const last = items.last();
   await last.scrollIntoViewIfNeeded();
   const lastBox = (await last.boundingBox())!;
-  const after = (await menu.boundingBox())!;
+  const after = await settledBox(menu);
   expect(lastBox.y + lastBox.height <= after.y + after.height + 1).toBeTrue();
   expect(lastBox.y).toBeGreaterThanOrEqual(after.y - 1);
   await items.first().scrollIntoViewIfNeeded();
