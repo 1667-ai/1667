@@ -288,6 +288,9 @@ test("case 6: T follows the thought while it streams; the landed take folds it, 
   // T acts on the focused part: with focus on an earlier part, the live
   // thought stays open.
   await page.keyboard.press("ArrowUp");
+  // `Shift+T` acts on the focused part, so wait for the focus to leave the
+  // last one before sending it.
+  expect(await poll(async () => (await page.locator(".part").last().getAttribute("aria-current")) !== "true")).toBeTrue();
   await page.keyboard.press("Shift+T");
   await page.getByText("no thought on this take").waitFor();
   expect(await thought.count()).toBe(1);
