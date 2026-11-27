@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.5",
+    date: "2026-11-27",
+    body: "- **The part actions menu stays inside the screen.** Before, the menu of the\n  last part could open above the top of the screen when the manuscript was\n  scrolled to the end. About four of its items were then out of reach. Now,\n  the menu measures its place again when the manuscript scrolls or the window\n  changes size, so every item stays on the screen.\n\n- **1667 reads a sealed vault file that has a Seal Binding.** A later version\n  of 1667 will give each sealed story object a Seal Binding. The Seal Binding\n  ties the file to its content hash. An attacker who copies such a file to\n  another place in the vault then cannot make 1667 read it. This version only\n  reads the new Seal Version. It still writes the old Seal Version. Install\n  this version first. Install the version that writes the new Seal Version\n  after it. 1667 also names an unreadable Seal Version in its error message."
+  },
+  {
     version: "0.11.5-beta.2",
     date: "2026-11-27",
     body: "- **1667 reads a sealed vault file that has a Seal Binding.** A later version\n  of 1667 will give each sealed story object a Seal Binding. The Seal Binding\n  ties the file to its content hash. An attacker who copies such a file to\n  another place in the vault then cannot make 1667 read it. This version only\n  reads the new Seal Version. It still writes the old Seal Version. Install\n  this version first. Install the version that writes the new Seal Version\n  after it. 1667 also names an unreadable Seal Version in its error message."
