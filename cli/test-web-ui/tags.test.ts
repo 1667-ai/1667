@@ -139,13 +139,13 @@ test("case 2: a tagged line opens prefilled; the status changes; Remove deletes 
   await popover(page).getByRole("button", { name: "Save" }).click();
   await waitForCount(popover(page), 0);
   expect((await seeded.api.loadStory(seeded.storyId)).tags[0]!.status).toBe("Alt");
-  expect(await chip(page).textContent()).toContain("Alt");
+  expect(await poll(async () => ((await chip(page).textContent()) ?? "").includes("Alt"))).toBeTrue();
 
   await chip(page).click();
   await popover(page).getByRole("button", { name: "Remove" }).click();
   await waitForCount(popover(page), 0);
   expect((await seeded.api.loadStory(seeded.storyId)).tags).toHaveLength(0);
-  expect(await chip(page).textContent()).not.toContain("Alt");
+  expect(await poll(async () => !((await chip(page).textContent()) ?? "").includes("Alt"))).toBeTrue();
 }, 60_000);
 
 test("case 3: the tagged-lines list marks the current line and deletes a tag after two clicks", async () => {

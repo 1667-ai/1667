@@ -187,12 +187,12 @@ test("case 3: Shift+Down and the Move buttons reorder the facts", async () => {
   await page.keyboard.press("Shift+ArrowDown");
   expect(await poll(async () => (await order()).join() === "Two,One,Three")).toBeTrue();
   // The selection follows the moved fact.
-  expect(await rows(page).nth(1).getAttribute("aria-current")).toBe("true");
+  await waitForAttribute(rows(page).nth(1), "aria-current", "true");
   await rows(page).nth(1).getByRole("button", { name: /^Move down/ }).click();
   expect(await poll(async () => (await order()).join() === "Two,Three,One")).toBeTrue();
   await rows(page).nth(2).getByRole("button", { name: /^Move up/ }).click();
   expect(await poll(async () => (await order()).join() === "Two,One,Three")).toBeTrue();
-  expect(await rows(page).first().textContent()).toContain("Two");
+  expect(await poll(async () => ((await rows(page).first().textContent()) ?? "").includes("Two"))).toBeTrue();
 }, 60_000);
 
 test("case 4: Delete asks first; Cancel keeps the fact, Delete removes it", async () => {
