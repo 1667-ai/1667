@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { createHash, randomBytes } from "node:crypto";
-import { link, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { link, mkdir, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import test, { type TestContext } from "node:test";
@@ -242,6 +242,39 @@ test("decrypt refuses a hard-link group that disagrees on its binding", async (t
 
   assert.equal((await readFile(relocated)).includes(Buffer.from(secret)), false);
   assert.equal((await readFile(story)).includes(Buffer.from(secret)), false);
+});
+
+test("decrypt resumes over a witnessed replacement that looks bound", async (t) => {
+  // A witnessed plaintext replacement can begin with the seal prefix and any
+  // version byte, including the bound one. It is already published, so the
+  // binding checks must not judge it as ciphertext: the progress witnesses
+  // speak first, or an interrupted decrypt could never finish.
+  const root = await newVault(t, "1667-seal-version-witness-");
+  const first = path.join(root, "crafted-a.json");
+  const second = path.join(root, "crafted-b.json");
+  const plaintext = Buffer.concat([
+    Buffer.from([0x00, 0x31, 0x36, 0x36, 0x37, 0x56, 0x01, VAULT_SEAL_VERSION_BOUND]),
+    Buffer.alloc(48, 0x62)
+  ]);
+  await writeFile(first, plaintext);
+  await link(first, second);
+  await encryptVault({ dataDirectory: root, password: PASSWORD });
+
+  await assert.rejects(
+    decryptVault({
+      dataDirectory: root,
+      password: PASSWORD,
+      afterUnsealReplacement: async () => {
+        throw new Error("simulated crash after the replacement");
+      }
+    }),
+    /simulated crash after the replacement/
+  );
+  await decryptVault({ dataDirectory: root, password: PASSWORD });
+
+  assert.deepEqual(await readFile(first), plaintext);
+  assert.deepEqual(await readFile(second), plaintext);
+  assert.equal((await stat(first)).ino, (await stat(second)).ino);
 });
 
 test("this build still writes the unbound seal version", async (t) => {

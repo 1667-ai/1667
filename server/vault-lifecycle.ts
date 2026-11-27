@@ -227,6 +227,7 @@ async function unsealFiles(
       }
       throw new Error(`cannot unseal ${file}: sealed vault file is plaintext without a progress witness`);
     }
+    requireAgreedGroupBinding(root, files, bytes, binding);
     let plaintext: Buffer;
     try {
       plaintext = unsealVaultBytes(key, bytes, file, binding ?? undefined);
@@ -260,7 +261,12 @@ async function transformFiles(
     const files = group.payloads;
     const first = files[0]!;
     const bytes = await readFile(first);
-    const replacement = await transform(files, first, bytes, requireGroupBinding(root, files, bytes));
+    const replacement = await transform(
+      files,
+      first,
+      bytes,
+      vaultSealBinding(path.relative(root, first))
+    );
     if (replacement === null) continue;
     await replaceInodeGroup(files, replacement);
     await afterReplacement?.(files);
@@ -268,24 +274,31 @@ async function transformFiles(
 }
 
 /**
- * The one binding every path in a hard-link group shares.
+ * Refuse a bound hard-link group whose paths do not share one binding.
  *
- * A legitimate group forms only for content-addressed objects, whose binding
- * leaves the story out, so every alias agrees. A group that disagrees is a
- * hard link nothing in 1667 creates, and it must not be unsealed: one alias
- * would authenticate, and `replaceInodeGroup` would then publish that
- * plaintext at every other name in the group. That is exactly the relocation
- * the bound seal exists to refuse, so refuse it here too.
+ * A legitimate group holds one content-addressed object, whose binding leaves
+ * the story out, so every alias agrees. A group that disagrees is a hard link
+ * nothing in 1667 creates, and unsealing it would publish one alias's
+ * plaintext at every other name through `replaceInodeGroup`. That is the
+ * relocation the bound seal exists to refuse.
+ *
+ * Only the unseal pass calls this, and only once the progress witnesses have
+ * had their say: a witnessed plaintext replacement can carry the seal prefix
+ * and any version byte, and that plaintext is already published, so judging it
+ * as ciphertext would refuse a vault that is mid-recovery. The seal pass needs
+ * no such check, because it publishes ciphertext rather than plaintext.
  *
  * An unbound group keeps its historical freedom. Those files authenticate no
- * location at all, so a check here would reject vaults that open today
- * without protecting anything.
+ * location at all, so a check would reject vaults that open today without
+ * protecting anything.
  */
-function requireGroupBinding(root: string, files: readonly string[], bytes: Buffer): Buffer | null {
-  const binding = vaultSealBinding(path.relative(root, files[0]!));
-  if (files.length === 1 || !isSealed(bytes) || sealVersion(bytes) !== VAULT_SEAL_VERSION_BOUND) {
-    return binding;
-  }
+function requireAgreedGroupBinding(
+  root: string,
+  files: readonly string[],
+  bytes: Buffer,
+  binding: Buffer | null
+): void {
+  if (files.length === 1 || sealVersion(bytes) !== VAULT_SEAL_VERSION_BOUND) return;
   for (const alias of files.slice(1)) {
     const aliasBinding = vaultSealBinding(path.relative(root, alias));
     if (aliasBinding === null || binding === null || !aliasBinding.equals(binding)) {
@@ -294,7 +307,6 @@ function requireGroupBinding(root: string, files: readonly string[], bytes: Buff
       );
     }
   }
-  return binding;
 }
 
 async function assertVaultTraversalSafe(root: string): Promise<void> {
