@@ -5,6 +5,8 @@ This file records notable changes to 1667. Product terms use the definitions in
 
 ## Unreleased
 
+## 0.11.4-beta.1 - 2026-11-27
+
 - **`1667 web` tells you when a newer version is available.** Before, only the
   TUI showed the update notice, so a reader who used the web UI never saw it.
   Now, the page shows one toast that names the new version. Click the X to
