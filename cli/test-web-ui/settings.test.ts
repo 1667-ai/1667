@@ -132,6 +132,16 @@ async function waitForHash(page: Page, expected: RegExp): Promise<void> {
   }
 }
 
+/** The hash changes before React draws the screen it names. A key pressed in
+ * that window still reaches the page that is going away, where it means
+ * nothing, so the key is lost and the next wait then times out. Leaving the
+ * settings page therefore waits for the page itself to go, not only for the
+ * hash. */
+async function waitForSettingsClosed(page: Page, expected: RegExp): Promise<void> {
+  await waitForHash(page, expected);
+  await page.getByRole("heading", { name: "Settings", level: 1 }).waitFor({ state: "detached" });
+}
+
 async function markDocument(page: Page): Promise<void> {
   await page.evaluate(() => {
     (window as unknown as { documentMark?: string }).documentMark = "still here";
@@ -185,7 +195,7 @@ test("case 1: `,` opens the page, Esc and Back close it, Forward reopens it, and
   await waitForHash(page, /^#\/settings$/);
   await page.getByRole("heading", { name: "Settings", level: 1 }).waitFor();
   await page.keyboard.press("Escape");
-  await waitForHash(page, /^(#\/?)?$/);
+  await waitForSettingsClosed(page, /^(#\/?)?$/);
   await page.getByRole("button", { name: "New story" }).waitFor();
 
   // The palette opens it too.
@@ -194,8 +204,9 @@ test("case 1: `,` opens the page, Esc and Back close it, Forward reopens it, and
   await page.keyboard.type("settings");
   await page.keyboard.press("Enter");
   await waitForHash(page, /^#\/settings$/);
+  await page.getByRole("heading", { name: "Settings", level: 1 }).waitFor();
   await page.keyboard.press("Escape");
-  await waitForHash(page, /^(#\/?)?$/);
+  await waitForSettingsClosed(page, /^(#\/?)?$/);
 
   await page.getByRole("button", { name: /^Forked Story/ }).click();
   await page.getByRole("heading", { name: "Forked Story", level: 1 }).waitFor();
@@ -412,7 +423,7 @@ test("case 8: a draft survives leaving the page, and a reload warns about it", a
   await page.getByLabel("Author brief", { exact: true }).fill("A draft that is not saved.");
   await leaveField(page);
   await page.keyboard.press("Escape");
-  await waitForHash(page, /^(#\/?)?$/);
+  await waitForSettingsClosed(page, /^(#\/?)?$/);
 
   const gear = page.getByRole("button", { name: "Settings (,) · unsaved changes" });
   await gear.waitFor();
@@ -503,7 +514,7 @@ test("case 11: refused values show their reason and keep Save off", async () => 
   // Refused text is still the writer's: leaving and coming back keeps it.
   await leaveField(page);
   await page.keyboard.press("Escape");
-  await waitForHash(page, /^(#\/?)?$/);
+  await waitForSettingsClosed(page, /^(#\/?)?$/);
   await page.getByRole("button", { name: "Settings (,) · unsaved changes" }).waitFor();
   await page.keyboard.press(",");
   await page.getByLabel("Author brief", { exact: true }).waitFor();
@@ -852,7 +863,7 @@ test("case 13f: unsaved story lists stay when the view changes, and Esc leaves t
   expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");
 
   await page.keyboard.press("Escape");
-  await waitForHash(page, /^#\/story\//);
+  await waitForSettingsClosed(page, /^#\/story\//);
   await page.keyboard.press(",");
   await page.getByRole("heading", { name: "This story", level: 2 }).waitFor();
   expect(await page.getByLabel("Banned strings", { exact: true }).last().inputValue()).toBe("however");

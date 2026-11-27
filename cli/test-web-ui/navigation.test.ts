@@ -78,8 +78,10 @@ test("case 1: Back and Forward move between Library, stories, and the map withou
   await page.getByRole("heading", { name: "Forked Story" }).waitFor();
   await page.goBack();
   await waitForHash(page, /^(#\/?)?$/);
+  // The sidebar stays on every screen, so "New story" showing does not mean
+  // the story screen has gone: wait for the story's own heading to go.
+  await page.getByRole("heading", { name: "Forked Story" }).waitFor({ state: "detached" });
   await page.getByRole("button", { name: "New story" }).waitFor();
-  expect(await page.getByRole("heading", { name: "Forked Story" }).count()).toBe(0);
 
   await page.goForward();
   await page.getByRole("heading", { name: "Forked Story" }).waitFor();
