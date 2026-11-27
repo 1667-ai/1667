@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.4-beta.1",
+    date: "2026-11-27",
+    body: "- **`1667 web` tells you when a newer version is available.** Before, only the\n  TUI showed the update notice, so a reader who used the web UI never saw it.\n  Now, the page shows one toast that names the new version. Click the X to\n  close it, or press `!` to read it again in the notice log. The check stays\n  notify-only. `updates.mode: \"off\"` and `AI_1667_NO_UPDATE_CHECK=1` silence\n  it for the web UI and the TUI together."
+  },
+  {
     version: "0.11.3",
     date: "2026-11-26",
     body: "- **`1667 web` shows the thought while the model thinks.** Before, the page\n  showed only \"Thinking…\" until the text arrived. Now, a Thought button shows\n  under the header of the part that the model writes. Press Shift+T or click\n  it to read the thought as it arrives. The button shows the number of\n  thought tokens when the provider sends it. The open thought moves to the\n  newest text until you scroll up. The thought is closed until you open it.\n  When a new take is saved, its thought closes again, as in the TUI.\n\n- **A local model server keeps its provider on any port.** Before, 1667 used\n  the port to find the provider. A llama.cpp server on a port other than 8080\n  became a Custom connection. Custom cannot use banned strings or phrase bias,\n  so Settings did not save. Now, when you select llama.cpp, KoboldCpp, LM\n  Studio, or Ollama, the provider stays when you change the Base URL. Select\n  the provider again if you saved a connection on another port."
