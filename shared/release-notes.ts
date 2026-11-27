@@ -11,6 +11,11 @@ export interface ReleaseNote {
  *  a release, and is not included. */
 export const RELEASE_NOTES: readonly ReleaseNote[] = [
   {
+    version: "0.11.5-beta.1",
+    date: "2026-11-27",
+    body: "- **The part actions menu stays inside the screen.** Before, the menu of the\n  last part could open above the top of the screen when the manuscript was\n  scrolled to the end. About four of its items were then out of reach. Now,\n  the menu measures its place again when the manuscript scrolls or the window\n  changes size, so every item stays on the screen."
+  },
+  {
     version: "0.11.4",
     date: "2026-11-27",
     body: "- **`1667 web` tells you when a newer version is available.** Before, only the\n  TUI showed the update notice, so a reader who used the web UI never saw it.\n  Now, the page shows one toast that names the new version. Click the X to\n  close it, or press `!` to read it again in the notice log. The check stays\n  notify-only. `updates.mode: \"off\"` and `AI_1667_NO_UPDATE_CHECK=1` silence\n  it for the web UI and the TUI together."
