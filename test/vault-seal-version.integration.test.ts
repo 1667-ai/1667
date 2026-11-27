@@ -130,6 +130,35 @@ test("a changed seal version byte fails instead of selecting another rule", asyn
   await assert.rejects(readUnsealedFile(raisedPlain), /needs its location binding/);
 });
 
+test("an object keeps its binding under a deletion residue directory", async (t) => {
+  // `server/story-reaper.ts` renames a whole bundle to its residue name before
+  // it removes the children, so an interrupted deletion leaves objects under a
+  // name that is not a story id. Those objects must still open: `decrypt`
+  // persists the unsealing state before it unseals, so a refusal here would
+  // leave the vault with no way forward.
+  const root = await newVault(t, "1667-seal-version-residue-");
+  const key = randomBytes(32);
+  const registration = registerVaultKey(root, key);
+  t.after(() => registration.clear());
+
+  const text = "residue sentinel: the deleted chapter";
+  const live = await objectPath(root, "story-a", "chunks", text);
+  const residue = await objectPath(
+    root,
+    ".1667-story-reap-h1_".concat("a".repeat(64)),
+    "chunks",
+    text
+  );
+  await writeFile(live, sealBound(key, root, live, text));
+  await writeFile(residue, await readFile(live));
+
+  assert.deepEqual(
+    vaultSealBinding(path.relative(root, residue)),
+    vaultSealBinding(path.relative(root, live))
+  );
+  assert.equal((await readUnsealedFile(residue)).toString("utf8"), text);
+});
+
 test("a bound seal at a path that takes no binding fails closed", async (t) => {
   // Only a story object carries a binding. A bound seal anywhere else has
   // nothing to authenticate against, so the read must refuse it rather than

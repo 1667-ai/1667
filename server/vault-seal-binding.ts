@@ -1,6 +1,5 @@
 import path from "node:path";
 import { isObjectKind, OBJECT_EXTENSIONS } from "./story-object-layout.js";
-import { isStoryId } from "./story-v5-strict.js";
 
 /**
  * The value a sealed story object authenticates itself against, so a
@@ -22,6 +21,13 @@ import { isStoryId } from "./story-v5-strict.js";
  * possible and carries no information, because identical hashes mean
  * identical bytes.
  *
+ * Because the binding holds no part of the path above the object, nothing here
+ * reads that part either. Only the last three components decide. 1667 renames
+ * the directories above an object during normal work — `server/story-reaper.ts`
+ * moves a whole bundle to `.1667-story-reap-h1_<token>` before it removes the
+ * children, and an interrupted deletion leaves objects there — and an object
+ * has to keep its binding through every one of those moves.
+ *
  * Every other payload is unbound. Those files are published through staging
  * names and renamed into place, so a path binding would authenticate the
  * staging name and then fail at the final name. A bound seal that reaches one
@@ -33,8 +39,7 @@ import { isStoryId } from "./story-v5-strict.js";
  */
 
 const OBJECT_BINDING_DOMAIN = "1667-vault-object-v1";
-const STORY_DIRECTORY = "stories";
-const OBJECT_PATH_PARTS = 5;
+const OBJECT_PATH_TAIL_PARTS = 3;
 const OBJECT_HASH_PATTERN = /^[a-f0-9]{64}$/;
 
 /**
@@ -54,22 +59,24 @@ interface ObjectIdentity {
 }
 
 /**
- * Classify `stories/<story id>/<kind>/<shard>/<hash><extension>` and nothing
- * else. The shard must be the hash's own first two characters and the
- * extension must be the one its kind declares, so a file that only resembles
- * an object path stays unbound. Every staging name 1667 publishes through
- * fails this shape, which is what keeps a staged write out of the bound set.
+ * Classify a path whose last three components are
+ * `<kind>/<shard>/<hash><extension>`, wherever those sit. The shard must be the
+ * hash's own first two characters and the extension must be the one its kind
+ * declares, so a file that only resembles an object path stays unbound. Every
+ * staging name 1667 publishes through fails this shape, which is what keeps a
+ * staged write out of the bound set.
+ *
+ * 1667 owns this layout, and no other file it writes carries an object kind,
+ * a two-character shard that repeats its own name, and that kind's exact
+ * extension, so the shape identifies an object on its own.
  */
 function objectIdentity(parts: readonly string[]): ObjectIdentity | null {
-  if (parts.length !== OBJECT_PATH_PARTS) return null;
-  const [directory, storyId, kind, shard, name] = parts as [
-    string,
-    string,
+  if (parts.length < OBJECT_PATH_TAIL_PARTS) return null;
+  const [kind, shard, name] = parts.slice(-OBJECT_PATH_TAIL_PARTS) as [
     string,
     string,
     string
   ];
-  if (directory !== STORY_DIRECTORY || !isStoryId(storyId)) return null;
   if (!isObjectKind(kind)) return null;
   const extension = OBJECT_EXTENSIONS[kind];
   if (!name.endsWith(extension)) return null;
